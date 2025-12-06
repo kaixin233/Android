@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/ai_service.dart';
-import 'deepseek_login_page.dart';
+import '../services/web_chat_bridge.dart';
 
 /// AI 助手设置页
 ///
@@ -72,17 +72,9 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
   }
 
   Future<void> _loginInApp() async {
-    final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const DeepSeekLoginPage()),
-    );
-    if (result == true && mounted) {
-      final token = await AiService.getWebToken();
-      if (!mounted) return;
-      setState(() => _tokenController.text = token);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已自动获取并保存网页端 Token')),
-      );
-    }
+    // 复用 App 根常驻的 WebView 完成登录；登录态由该会话直接驱动 AI 助手，
+    // 无需手抄 Token。登录浮层关闭后，AI 助手即可走网页端免费通道。
+    WebChatBridge.instance.beginLogin(context);
   }
 
   Future<void> _clearToken() async {
@@ -203,17 +195,20 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  FilledButton.icon(
-                    onPressed: _loginInApp,
-                    icon: const Icon(Icons.login_rounded),
-                    label: const Text('在 App 内登录并自动获取 Token'),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: WebChatBridge.instance.loggedIn,
+                    builder: (context, loggedIn, _) => FilledButton.icon(
+                      onPressed: _loginInApp,
+                      icon: const Icon(Icons.login_rounded),
+                      label: Text(loggedIn ? '重新登录网页端' : '在 App 内登录网页端'),
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    '推荐：点上方按钮在 App 内打开 chat.deepseek.com 登录，本机自动'
-                    '读取并保存 userToken，无需手动复制、避免凭证外泄。如自动获取'
-                    '失败，也可从电脑浏览器开发者工具 → Application → Local Storage 复制'
-                    'userToken 手动粘贴到下方。',
+                    '点上方按钮在 App 内打开 chat.deepseek.com 完成登录。登录态由 App '
+                    '常驻的网页会话直接驱动 AI 助手（免费、且无需手抄 Token，天然绕过 '
+                    '网页端 PoW 与风控校验）。下方 Token 与反代地址为可选高级项，仅在'
+                    '你想走独立反代服务时填写。',
                     style: theme.textTheme.bodySmall
                         ?.copyWith(color: theme.colorScheme.outline),
                   ),

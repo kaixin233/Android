@@ -161,6 +161,15 @@ class AiService {
     throw AiApiException('尚未配置 DeepSeek 网页端 Token 或 API Key，请到「AI 助手设置」中填写');
   }
 
+  /// 仅走官方 API（忽略网页端 Token），供需要稳定链路的场景调用。
+  static Future<String> chatOfficial(List<AiChatMessage> messages) async {
+    final apiKey = await getApiKey();
+    if (apiKey.isEmpty) {
+      throw AiApiException('尚未配置官方 API Key');
+    }
+    return _chatOfficial(messages, apiKey);
+  }
+
   /// 测试当前生效的提供方是否可用（最小开销请求）
   static Future<void> testConnection() async {
     await chat(const [

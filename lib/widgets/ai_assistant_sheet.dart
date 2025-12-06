@@ -6,6 +6,7 @@ import '../pages/ai_qa_history_page.dart';
 import '../pages/ai_settings_page.dart';
 import '../services/ai_qa_storage_service.dart';
 import '../services/ai_service.dart';
+import '../services/web_chat_bridge.dart';
 
 /// AI 学习助手问答浮窗
 ///
@@ -90,7 +91,8 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
 
   Future<void> _bootstrap() async {
     final record = await AiQaStorageService.loadRecord(widget.itemId);
-    final hasProvider = await AiService.hasAnyProvider();
+    final hasProvider =
+        await AiService.hasAnyProvider() || await WebChatBridge.instance.checkLogin();
     if (!mounted) return;
     setState(() {
       _record = record;
@@ -181,8 +183,7 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
     _scrollToBottom();
 
     try {
-      final answer = await AiService.chat(
-          _buildApiMessages(question, excludeLastTurn: replaceLast));
+      final answer = await _answer(question, excludeLastTurn: replaceLast);
       final message = AiQaMessage(question: question, answer: answer);
       AiQaRecord? record;
       if (replaceLast) {
@@ -205,9 +206,53 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
       _scrollToBottom();
     } on AiApiException catch (e) {
       _handleRequestError(e.message, question);
+    } on WebChatException catch (e) {
+      _handleRequestError(e.message, question);
     } catch (e) {
       _handleRequestError('出现未知错误，请重试', question);
     }
+  }
+
+  /// 选择回答通道：
+  /// 1. 网页端已登录会话（常驻 WebView）→ 直接驱动网页端收发（免费、无需 Token）；
+  /// 2. 否则若配置了官方 API Key → 走官方接口（稳定、按 token 计费）；
+  /// 3. 都没有 → 抛出提示，引导用户登录网页端或填 Key。
+  Future<String> _answer(String question,
+      {bool excludeLastTurn = false}) async {
+    if (await WebChatBridge.instance.checkLogin()) {
+      final prompt = _buildWebPrompt(question, excludeLastTurn: excludeLastTurn);
+      return WebChatBridge.instance.sendPrompt(prompt);
+    }
+    if (await AiService.hasApiKey()) {
+      return AiService.chatOfficial(
+          _buildApiMessages(question, excludeLastTurn: excludeLastTurn));
+    }
+    throw AiApiException('未检测到 DeepSeek 网页端登录会话，且未配置官方 API Key。'
+        '请先在「AI 助手设置」中登录网页端，或填写官方 API Key。');
+  }
+
+  /// 为网页端通道拼装单条提示：系统设定 + 学习上下文 + 最近两轮 + 当前问题。
+  /// 网页端会话自身会累积多轮上下文，这里只补充必要的背景与近期历史。
+  String _buildWebPrompt(String question, {bool excludeLastTurn = false}) {
+    final contextSnippet = widget.contextText.length > 4000
+        ? '${widget.contextText.substring(0, 4000)}……（内容过长已截断）'
+        : widget.contextText;
+    final buf = StringBuffer();
+    buf.writeln(_buildSystemPrompt());
+    buf.writeln();
+    buf.writeln('【当前学习内容】\n$contextSnippet');
+    buf.writeln();
+    final history = _record?.messages ?? <AiQaMessage>[];
+    final list = excludeLastTurn && history.isNotEmpty
+        ? history.sublist(0, history.length - 1)
+        : history;
+    final start = list.length > 4 ? list.length - 4 : 0;
+    for (final m in list.sublist(start)) {
+      buf.writeln('用户：${m.question}');
+      buf.writeln('助手：${m.answer}');
+    }
+    buf.writeln('用户：$question');
+    return buf.toString();
   }
 
   void _handleRequestError(String message, String question) {
@@ -258,8 +303,8 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
             color: theme.colorScheme.primary, size: 32),
         title: const Text('尚未配置 AI 提供方'),
         content: const Text(
-          '请先在「AI 助手设置」中填写以下任一方式，即可在 App 内直接提问并自动保存回答：\n\n'
-          '• 网页端 Token（免费，优先）：从 chat.deepseek.com 的 Local Storage 复制 userToken\n'
+          '请先在「AI 助手设置」中完成以下任一配置，即可在 App 内直接提问并自动保存回答：\n\n'
+          '• 网页端登录（免费，优先）：在 App 内打开 chat.deepseek.com 登录，由常驻网页会话直接驱动\n'
           '• 官方 API Key（备用）：前往 DeepSeek 开放平台创建',
         ),
         actionsAlignment: MainAxisAlignment.end,

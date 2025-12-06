@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 import 'pages/home_page.dart';
 import 'providers/app_provider.dart';
 import 'services/tts_service.dart';
+import 'services/web_chat_bridge.dart';
+import 'widgets/deepseek_login_controls.dart';
 
 void main() {
   // 预热 TTS 引擎，不阻塞应用启动
@@ -92,9 +95,35 @@ class _AppRootState extends State<_AppRoot> {
         useMaterial3: true,
       ),
       themeMode: _themeMode,
-      home: HomePage(
-        themeMode: _themeMode.name,
-        onThemeChanged: _setThemeMode,
+      home: Stack(
+        children: <Widget>[
+          HomePage(
+            themeMode: _themeMode.name,
+            onThemeChanged: _setThemeMode,
+          ),
+          // 常驻网页端 WebView（隐藏保活；登录时全屏可交互）。
+          // 与 App 内 AI 助手共享同一已登录会话，避免后台直连被 PoW/风控拦截。
+          ValueListenableBuilder<bool>(
+            valueListenable: WebChatBridge.instance.visible,
+            builder: (context, isVisible, _) => Positioned.fill(
+              child: Opacity(
+                opacity: isVisible ? 1 : 0,
+                child: IgnorePointer(
+                  ignoring: !isVisible,
+                  child: WebViewWidget(
+                    controller: WebChatBridge.instance.controller,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          // 登录控制浮层
+          ValueListenableBuilder<bool>(
+            valueListenable: WebChatBridge.instance.loginOverlay,
+            builder: (context, show, _) =>
+                show ? const DeepSeekLoginControls() : const SizedBox.shrink(),
+          ),
+        ],
       ),
     );
   }
