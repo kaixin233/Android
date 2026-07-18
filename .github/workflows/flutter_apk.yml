@@ -38,13 +38,12 @@ jobs:
           name: app-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
 
-      - name: Create GitHub Release
-        if: github.ref == 'refs/heads/main'
+      - name: Create or update release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.1
-          name: Flutter Android App v1.0.1
-          body: Automated release from GitHub Actions.
+          tag_name: v1.0.2
+          name: Flutter Android App v1.0.2
+          body: Automated APK build from GitHub Actions.
           files: build/app/outputs/flutter-apk/app-release.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
