@@ -1,50 +1,73 @@
-name: Build and Release APK
+name: Build Android APK
 
 on:
   push:
     branches:
       - main
+      - master
+    paths:
+      - 'lib/**'
+      - 'android/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/flutter_apk.yml'
+  pull_request:
+    branches:
+      - main
+      - master
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
+  build-apk:
+    name: Build APK
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.24.3'
-          channel: 'stable'
+          channel: stable
+          cache: true
 
-      - name: Get latest tag or default version
-        id: version
+      - name: Create temporary Android signing config
+        shell: bash
         run: |
-          git fetch --tags --force
-          latest_tag=$(git tag --sort=-version:refname | head -n 1 || true)
-          if [ -z "$latest_tag" ]; then
-            latest_tag="v1.0.0"
-          fi
-          version_number=$(echo "$latest_tag" | sed 's/^v//')
-          IFS='.' read -r major minor patch <<< "$version_number"
-          patch=$((patch + 1))
-          new_tag="v${major}.${minor}.${patch}"
-          echo "tag=$new_tag" >> "$GITHUB_OUTPUT"
-          echo "name=Flutter Android App $new_tag" >> "$GITHUB_OUTPUT"
+          cat > android/key.properties <<'EOF'
+          storePassword=android
+          keyPassword=android
+          keyAlias=androiddebugkey
+          storeFile=debug.keystore
+          EOF
+
+          keytool -genkeypair \
+            -v \
+            -keystore android/debug.keystore \
+            -storetype JKS \
+            -storepass android \
+            -keypass android \
+            -alias androiddebugkey \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
 
       - name: Install dependencies
         run: flutter pub get
@@ -52,18 +75,22 @@ jobs:
       - name: Build release APK
         run: flutter build apk --release
 
-      - name: Upload artifact
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: android-app-release-apk
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/apk/release/app-release.apk
+          if-no-files-found: error
 
-      - name: Create or update release
+      - name: Create GitHub Release for tags
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: ${{ steps.version.outputs.name }}
-          body: Automated APK build from GitHub Actions.
-          files: build/app/outputs/flutter-apk/app-release.apk
+          files: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/apk/release/app-release.apk
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
