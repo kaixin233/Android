@@ -50,6 +50,8 @@ jobs:
       - name: Create temporary Android signing config
         shell: bash
         run: |
+          mkdir -p android/app
+
           cat > android/key.properties <<'EOF'
           storePassword=android
           keyPassword=android
@@ -59,7 +61,7 @@ jobs:
 
           keytool -genkeypair \
             -v \
-            -keystore android/debug.keystore \
+            -keystore android/app/debug.keystore \
             -storetype JKS \
             -storepass android \
             -keypass android \
