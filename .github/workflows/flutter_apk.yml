@@ -11,8 +11,6 @@ on:
       - 'pubspec.yaml'
       - 'pubspec.lock'
       - '.github/workflows/flutter_apk.yml'
-      - 'assets/**'
-      - 'web/**'
   pull_request:
     branches:
       - main
@@ -49,57 +47,48 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.3'
+          flutter-version: '3.22.0'
           channel: stable
           cache: true
 
       - name: Print Flutter version
         run: flutter --version
 
-      - name: Print project structure
-        run: ls -la && find . -maxdepth 2 -type f -name "*.dart" | head -20
+      - name: Print Dart version
+        run: dart --version
 
-      - name: Create signing configuration
-        shell: bash
+      - name: Print project structure
         run: |
-          if [ ! -f android/key.properties ]; then
-            mkdir -p android
-            cat > android/key.properties <<'EOF'
-            storePassword=android
-            keyPassword=android
-            keyAlias=androiddebugkey
-            storeFile=../app/debug.keystore
-            EOF
-          fi
-          
-          if [ ! -f android/app/debug.keystore ]; then
-            mkdir -p android/app
-            keytool -genkeypair \
-              -v \
-              -keystore android/app/debug.keystore \
-              -storetype JKS \
-              -storepass android \
-              -keypass android \
-              -alias androiddebugkey \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
+          echo "=== Root directory ==="
+          ls -la
+          echo "=== Lib directory ==="
+          ls -la lib/
+          echo "=== Android directory ==="
+          ls -la android/
+
+      - name: Check pubspec.yaml
+        run: cat pubspec.yaml
 
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Run flutter doctor
+        run: flutter doctor -v
+
       - name: Flutter analyze
         run: flutter analyze
         continue-on-error: true
+
+      - name: Build APK
+        run: flutter build apk --debug
 
       - name: Build release APK
         run: flutter build apk --release --no-shrink
 
       - name: Verify APK exists
         run: |
-          ls -la build/app/outputs/flutter-apk/ || ls -la build/ || echo "Build directory not found"
+          echo "=== Build output ==="
+          ls -la build/app/outputs/flutter-apk/
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v5
@@ -121,9 +110,6 @@ jobs:
             **Commit:** ${{ github.sha }}
             **Branch:** ${{ github.ref }}
             **Build Number:** ${{ github.run_number }}
-            
-            ### Changes
-            - Automated APK build from GitHub Actions
             
             ### Downloads
             - [app-release.apk](https://github.com/${{ github.repository }}/releases/download/v1.0.${{ github.run_number }}/app-release.apk)
