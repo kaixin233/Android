@@ -430,13 +430,14 @@ class StorageService {
 
   static Future<void> _updatePlanProgress(List<StudyPlan> plans) async {
     final prefs = await _instance;
+    final updatedPlans = <StudyPlan>[];
     for (final plan in plans) {
       final progress = await _loadPlanProgress(plan.id);
       final uniqueDays = progress.map((d) {
         final date = DateTime.parse(d);
         return '${date.year}-${date.month}-${date.day}';
       }).toSet().length;
-      final updatedPlan = StudyPlan(
+      updatedPlans.add(StudyPlan(
         id: plan.id,
         title: plan.title,
         type: plan.type,
@@ -448,9 +449,12 @@ class StorageService {
         description: plan.description,
         completedDays: uniqueDays,
         totalDays: plan.totalDays,
-      );
-      await prefs.setString('${_studyPlansKey}_${plan.id}', jsonEncode(updatedPlan.toJson()));
+      ));
     }
+    await prefs.setStringList(
+      _studyPlansKey,
+      updatedPlans.map((p) => jsonEncode(p.toJson())).toList(),
+    );
   }
 
   // ========== 学习笔记 ==========

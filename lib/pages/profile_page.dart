@@ -2,23 +2,17 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-import '../models/history_item.dart';
+import '../providers/app_provider.dart';
 import '../services/storage_service.dart';
 import 'knowledge_assessment_page.dart';
 import 'note_page.dart';
 
 /// 我的页面 - 个人中心，包含设置、数据导出等
 class ProfilePage extends StatefulWidget {
-  const ProfilePage({
-    super.key,
-    required this.history,
-    required this.completedChapters,
-    required this.onThemeChanged,
-  });
+  const ProfilePage({super.key, required this.onThemeChanged});
 
-  final List<HistoryItem> history;
-  final int completedChapters;
   final Future<void> Function(String mode) onThemeChanged;
 
   @override
@@ -26,25 +20,13 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  String _themeMode = 'system';
-
-  @override
-  void initState() {
-    super.initState();
-    _loadTheme();
-  }
-
-  Future<void> _loadTheme() async {
-    final mode = await StorageService.loadThemeMode();
-    setState(() => _themeMode = mode);
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final progress = (widget.completedChapters / 12).clamp(0.0, 1.0);
-    final totalQuestions = widget.history.fold<int>(0, (s, h) => s + h.totalCount);
-    final totalCorrect = widget.history.fold<int>(0, (s, h) => s + h.correctCount);
+    final app = context.watch<AppProvider>();
+    final progress = (app.completedChapters / 12).clamp(0.0, 1.0);
+    final totalQuestions = app.history.fold<int>(0, (s, h) => s + h.totalCount);
+    final totalCorrect = app.history.fold<int>(0, (s, h) => s + h.correctCount);
     final accuracy = totalQuestions == 0 ? 0.0 : totalCorrect / totalQuestions;
 
     return Scaffold(
@@ -75,7 +57,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             Text('一建备考学员',
                                 style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
                             const SizedBox(height: 4),
-                            Text('已学习 ${widget.completedChapters}/12 章',
+                            Text('已学习 ${app.completedChapters}/12 章',
                                 style: TextStyle(color: Colors.grey.shade600)),
                           ],
                         ),
@@ -96,7 +78,7 @@ class _ProfilePageState extends State<ProfilePage> {
               const SizedBox(width: 12),
               _statCard('正确率', '${(accuracy * 100).toStringAsFixed(0)}%', Icons.trending_up_rounded, Colors.green, theme),
               const SizedBox(width: 12),
-              _statCard('练习次数', '${widget.history.length}', Icons.history_rounded, Colors.orange, theme),
+              _statCard('练习次数', '${app.history.length}', Icons.history_rounded, Colors.orange, theme),
             ],
           ),
           const SizedBox(height: 16),
@@ -108,7 +90,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   leading: const Icon(Icons.palette_rounded),
                   title: const Text('主题模式'),
                   trailing: DropdownButton<String>(
-                    value: _themeMode,
+                    value: app.themeMode,
                     underline: const SizedBox(),
                     items: const [
                       DropdownMenuItem(value: 'system', child: Text('跟随系统')),
@@ -117,8 +99,6 @@ class _ProfilePageState extends State<ProfilePage> {
                     ],
                     onChanged: (value) async {
                       if (value == null) return;
-                      setState(() => _themeMode = value);
-                      await StorageService.saveThemeMode(value);
                       await widget.onThemeChanged(value);
                     },
                   ),
@@ -188,13 +168,13 @@ class _ProfilePageState extends State<ProfilePage> {
                   padding: const EdgeInsets.all(16),
                   child: Text('最近练习', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                 ),
-                if (widget.history.isEmpty)
+                if (app.history.isEmpty)
                   const Padding(
                     padding: EdgeInsets.only(left: 16, right: 16, bottom: 16),
                     child: Text('暂无练习记录', style: TextStyle(color: Colors.grey)),
                   )
                 else
-                  ...widget.history.reversed.take(5).map((h) => ListTile(
+                  ...app.history.reversed.take(5).map((h) => ListTile(
                         dense: true,
                         leading: CircleAvatar(
                           radius: 6,

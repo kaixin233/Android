@@ -83,70 +83,103 @@ class AppProvider extends ChangeNotifier {
     _themeMode = await StorageService.loadThemeMode();
   }
 
+  // ========== 历史记录 ==========
+
   Future<void> addHistory(HistoryItem item) async {
+    _history.add(item);
+    notifyListeners();
     await StorageService.addHistory(item);
-    await _loadHistory();
-    await _loadStats();
+    _streakDays = await StorageService.loadStreakDays();
+    _completedChapters = await StorageService.loadCompletedChapters();
     notifyListeners();
   }
+
+  // ========== 收藏 ==========
 
   Future<void> toggleFavorite(String uniqueKey) async {
-    await StorageService.toggleFavorite(uniqueKey);
-    await _loadFavorites();
+    if (_favorites.contains(uniqueKey)) {
+      _favorites.remove(uniqueKey);
+    } else {
+      _favorites.add(uniqueKey);
+    }
     notifyListeners();
+    await StorageService.saveFavorites(_favorites);
   }
 
+  // ========== 错题 ==========
+
   Future<void> addWrongQuestion(String uniqueKey) async {
-    await StorageService.addWrongQuestion(uniqueKey);
-    await _loadWrongQuestions();
-    notifyListeners();
+    if (!_wrongQuestions.contains(uniqueKey)) {
+      _wrongQuestions.add(uniqueKey);
+      _wrongCounts[uniqueKey] = (_wrongCounts[uniqueKey] ?? 0) + 1;
+      notifyListeners();
+      await StorageService.addWrongQuestion(uniqueKey);
+    }
   }
 
   Future<void> removeWrongQuestion(String uniqueKey) async {
-    await StorageService.removeWrongQuestion(uniqueKey);
-    await _loadWrongQuestions();
+    _wrongQuestions.remove(uniqueKey);
     notifyListeners();
+    await StorageService.removeWrongQuestion(uniqueKey);
   }
 
+  // ========== 笔记 ==========
+
   Future<void> saveNote(Note note) async {
-    await StorageService.saveNote(note);
-    await _loadNotes();
+    final index = _notes.indexWhere((n) => n.id == note.id);
+    if (index >= 0) {
+      _notes[index] = note;
+    } else {
+      _notes.add(note);
+    }
     notifyListeners();
+    await StorageService.saveNote(note);
   }
 
   Future<void> deleteNote(String id) async {
-    await StorageService.deleteNote(id);
-    await _loadNotes();
+    _notes.removeWhere((n) => n.id == id);
     notifyListeners();
+    await StorageService.deleteNote(id);
   }
 
+  // ========== 学习计划 ==========
+
   Future<void> saveStudyPlan(StudyPlan plan) async {
-    await StorageService.saveStudyPlan(plan);
-    await _loadStudyPlans();
+    final index = _studyPlans.indexWhere((p) => p.id == plan.id);
+    if (index >= 0) {
+      _studyPlans[index] = plan;
+    } else {
+      _studyPlans.add(plan);
+    }
     notifyListeners();
+    await StorageService.saveStudyPlan(plan);
   }
 
   Future<void> deleteStudyPlan(String id) async {
-    await StorageService.deleteStudyPlan(id);
-    await _loadStudyPlans();
+    _studyPlans.removeWhere((p) => p.id == id);
     notifyListeners();
+    await StorageService.deleteStudyPlan(id);
   }
 
   Future<void> markChapterCompleted(QuestionSubject subject, String chapterNumber) async {
     await StorageService.markChapterCompleted(subject, chapterNumber);
-    await _loadStats();
+    _completedChapters = await StorageService.loadCompletedChapters();
     notifyListeners();
   }
 
+  // ========== 主题 ==========
+
   Future<void> saveThemeMode(String mode) async {
-    await StorageService.saveThemeMode(mode);
     _themeMode = mode;
     notifyListeners();
+    await StorageService.saveThemeMode(mode);
   }
 
   Future<void> refresh() async {
     await initialize();
   }
+
+  // ========== 统计 ==========
 
   int get totalQuestions => _allQuestions.length;
 

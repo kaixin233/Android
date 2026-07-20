@@ -4,17 +4,17 @@ import 'question.dart';
 class HistoryItem {
   HistoryItem({
     required this.title,
-    required this.answeredAt,
+    DateTime? answeredAt,
     this.correctCount = 0,
     this.totalCount = 0,
     this.durationSeconds = 0,
     this.subject,
     this.mode = PracticeMode.practice,
     this.wrongQuestionKeys = const [],
-  });
+  }) : answeredAt = answeredAt ?? DateTime.now();
 
   final String title;
-  final String answeredAt;
+  final DateTime answeredAt;
   final int correctCount;
   final int totalCount;
   final int durationSeconds;
@@ -35,7 +35,7 @@ class HistoryItem {
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'title': title,
-      'answeredAt': answeredAt,
+      'answeredAt': answeredAt.toIso8601String(),
       'correctCount': correctCount,
       'totalCount': totalCount,
       'durationSeconds': durationSeconds,
@@ -48,7 +48,9 @@ class HistoryItem {
   factory HistoryItem.fromJson(Map<String, dynamic> json) {
     return HistoryItem(
       title: json['title'] as String? ?? '练习记录',
-      answeredAt: json['answeredAt'] as String? ?? DateTime.now().toIso8601String(),
+      answeredAt: json['answeredAt'] != null
+          ? DateTime.tryParse(json['answeredAt'] as String)
+          : null,
       correctCount: json['correctCount'] as int? ?? 0,
       totalCount: json['totalCount'] as int? ?? 0,
       durationSeconds: json['durationSeconds'] as int? ?? 0,

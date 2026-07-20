@@ -268,19 +268,27 @@ class ProgressBarAnimation extends StatelessWidget {
       duration: duration,
       curve: Curves.easeOut,
       builder: (context, value, child) {
-        return Container(
-          height: 8,
-          decoration: BoxDecoration(
-            color: Colors.grey.shade200,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Container(
-            width: value,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            return Container(
+              height: 8,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  width: constraints.maxWidth * value,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+            );
+          },
         );
       },
     );

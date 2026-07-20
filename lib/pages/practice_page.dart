@@ -66,7 +66,7 @@ class _PracticePageState extends State<PracticePage> {
   int _elapsedSeconds = 0;
   Timer? _timer;
   final Set<String> _wrongKeys = {};
-  final Map<int, bool> _questionResults = {};
+  final Map<String, bool> _questionResults = {};
 
   @override
   void initState() {
@@ -183,17 +183,18 @@ class _PracticePageState extends State<PracticePage> {
   void _submitAnswer() {
     if (!_isAnswerSubmitted()) return;
     final correct = _checkAnswer();
+    final uniqueKey = _questions[_currentIndex].uniqueKey;
     setState(() {
       _submitted = true;
       _isCorrect = correct;
       _showFeedback = true;
       if (correct) {
         _correctCount++;
-        _questionResults[_currentIndex] = true;
+        _questionResults[uniqueKey] = true;
       } else {
-        _questionResults[_currentIndex] = false;
-        _wrongKeys.add(_questions[_currentIndex].uniqueKey);
-        StorageService.addWrongQuestion(_questions[_currentIndex].uniqueKey);
+        _questionResults[uniqueKey] = false;
+        _wrongKeys.add(uniqueKey);
+        StorageService.addWrongQuestion(uniqueKey);
       }
     });
     Future.delayed(const Duration(seconds: 1), () {
@@ -237,7 +238,7 @@ class _PracticePageState extends State<PracticePage> {
     final total = _questions.length;
     final result = HistoryItem(
       title: _getPracticeTitle(),
-      answeredAt: DateTime.now().toIso8601String(),
+      answeredAt: DateTime.now(),
       correctCount: _correctCount,
       totalCount: total,
       durationSeconds: _elapsedSeconds,

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-import '../models/history_item.dart';
-import '../services/storage_service.dart';
+import '../providers/app_provider.dart';
 import 'learn_page.dart';
 import 'question_bank_page.dart';
 import 'textbook_page.dart';
@@ -20,38 +20,15 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
-  List<HistoryItem> _history = <HistoryItem>[];
-  int _completedChapters = 0;
-  int _streakDays = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadState();
-  }
-
-  Future<void> _loadState() async {
-    _history = await StorageService.loadHistory();
-    _completedChapters = await StorageService.loadCompletedChapters();
-    _streakDays = await StorageService.loadStreakDays();
-    setState(() {});
-  }
 
   @override
   Widget build(BuildContext context) {
     final pages = <Widget>[
-      LearnPage(
-        completedChapters: _completedChapters,
-        streakDays: _streakDays,
-      ),
+      const LearnPage(),
       const QuestionBankPage(),
       const TextbookPage(),
       const StudyPlanPage(),
-      ProfilePage(
-        history: _history,
-        completedChapters: _completedChapters,
-        onThemeChanged: widget.onThemeChanged,
-      ),
+      ProfilePage(onThemeChanged: widget.onThemeChanged),
     ];
 
     return Scaffold(

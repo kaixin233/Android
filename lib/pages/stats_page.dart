@@ -403,7 +403,7 @@ class _StatsPageState extends State<StatsPage> {
     final hourCount = <int, int>{};
     for (final h in _history) {
       try {
-        final dt = DateTime.parse(h.answeredAt);
+        final dt = h.answeredAt;
         hourCount[dt.hour] = (hourCount[dt.hour] ?? 0) + 1;
       } catch (_) {}
     }
@@ -526,12 +526,7 @@ class _StatsPageState extends State<StatsPage> {
     return '${h}小时${rm}分';
   }
 
-  String _formatDate(String iso) {
-    try {
-      final dt = DateTime.parse(iso);
-      return '${dt.month}/${dt.day} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-    } catch (e) {
-      return '';
-    }
+  String _formatDate(DateTime dt) {
+    return '${dt.month}/${dt.day} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
   }
 }

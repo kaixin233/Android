@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../models/question.dart';
+import '../providers/app_provider.dart';
 import '../services/storage_service.dart';
 import 'exam_mode_page.dart';
 import 'practice_page.dart';
@@ -9,25 +11,14 @@ import 'wrong_questions_page.dart';
 import 'stats_page.dart';
 
 /// 学习首页
-class LearnPage extends StatefulWidget {
-  const LearnPage({
-    super.key,
-    required this.completedChapters,
-    required this.streakDays,
-  });
+class LearnPage extends StatelessWidget {
+  const LearnPage({super.key});
 
-  final int completedChapters;
-  final int streakDays;
-
-  @override
-  State<LearnPage> createState() => _LearnPageState();
-}
-
-class _LearnPageState extends State<LearnPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final app = context.watch<AppProvider>();
 
     return Scaffold(
       backgroundColor: theme.brightness == Brightness.dark
@@ -65,7 +56,7 @@ class _LearnPageState extends State<LearnPage> {
                   children: [
                     Expanded(
                       child: FilledButton.icon(
-                        onPressed: () => _startPractice(subject: null),
+                        onPressed: () => _startPractice(context, subject: null),
                         icon: const Icon(Icons.play_arrow_rounded),
                         label: const Text('综合练习'),
                         style: FilledButton.styleFrom(
@@ -86,7 +77,7 @@ class _LearnPageState extends State<LearnPage> {
                         children: [
                           const Icon(Icons.local_fire_department_rounded, color: Colors.white),
                           const SizedBox(width: 6),
-                          Text('${widget.streakDays} 天',
+                          Text('${app.streakDays} 天',
                               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
                         ],
                       ),
@@ -103,7 +94,7 @@ class _LearnPageState extends State<LearnPage> {
               Expanded(
                 child: _StatCard(
                   title: '已学章节',
-                  value: '${widget.completedChapters}/12',
+                  value: '${app.completedChapters}/12',
                   icon: Icons.menu_book_rounded,
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const TextbookPage()),
@@ -155,7 +146,7 @@ class _LearnPageState extends State<LearnPage> {
           const SizedBox(height: 12),
           ...QuestionSubject.values.map((subject) => _SubjectCard(
                 subject: subject,
-                onTap: () => _startPractice(subject: subject),
+                onTap: () => _startPractice(context, subject: subject),
                 onBookTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const TextbookPage()),
                 ),
@@ -165,7 +156,7 @@ class _LearnPageState extends State<LearnPage> {
     );
   }
 
-  void _startPractice({QuestionSubject? subject}) {
+  void _startPractice(BuildContext context, {QuestionSubject? subject}) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => PracticePage(
@@ -247,8 +238,8 @@ class _SubjectCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = _subjectColor(subject);
-    final icon = _subjectIcon(subject);
+    final color = subject.color;
+    final icon = subject.icon;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -281,7 +272,7 @@ class _SubjectCard extends StatelessWidget {
                       Text(subject.label,
                           style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 4),
-                      Text(_subjectDesc(subject),
+                      Text(subject.description,
                           style: theme.textTheme.bodyMedium?.copyWith(color: Colors.black54)),
                     ],
                   ),
@@ -301,44 +292,5 @@ class _SubjectCard extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  Color _subjectColor(QuestionSubject s) {
-    switch (s) {
-      case QuestionSubject.law:
-        return Colors.blue;
-      case QuestionSubject.management:
-        return Colors.orange;
-      case QuestionSubject.economy:
-        return Colors.green;
-      case QuestionSubject.practice:
-        return Colors.purple;
-    }
-  }
-
-  IconData _subjectIcon(QuestionSubject s) {
-    switch (s) {
-      case QuestionSubject.law:
-        return Icons.gavel_rounded;
-      case QuestionSubject.management:
-        return Icons.build_rounded;
-      case QuestionSubject.economy:
-        return Icons.trending_up_rounded;
-      case QuestionSubject.practice:
-        return Icons.construction_rounded;
-    }
-  }
-
-  String _subjectDesc(QuestionSubject s) {
-    switch (s) {
-      case QuestionSubject.law:
-        return '建设工程法规及相关知识';
-      case QuestionSubject.management:
-        return '建设工程项目管理';
-      case QuestionSubject.economy:
-        return '建设工程经济';
-      case QuestionSubject.practice:
-        return '市政公用工程管理与实务';
-    }
   }
 }

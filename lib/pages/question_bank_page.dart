@@ -290,8 +290,6 @@ class _QuestionBankPageState extends State<QuestionBankPage> {
     );
   }
 
-  Widget _buildSubjectFilter() => const SizedBox.shrink();
-
   Widget _buildFilterChip({
     required String label,
     required bool selected,
@@ -329,11 +327,11 @@ class _QuestionCard extends StatelessWidget {
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         leading: CircleAvatar(
-          backgroundColor: _subjectColor(question.subject).withOpacity(0.1),
+          backgroundColor: question.subject.color.withOpacity(0.1),
           child: Text(
             question.subject.label,
             style: TextStyle(
-              color: _subjectColor(question.subject),
+              color: question.subject.color,
               fontWeight: FontWeight.bold,
               fontSize: 14,
             ),
@@ -352,8 +350,8 @@ class _QuestionCard extends StatelessWidget {
             children: [
               _buildTag(question.type.label, theme.colorScheme.primaryContainer, theme.colorScheme.onPrimaryContainer),
               _buildTag(question.difficulty.label,
-                  _difficultyColor(question.difficulty).withOpacity(0.1),
-                  _difficultyColor(question.difficulty)),
+                  question.difficulty.color.withOpacity(0.1),
+                  question.difficulty.color),
             ],
           ),
         ),
@@ -392,29 +390,5 @@ class _QuestionCard extends StatelessWidget {
       decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(4)),
       child: Text(label, style: TextStyle(fontSize: 11, color: fg, fontWeight: FontWeight.w600)),
     );
-  }
-
-  Color _subjectColor(QuestionSubject subject) {
-    switch (subject) {
-      case QuestionSubject.law:
-        return Colors.blue;
-      case QuestionSubject.management:
-        return Colors.orange;
-      case QuestionSubject.economy:
-        return Colors.green;
-      case QuestionSubject.practice:
-        return Colors.purple;
-    }
-  }
-
-  Color _difficultyColor(QuestionDifficulty d) {
-    switch (d) {
-      case QuestionDifficulty.easy:
-        return Colors.green;
-      case QuestionDifficulty.medium:
-        return Colors.orange;
-      case QuestionDifficulty.hard:
-        return Colors.red;
-    }
   }
 }

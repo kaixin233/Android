@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 enum QuestionType {
   singleChoice,
   multipleChoice,
@@ -88,6 +90,45 @@ extension QuestionSubjectExtension on QuestionSubject {
     }
   }
 
+  String get description {
+    switch (this) {
+      case QuestionSubject.law:
+        return '建设工程法规及相关知识';
+      case QuestionSubject.management:
+        return '建设工程项目管理';
+      case QuestionSubject.economy:
+        return '建设工程经济';
+      case QuestionSubject.practice:
+        return '市政公用工程管理与实务';
+    }
+  }
+
+  Color get color {
+    switch (this) {
+      case QuestionSubject.law:
+        return Colors.blue;
+      case QuestionSubject.management:
+        return Colors.orange;
+      case QuestionSubject.economy:
+        return Colors.green;
+      case QuestionSubject.practice:
+        return Colors.purple;
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case QuestionSubject.law:
+        return Icons.gavel_rounded;
+      case QuestionSubject.management:
+        return Icons.build_rounded;
+      case QuestionSubject.economy:
+        return Icons.trending_up_rounded;
+      case QuestionSubject.practice:
+        return Icons.construction_rounded;
+    }
+  }
+
   static QuestionSubject fromName(String name) {
     switch (name) {
       case 'law':
@@ -124,6 +165,17 @@ extension QuestionDifficultyExtension on QuestionDifficulty {
         return '中等';
       case QuestionDifficulty.hard:
         return '困难';
+    }
+  }
+
+  Color get color {
+    switch (this) {
+      case QuestionDifficulty.easy:
+        return Colors.green;
+      case QuestionDifficulty.medium:
+        return Colors.orange;
+      case QuestionDifficulty.hard:
+        return Colors.red;
     }
   }
 
