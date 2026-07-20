@@ -17,6 +17,7 @@ class StorageService {
   static const String _wrongQuestionsKey = 'wrongQuestions';
   static const String _wrongCountKey = 'wrongCounts';
   static const String _themeModeKey = 'themeMode';
+  static const String _vibrationEnabledKey = 'vibrationEnabled';
   static const String _streakDaysKey = 'streakDays';
   static const String _lastPracticeDateKey = 'lastPracticeDate';
 
@@ -187,6 +188,18 @@ class StorageService {
   static Future<void> saveThemeMode(String mode) async {
     final prefs = await _instance;
     await prefs.setString(_themeModeKey, mode);
+  }
+
+  // ========== 震动反馈 ==========
+
+  static Future<bool> loadVibrationEnabled() async {
+    final prefs = await _instance;
+    return prefs.getBool(_vibrationEnabledKey) ?? true;
+  }
+
+  static Future<void> saveVibrationEnabled(bool enabled) async {
+    final prefs = await _instance;
+    await prefs.setBool(_vibrationEnabledKey, enabled);
   }
 
   // ========== 连续学习天数 ==========

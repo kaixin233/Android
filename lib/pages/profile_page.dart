@@ -104,6 +104,16 @@ class _ProfilePageState extends State<ProfilePage> {
                     },
                   ),
                 ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  secondary: const Icon(Icons.vibration_rounded),
+                  title: const Text('答题震动反馈'),
+                  subtitle: const Text('正确和错误时使用不同震动模式'),
+                  value: app.vibrationEnabled,
+                  onChanged: (value) {
+                    context.read<AppProvider>().saveVibrationEnabled(value);
+                  },
+                ),
               ],
             ),
           ),

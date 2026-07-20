@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
-import '../providers/app_provider.dart';
 import 'learn_page.dart';
 import 'question_bank_page.dart';
 import 'textbook_page.dart';

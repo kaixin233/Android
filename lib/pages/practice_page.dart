@@ -2,9 +2,12 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 
 import '../models/question.dart';
 import '../models/history_item.dart';
+import '../providers/app_provider.dart';
 import '../services/question_service.dart';
 import '../services/storage_service.dart';
 import '../utils/animations.dart';
@@ -195,6 +198,15 @@ class _PracticePageState extends State<PracticePage> {
         StorageService.addWrongQuestion(uniqueKey);
       }
     });
+    // 震动反馈
+    final app = context.read<AppProvider>();
+    if (app.vibrationEnabled) {
+      if (correct) {
+        HapticFeedback.mediumImpact();
+      } else {
+        HapticFeedback.heavyImpact();
+      }
+    }
   }
 
   void _nextQuestion() {

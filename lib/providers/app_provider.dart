@@ -18,6 +18,7 @@ class AppProvider extends ChangeNotifier {
   int _completedChapters = 0;
   int _streakDays = 0;
   String _themeMode = 'system';
+  bool _vibrationEnabled = true;
   bool _isLoading = false;
 
   List<Question> get allQuestions => _allQuestions;
@@ -30,6 +31,7 @@ class AppProvider extends ChangeNotifier {
   int get completedChapters => _completedChapters;
   int get streakDays => _streakDays;
   String get themeMode => _themeMode;
+  bool get vibrationEnabled => _vibrationEnabled;
   bool get isLoading => _isLoading;
 
   Future<void> initialize() async {
@@ -43,6 +45,7 @@ class AppProvider extends ChangeNotifier {
         _loadWrongQuestions(),
         _loadStats(),
         _loadThemeMode(),
+        _loadVibrationEnabled(),
       ]);
     } catch (e) {
       debugPrint('Error initializing app: $e');
@@ -81,6 +84,10 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> _loadThemeMode() async {
     _themeMode = await StorageService.loadThemeMode();
+  }
+
+  Future<void> _loadVibrationEnabled() async {
+    _vibrationEnabled = await StorageService.loadVibrationEnabled();
   }
 
   // ========== 历史记录 ==========
@@ -173,6 +180,12 @@ class AppProvider extends ChangeNotifier {
     _themeMode = mode;
     notifyListeners();
     await StorageService.saveThemeMode(mode);
+  }
+
+  Future<void> saveVibrationEnabled(bool enabled) async {
+    _vibrationEnabled = enabled;
+    notifyListeners();
+    await StorageService.saveVibrationEnabled(enabled);
   }
 
   Future<void> refresh() async {
