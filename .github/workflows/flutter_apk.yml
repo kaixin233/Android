@@ -71,21 +71,15 @@ jobs:
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "Using signing key from GitHub Secrets"
             echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
-            cat > android/key.properties <<EOF
-            storePassword=$KEYSTORE_PASSWORD
-            keyPassword=$KEY_PASSWORD
-            keyAlias=$KEY_ALIAS
-            storeFile=release.keystore
-            EOF
+            printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=%s\n' \
+              "$KEYSTORE_PASSWORD" "$KEY_PASSWORD" "$KEY_ALIAS" "release.keystore" \
+              > android/key.properties
           else
             echo "WARNING: No signing secrets configured, generating temporary debug key"
             mkdir -p android/app
-            cat > android/key.properties <<'EOF'
-            storePassword=android
-            keyPassword=android
-            keyAlias=androiddebugkey
-            storeFile=debug.keystore
-            EOF
+            printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=%s\n' \
+              "android" "android" "androiddebugkey" "debug.keystore" \
+              > android/key.properties
             keytool -genkeypair \
               -v \
               -keystore android/app/debug.keystore \
@@ -131,4 +125,4 @@ jobs:
 
       - name: Stop Gradle daemon
         if: always()
-        run: cd android && ./gradlew --stop
+        run: cd android && gradle --stop
