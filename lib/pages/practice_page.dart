@@ -62,7 +62,6 @@ class _PracticePageState extends State<PracticePage> {
   bool _isLoading = true;
   bool _submitted = false;
   bool _isCorrect = false;
-  bool _showFeedback = false;
   int _elapsedSeconds = 0;
   Timer? _timer;
   final Set<String> _wrongKeys = {};
@@ -187,7 +186,6 @@ class _PracticePageState extends State<PracticePage> {
     setState(() {
       _submitted = true;
       _isCorrect = correct;
-      _showFeedback = true;
       if (correct) {
         _correctCount++;
         _questionResults[uniqueKey] = true;
@@ -195,11 +193,6 @@ class _PracticePageState extends State<PracticePage> {
         _questionResults[uniqueKey] = false;
         _wrongKeys.add(uniqueKey);
         StorageService.addWrongQuestion(uniqueKey);
-      }
-    });
-    Future.delayed(const Duration(seconds: 1), () {
-      if (mounted) {
-        setState(() => _showFeedback = false);
       }
     });
   }
@@ -498,9 +491,7 @@ class _PracticePageState extends State<PracticePage> {
                         style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 20),
-                      _showFeedback
-                          ? AnswerFeedbackAnimation(isCorrect: _isCorrect, child: _buildAnswerArea(question, theme))
-                          : _buildAnswerArea(question, theme),
+                      _buildAnswerArea(question, theme),
                       if (_submitted) ...[
                         const SizedBox(height: 20),
                         _buildExplanationCard(question, theme),
