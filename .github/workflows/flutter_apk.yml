@@ -47,6 +47,18 @@ jobs:
         run: |
           flutter config --no-analytics
           flutter --version
+          echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> $GITHUB_ENV
+
+      - name: Generate local.properties
+        shell: bash
+        run: |
+          cat > android/local.properties <<EOF
+          sdk.dir=$ANDROID_HOME
+          flutter.sdk=$FLUTTER_ROOT
+          flutter.buildMode=release
+          flutter.versionName=1.0.2
+          flutter.versionCode=3
+          EOF
 
       - name: Create temporary Android signing config
         shell: bash
