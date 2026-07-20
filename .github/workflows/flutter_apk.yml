@@ -35,12 +35,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -57,7 +57,7 @@ jobs:
         run: flutter --version
 
       - name: Print project structure
-        run: find . -type f -name "*.dart" | head -20 && ls -la
+        run: ls -la && find . -maxdepth 2 -type f -name "*.dart" | head -20
 
       - name: Create signing configuration
         shell: bash
@@ -89,28 +89,24 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
-        working-directory: .
 
       - name: Flutter analyze
         run: flutter analyze
-        working-directory: .
         continue-on-error: true
 
       - name: Build release APK
         run: flutter build apk --release --no-shrink
-        working-directory: .
 
       - name: Verify APK exists
         run: |
           ls -la build/app/outputs/flutter-apk/ || ls -la build/ || echo "Build directory not found"
 
       - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: android-app-release-apk
           path: |
             build/app/outputs/flutter-apk/app-release.apk
-            build/app/outputs/flutter-apk/app-release.aab
           if-no-files-found: warn
 
       - name: Create GitHub Release
