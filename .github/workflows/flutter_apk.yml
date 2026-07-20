@@ -60,29 +60,44 @@ jobs:
           flutter.versionCode=3
           EOF
 
-      - name: Create temporary Android signing config
+      - name: Set up Android signing config
         shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          mkdir -p android/app
-
-          cat > android/key.properties <<'EOF'
-          storePassword=android
-          keyPassword=android
-          keyAlias=androiddebugkey
-          storeFile=debug.keystore
-          EOF
-
-          keytool -genkeypair \
-            -v \
-            -keystore android/app/debug.keystore \
-            -storetype JKS \
-            -storepass android \
-            -keypass android \
-            -alias androiddebugkey \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Using signing key from GitHub Secrets"
+            echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
+            cat > android/key.properties <<EOF
+            storePassword=$KEYSTORE_PASSWORD
+            keyPassword=$KEY_PASSWORD
+            keyAlias=$KEY_ALIAS
+            storeFile=release.keystore
+            EOF
+          else
+            echo "WARNING: No signing secrets configured, generating temporary debug key"
+            mkdir -p android/app
+            cat > android/key.properties <<'EOF'
+            storePassword=android
+            keyPassword=android
+            keyAlias=androiddebugkey
+            storeFile=debug.keystore
+            EOF
+            keytool -genkeypair \
+              -v \
+              -keystore android/app/debug.keystore \
+              -storetype JKS \
+              -storepass android \
+              -keypass android \
+              -alias androiddebugkey \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
 
       - name: Install dependencies
         run: flutter pub get
