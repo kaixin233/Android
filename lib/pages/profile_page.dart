@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/app_provider.dart';
+import '../models/history_item.dart';
 import '../services/storage_service.dart';
 import 'knowledge_assessment_page.dart';
 import 'note_page.dart';

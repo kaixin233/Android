@@ -185,7 +185,6 @@ class _QuestionBankPageState extends State<QuestionBankPage> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _buildSubjectFilter(),
                       ...QuestionSubject.values.map((s) => _buildFilterChip(
                             label: s.label,
                             selected: _filterSubject == s,
