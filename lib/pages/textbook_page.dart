@@ -1,6 +1,6 @@
-import 'dart:html' as html;
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../data/textbooks.dart';
 import '../models/question.dart';
@@ -374,16 +374,18 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
     );
   }
 
-  void _openPdf(BuildContext context, Textbook book) {
+  void _openPdf(BuildContext context, Textbook book) async {
     final url = book.webUrl;
-    try {
-      html.window.open(url, '_blank');
-    } catch (e) {
-      final encoded = Uri.encodeFull(url);
-      html.window.navigator.clipboard?.writeText(encoded);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已复制教材链接，请在新标签页粘贴打开')),
-      );
+    final uri = Uri.tryParse(url);
+    if (uri != null && await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      await Clipboard.setData(ClipboardData(text: url));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已复制教材链接，请在浏览器中粘贴打开')),
+        );
+      }
     }
   }
 
@@ -643,7 +645,7 @@ class _QuestionBankCard extends StatelessWidget {
 }
 
 /// 提供给其他页面使用的工具函数：根据科目打开对应教材
-void openTextbookBySubject(BuildContext context, QuestionSubject subject) {
+void openTextbookBySubject(BuildContext context, QuestionSubject subject) async {
   final book = Textbooks.bySubject(subject);
   if (book == null) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -651,9 +653,8 @@ void openTextbookBySubject(BuildContext context, QuestionSubject subject) {
     );
     return;
   }
-  try {
-    html.window.open(book.webUrl, '_blank');
-  } catch (e) {
-    debugPrint('Open PDF failed: $e');
+  final uri = Uri.tryParse(book.webUrl);
+  if (uri != null && await canLaunchUrl(uri)) {
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 }
