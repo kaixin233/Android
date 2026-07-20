@@ -47,47 +47,21 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.44.6'
+          flutter-version: '3.19.6'
           channel: stable
           cache: true
 
       - name: Print Flutter version
         run: flutter --version
 
-      - name: Print Dart version
-        run: dart --version
-
-      - name: Print project structure
-        run: |
-          echo "=== Root directory ==="
-          ls -la
-          echo "=== Lib directory ==="
-          ls -la lib/
-          echo "=== Android directory ==="
-          ls -la android/
-
-      - name: Check pubspec.yaml
-        run: cat pubspec.yaml
-
       - name: Install dependencies
         run: flutter pub get
-
-      - name: Run flutter doctor
-        run: flutter doctor -v
-
-      - name: Flutter analyze
-        run: flutter analyze
-        continue-on-error: true
-
-      - name: Build APK
-        run: flutter build apk --debug
 
       - name: Build release APK
         run: flutter build apk --release --no-shrink
 
       - name: Verify APK exists
         run: |
-          echo "=== Build output ==="
           ls -la build/app/outputs/flutter-apk/
 
       - name: Upload APK artifact
