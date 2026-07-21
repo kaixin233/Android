@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../data/textbooks.dart';
 import '../models/question.dart';
 import '../models/history_item.dart';
 import '../services/storage_service.dart';
 import 'practice_page.dart';
+import 'pdf_reader_page.dart';
 
 /// 电子教材页面 - 显示4本PDF教材，点击打开
 class TextbookPage extends StatefulWidget {
@@ -374,19 +373,12 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
     );
   }
 
-  void _openPdf(BuildContext context, Textbook book) async {
-    final url = book.webUrl;
-    final uri = Uri.tryParse(url);
-    if (uri != null && await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      await Clipboard.setData(ClipboardData(text: url));
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已复制教材链接，请在浏览器中粘贴打开')),
-        );
-      }
-    }
+  void _openPdf(BuildContext context, Textbook book) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PdfReaderPage(textbook: book),
+      ),
+    );
   }
 
   void _handleQuestionBankTap(QuestionBankCategory category) {
@@ -645,7 +637,7 @@ class _QuestionBankCard extends StatelessWidget {
 }
 
 /// 提供给其他页面使用的工具函数：根据科目打开对应教材
-void openTextbookBySubject(BuildContext context, QuestionSubject subject) async {
+void openTextbookBySubject(BuildContext context, QuestionSubject subject) {
   final book = Textbooks.bySubject(subject);
   if (book == null) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -653,8 +645,9 @@ void openTextbookBySubject(BuildContext context, QuestionSubject subject) async 
     );
     return;
   }
-  final uri = Uri.tryParse(book.webUrl);
-  if (uri != null && await canLaunchUrl(uri)) {
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => PdfReaderPage(textbook: book),
+    ),
+  );
 }
