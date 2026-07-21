@@ -19,7 +19,6 @@ class AppProvider extends ChangeNotifier {
   int _streakDays = 0;
   String _themeMode = 'system';
   bool _vibrationEnabled = true;
-  bool _isLoading = false;
 
   List<Question> get allQuestions => _allQuestions;
   List<HistoryItem> get history => _history;
@@ -32,7 +31,6 @@ class AppProvider extends ChangeNotifier {
   int get streakDays => _streakDays;
   String get themeMode => _themeMode;
   bool get vibrationEnabled => _vibrationEnabled;
-  bool get isLoading => _isLoading;
 
   Future<void> initialize() async {
     try {

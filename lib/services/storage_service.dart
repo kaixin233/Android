@@ -237,12 +237,12 @@ class StorageService {
   static const String _readProgressKey = 'readProgress';
 
   static Future<void> markChapterCompleted(QuestionSubject subject, String chapterNumber) async {
-    final prefs = await _instance;
     final progress = await _loadChapterProgress();
     final key = '${subject.name}_$chapterNumber';
     progress[key] = true;
     await _saveChapterProgress(progress);
-    await _updateCompletedChapterCount();
+    // 直接用已加载的 progress 计算，避免重复 IO
+    await saveCompletedChapters(progress.values.where((v) => v).length);
   }
 
   static Future<bool> isChapterCompleted(QuestionSubject subject, String chapterNumber) async {
@@ -267,15 +267,9 @@ class StorageService {
     await prefs.setString(_chapterProgressKey, jsonEncode(progress));
   }
 
-  static Future<void> _updateCompletedChapterCount() async {
-    final progress = await _loadChapterProgress();
-    await saveCompletedChapters(progress.values.where((v) => v).length);
-  }
-
   // ========== 阅读进度 ==========
 
   static Future<void> saveReadProgress(QuestionSubject subject, int page) async {
-    final prefs = await _instance;
     final progress = await _loadReadProgress();
     progress[subject.name] = page;
     await _saveReadProgress(progress);

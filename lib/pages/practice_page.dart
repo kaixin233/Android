@@ -39,6 +39,23 @@ class PracticeConfig {
   final String? chapterNumber;
 }
 
+/// 答题记录，用于恢复已回答题目的选择状态
+class _AnswerRecord {
+  final bool isCorrect;
+  final int? selectedIndex;
+  final Set<int> selectedIndices;
+  final bool? selectedBool;
+  final String fillBlankText;
+
+  const _AnswerRecord({
+    required this.isCorrect,
+    this.selectedIndex,
+    this.selectedIndices = const {},
+    this.selectedBool,
+    this.fillBlankText = '',
+  });
+}
+
 /// 通用练习页面 - 支持普通练习、错题重做、考试模式
 class PracticePage extends StatefulWidget {
   const PracticePage({
@@ -68,7 +85,7 @@ class _PracticePageState extends State<PracticePage> {
   int _elapsedSeconds = 0;
   Timer? _timer;
   final Set<String> _wrongKeys = {};
-  final Map<String, bool> _questionResults = {};
+  final Map<String, _AnswerRecord> _questionResults = {};
 
   @override
   void initState() {
@@ -126,10 +143,18 @@ class _PracticePageState extends State<PracticePage> {
 
   void _startTimer() {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      final limit = widget.config.timeLimitSeconds!;
       setState(() {
         _elapsedSeconds++;
       });
-      if (_elapsedSeconds >= widget.config.timeLimitSeconds!) {
+      // 剩余时间不足 20% 时震动提醒（每 30 秒一次）
+      if (_elapsedSeconds >= limit * 0.8 && (_elapsedSeconds % 30 == 0)) {
+        final app = context.read<AppProvider>();
+        if (app.vibrationEnabled) {
+          HapticFeedback.lightImpact();
+        }
+      }
+      if (_elapsedSeconds >= limit) {
         _timer?.cancel();
         _autoSubmit();
       }
@@ -137,6 +162,9 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   void _autoSubmit() {
+    if (!_submitted && _isAnswerSubmitted()) {
+      _submitAnswer();
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('考试时间到，已自动交卷')),
     );
@@ -186,17 +214,36 @@ class _PracticePageState extends State<PracticePage> {
     if (!_isAnswerSubmitted()) return;
     final correct = _checkAnswer();
     final uniqueKey = _questions[_currentIndex].uniqueKey;
+    final previous = _questionResults[uniqueKey];
     setState(() {
       _submitted = true;
       _isCorrect = correct;
-      if (correct) {
-        _correctCount++;
-        _questionResults[uniqueKey] = true;
+      // 修正已答过题目的正确数
+      if (previous != null) {
+        if (previous.isCorrect && !correct) {
+          _correctCount--;
+          _wrongKeys.add(uniqueKey);
+          StorageService.addWrongQuestion(uniqueKey);
+        } else if (!previous.isCorrect && correct) {
+          _correctCount++;
+          _wrongKeys.remove(uniqueKey);
+          StorageService.removeWrongQuestion(uniqueKey);
+        }
       } else {
-        _questionResults[uniqueKey] = false;
-        _wrongKeys.add(uniqueKey);
-        StorageService.addWrongQuestion(uniqueKey);
+        if (correct) {
+          _correctCount++;
+        } else {
+          _wrongKeys.add(uniqueKey);
+          StorageService.addWrongQuestion(uniqueKey);
+        }
       }
+      _questionResults[uniqueKey] = _AnswerRecord(
+        isCorrect: correct,
+        selectedIndex: _selectedIndex,
+        selectedIndices: Set.from(_selectedIndices),
+        selectedBool: _selectedBool,
+        fillBlankText: _fillBlankController.text,
+      );
     });
     // 震动反馈
     final app = context.read<AppProvider>();
@@ -231,10 +278,14 @@ class _PracticePageState extends State<PracticePage> {
   /// 恢复当前题目的已答状态
   void _restoreQuestionState() {
     final uniqueKey = _questions[_currentIndex].uniqueKey;
-    if (_questionResults.containsKey(uniqueKey)) {
+    final record = _questionResults[uniqueKey];
+    if (record != null) {
       _submitted = true;
-      _isCorrect = _questionResults[uniqueKey]!;
-      _fillBlankController.clear();
+      _isCorrect = record.isCorrect;
+      _selectedIndex = record.selectedIndex;
+      _selectedIndices = Set.from(record.selectedIndices);
+      _selectedBool = record.selectedBool;
+      _fillBlankController.text = record.fillBlankText;
     } else {
       _selectedIndex = null;
       _selectedIndices = {};
@@ -305,6 +356,13 @@ class _PracticePageState extends State<PracticePage> {
                 _selectedBool = null;
                 _fillBlankController.clear();
                 _submitted = false;
+                // 重新洗牌
+                if (widget.config.shuffleQuestions) {
+                  _questions.shuffle();
+                }
+                if (widget.config.shuffleOptions) {
+                  _questions = _questions.map(QuestionService.shuffleOptions).toList();
+                }
               });
               if (widget.config.timeLimitSeconds != null) {
                 _startTimer();

@@ -45,6 +45,17 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
   }
 
   @override
+  void dispose() {
+    // 清理临时文件
+    if (_filePath != null) {
+      try {
+        File(_filePath!).deleteSync();
+      } catch (_) {}
+    }
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
