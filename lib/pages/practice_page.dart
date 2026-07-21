@@ -216,12 +216,7 @@ class _PracticePageState extends State<PracticePage> {
     }
     setState(() {
       _currentIndex++;
-      _selectedIndex = null;
-      _selectedIndices = {};
-      _selectedBool = null;
-      _fillBlankController.clear();
-      _submitted = false;
-      _isCorrect = false;
+      _restoreQuestionState();
     });
   }
 
@@ -229,13 +224,25 @@ class _PracticePageState extends State<PracticePage> {
     if (_currentIndex == 0) return;
     setState(() {
       _currentIndex--;
+      _restoreQuestionState();
+    });
+  }
+
+  /// 恢复当前题目的已答状态
+  void _restoreQuestionState() {
+    final uniqueKey = _questions[_currentIndex].uniqueKey;
+    if (_questionResults.containsKey(uniqueKey)) {
+      _submitted = true;
+      _isCorrect = _questionResults[uniqueKey]!;
+      _fillBlankController.clear();
+    } else {
       _selectedIndex = null;
       _selectedIndices = {};
       _selectedBool = null;
       _fillBlankController.clear();
       _submitted = false;
       _isCorrect = false;
-    });
+    }
   }
 
   Future<void> _finishPractice() async {
