@@ -478,7 +478,7 @@ class _PracticePageState extends State<PracticePage> {
             children: [
               Icon(Icons.volume_off, color: Colors.orange),
               SizedBox(width: 8),
-              Expanded(child Text('语音播报不可用')),
+              Expanded(child: Text('语音播报不可用')),
             ],
           ),
           content: SingleChildScrollView(
