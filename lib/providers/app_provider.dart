@@ -50,7 +50,7 @@ class AppProvider extends ChangeNotifier {
   Future<void> initialize() async {
     try {
       // 每个任务独立 catch，避免一个失败影响其他
-      final results = await Future.wait([
+      await Future.wait([
         _loadHistory().catchError((e) => debugPrint('loadHistory error: $e')),
         _loadNotes().catchError((e) => debugPrint('loadNotes error: $e')),
         _loadStudyPlans().catchError((e) => debugPrint('loadStudyPlans error: $e')),

@@ -280,7 +280,11 @@ class _TextbookCard extends StatelessWidget {
                           const SizedBox(height: 4),
                           Text(
                             book.description,
-                            style: theme.textTheme.bodySmall?.copyWith(color: Colors.black54),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.brightness == Brightness.dark
+                                  ? Colors.white54
+                                  : Colors.black54,
+                            ),
                           ),
                           const SizedBox(height: 8),
                           Wrap(
@@ -1165,7 +1169,11 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
-                        color: enabled ? Colors.black87 : Colors.grey,
+                        color: enabled
+                            ? (Theme.of(context).brightness == Brightness.dark
+                                ? Colors.white70
+                                : Colors.black87)
+                            : Colors.grey,
                       ),
                     ),
                     Text(

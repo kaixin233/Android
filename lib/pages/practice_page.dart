@@ -117,7 +117,13 @@ class _PracticePageState extends State<PracticePage> {
 
     // 错题重做模式
     if (widget.config.mode == PracticeMode.wrong) {
-      final wrongKeys = await StorageService.loadWrongQuestionKeys();
+      var wrongKeys = await StorageService.loadWrongQuestionKeys();
+      // 按科目过滤错题（uniqueKey 以科目名开头）
+      if (widget.config.subject != null) {
+        wrongKeys = wrongKeys
+            .where((key) => key.startsWith(widget.config.subject!.name))
+            .toList();
+      }
       _questions = await QuestionService.getByKeys(wrongKeys);
     } else {
       _questions = await QuestionService.filter(
@@ -183,9 +189,11 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   void _autoSubmit() {
+    if (!mounted) return;
     if (!_submitted && _isAnswerSubmitted()) {
       _submitAnswer();
     }
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('考试时间到，已自动交卷')),
     );
@@ -296,7 +304,7 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   /// 播报答题结果与解析
-  void _speakExplanation(bool isCorrect) async {
+  Future<void> _speakExplanation(bool isCorrect) async {
     // 先停止当前朗读
     if (_isSpeaking) {
       await TtsService.stop();
@@ -1304,7 +1312,12 @@ class _PracticePageState extends State<PracticePage> {
             const SizedBox(height: 4),
             Text(
               question.explanation,
-              style: TextStyle(color: Colors.black87, height: 1.5),
+              style: TextStyle(
+                color: theme.brightness == Brightness.dark
+                    ? Colors.white70
+                    : Colors.black87,
+                height: 1.5,
+              ),
             ),
           ],
         ],

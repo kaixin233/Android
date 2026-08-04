@@ -31,6 +31,9 @@ class TtsService {
   /// 当前朗读完成回调（由 speak() 设置，由回调处理器调用）
   static VoidCallback? _onComplete;
 
+  /// 朗读代际计数器，用于防止旧的 stop() 异步清空新的 speak() 回调
+  static int _speakGeneration = 0;
+
   /// 标记回调是否已注册，避免重复注册
   static bool _handlersRegistered = false;
 
@@ -324,6 +327,10 @@ class TtsService {
       return false;
     }
 
+    // 递增代际计数器，使旧的 stop() 异步回调不再干扰本次朗读
+    final gen = _speakGeneration + 1;
+    _speakGeneration = gen;
+
     // 最多重试 2 次
     for (int attempt = 0; attempt < 2; attempt++) {
       if (attempt > 0) {
@@ -331,6 +338,11 @@ class TtsService {
         // 只重置 initFuture，不重置 _isAvailable
         _initFuture = null;
         await Future.delayed(const Duration(milliseconds: 300));
+        // 等待期间若有新的 speak() 被调用则放弃
+        if (_speakGeneration != gen) {
+          debugPrint('TTS: 检测到新的朗读请求，放弃重试');
+          return false;
+        }
       }
 
       // 确保引擎已初始化
@@ -387,13 +399,18 @@ class TtsService {
 
   /// 停止朗读
   static Future<void> stop() async {
+    // 记录当前代际，防止异步完成后清空新 speak() 设置的回调
+    final gen = _speakGeneration;
     try {
       await _flutterTts.stop();
     } catch (e) {
       debugPrint('TTS stop failed: $e');
     }
-    _isSpeaking = false;
-    _onComplete = null;
+    // 仅当代际未变化时才清空，避免覆盖新 speak() 的回调
+    if (gen == _speakGeneration) {
+      _isSpeaking = false;
+      _onComplete = null;
+    }
   }
 
   /// 暂停朗读
@@ -475,6 +492,7 @@ class TtsService {
     try {
       await _flutterTts.stop();
     } catch (_) {}
+    _speakGeneration++;
     _initFuture = null;
     _isSpeaking = false;
     _isAvailable = false;
