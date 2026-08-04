@@ -1185,6 +1185,8 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
     );
   }
 }
+
+class _ChapterExpansionTile extends StatelessWidget {
   const _ChapterExpansionTile({
     required this.chapter,
     required this.color,
