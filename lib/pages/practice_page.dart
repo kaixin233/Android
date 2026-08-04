@@ -502,6 +502,9 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   /// 朗读当前题目和选项
+  ///
+  /// 分两阶段播报：先朗读题目，停顿后再朗读选项，
+  /// 避免题目和选项混在一起无法分辨。
   Future<void> _speakQuestion() async {
     if (_questions.isEmpty || _currentIndex >= _questions.length) return;
     // 如果正在播报解析，先停止
@@ -514,15 +517,45 @@ class _PracticePageState extends State<PracticePage> {
     });
 
     final question = _questions[_currentIndex];
-    final buffer = StringBuffer();
-    buffer.write(question.prompt);
+    final hasOptions = question.options.isNotEmpty;
 
-    if (question.options.isNotEmpty) {
-      buffer.write('。选项如下：');
-      for (var i = 0; i < question.options.length; i++) {
-        final label = String.fromCharCode('A'.codeUnitAt(0) + i);
-        buffer.write('$label，${question.options[i]}。');
-      }
+    // 阶段1：只朗读题目
+    final promptText = question.prompt;
+    final success = await TtsService.speak(
+      promptText,
+      onComplete: () {
+        // 题目朗读完成后，如果有选项，等待后继续朗读选项
+        if (hasOptions && mounted) {
+          _speakOptions();
+        } else if (mounted) {
+          setState(() => _isSpeaking = false);
+        }
+      },
+    );
+
+    // 朗读启动失败时，重置状态并引导用户
+    if (!success && mounted) {
+      setState(() => _isSpeaking = false);
+      _showTtsErrorDialog();
+    }
+  }
+
+  /// 朗读选项（题目朗读完成后的第二阶段）
+  Future<void> _speakOptions() async {
+    if (!mounted || _questions.isEmpty || _currentIndex >= _questions.length) return;
+    final question = _questions[_currentIndex];
+    if (question.options.isEmpty) return;
+
+    // 题目与选项之间停顿，让用户消化题目内容
+    await Future.delayed(const Duration(milliseconds: 1500));
+    // 停顿期间用户可能按了停止按钮或切换了题目
+    if (!mounted || !_isSpeaking) return;
+
+    final buffer = StringBuffer();
+    buffer.write('选项如下：');
+    for (var i = 0; i < question.options.length; i++) {
+      final label = String.fromCharCode('A'.codeUnitAt(0) + i);
+      buffer.write('$label，${question.options[i]}。');
     }
 
     final success = await TtsService.speak(
@@ -532,10 +565,8 @@ class _PracticePageState extends State<PracticePage> {
       },
     );
 
-    // 朗读启动失败时，重置状态并引导用户
     if (!success && mounted) {
       setState(() => _isSpeaking = false);
-      _showTtsErrorDialog();
     }
   }
 
