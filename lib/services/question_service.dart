@@ -32,6 +32,7 @@ class QuestionService {
     QuestionDifficulty? difficulty,
     String? keyword,
     String? chapterNumber,
+    String? subsection,
     Set<String>? favoriteKeys,
     bool onlyFavorites = false,
   }) async {
@@ -42,6 +43,9 @@ class QuestionService {
       if (difficulty != null && q.difficulty != difficulty) return false;
       if (chapterNumber != null && chapterNumber.isNotEmpty) {
         if (q.chapter == null || q.chapter != chapterNumber) return false;
+      }
+if (subsection != null && subsection.isNotEmpty) {
+        if (q.subsection == null || q.subsection != subsection) return false;
       }
       if (keyword != null && keyword.isNotEmpty) {
         final kw = keyword.toLowerCase();
@@ -55,6 +59,22 @@ class QuestionService {
       }
       return true;
     }).toList();
+  }
+
+  /// 获取指定科目指定章节的考点列表（去重）
+  static Future<List<String>> getKnowledgePointsByChapter({
+    required QuestionSubject subject,
+    required String chapterNumber,
+  }) async {
+    final questions = await filter(
+      subject: subject,
+      chapterNumber: chapterNumber,
+    );
+    final points = <String>{};
+    for (final q in questions) {
+      points.addAll(q.knowledgePoints);
+    }
+    return points.toList()..sort();
   }
 
   /// 根据唯一键集合获取题目
@@ -129,6 +149,9 @@ class QuestionService {
       isCorrect: question.isCorrect,
       acceptableAnswers: question.acceptableAnswers,
       explanation: question.explanation,
+      chapter: question.chapter,
+      subsection: question.subsection,
+      knowledgePoints: question.knowledgePoints,
     );
   }
 }

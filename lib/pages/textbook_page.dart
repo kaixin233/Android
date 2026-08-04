@@ -4,6 +4,7 @@ import '../data/textbooks.dart';
 import '../models/question.dart';
 import '../models/history_item.dart';
 import '../services/question_loader.dart';
+import '../services/question_service.dart';
 import '../services/storage_service.dart';
 import 'practice_page.dart';
 
@@ -189,6 +190,322 @@ class _TextbookCard extends StatelessWidget {
   }
 }
 
+/// 小节详情页面 - 展示该小节的考点列表和练习入口
+class SubsectionDetailPage extends StatefulWidget {
+  const SubsectionDetailPage({
+    super.key,
+    required this.subsection,
+    required this.chapterNumber,
+    required this.subject,
+    required this.bookColor,
+    required this.bookTitle,
+  });
+
+  final TextbookChapter subsection;
+  final String chapterNumber;
+  final QuestionSubject subject;
+  final int bookColor;
+  final String bookTitle;
+
+  @override
+  State<SubsectionDetailPage> createState() => _SubsectionDetailPageState();
+}
+
+class _SubsectionDetailPageState extends State<SubsectionDetailPage> {
+  bool _isLoading = true;
+  List<String> _knowledgePoints = [];
+  int _questionCount = 0;
+  bool _isSubsectionLevel = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    // 先尝试按小节筛选
+    var questions = await QuestionService.filter(
+      subject: widget.subject,
+      chapterNumber: widget.chapterNumber,
+      subsection: widget.subsection.number,
+    );
+
+    bool subsectionLevel = false;
+    if (questions.isEmpty) {
+      // 题目数据未细分到小节，回退到整章
+      questions = await QuestionService.filter(
+        subject: widget.subject,
+        chapterNumber: widget.chapterNumber,
+      );
+    } else {
+      subsectionLevel = true;
+    }
+
+    final points = <String>{};
+    for (final q in questions) {
+      points.addAll(q.knowledgePoints);
+    }
+
+    if (mounted) {
+      setState(() {
+        _knowledgePoints = points.toList()..sort();
+        _questionCount = questions.length;
+        _isSubsectionLevel = subsectionLevel;
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = Color(widget.bookColor);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('${widget.subsection.number} ${widget.subsection.title}'),
+        centerTitle: false,
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                // 小节信息卡片
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [color, color.withOpacity(0.7)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.bookmark_rounded, color: Colors.white, size: 28),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${widget.subsection.number} ${widget.subsection.title}',
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${widget.bookTitle} · 第${widget.chapterNumber}章',
+                                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          _buildStatChip(
+                            '$_questionCount 题',
+                            Icons.quiz_rounded,
+                          ),
+                          const SizedBox(width: 8),
+                          _buildStatChip(
+                            '${_knowledgePoints.length} 个考点',
+                            Icons.lightbulb_rounded,
+                          ),
+                          const SizedBox(width: 8),
+                          _buildStatChip(
+                            'P${widget.subsection.page}',
+                            Icons.menu_book_rounded,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // 考点列表
+                Row(
+                  children: [
+                    Container(
+                      width: 4,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      '考点列表',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                if (_knowledgePoints.isEmpty)
+                  _buildEmptyState('暂无考点数据')
+                else
+                  ..._knowledgePoints.asMap().entries.map((entry) {
+                    final index = entry.key;
+                    final point = entry.value;
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 28,
+                              height: 28,
+                              decoration: BoxDecoration(
+                                color: color.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  '${index + 1}',
+                                  style: TextStyle(
+                                    color: color,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                point,
+                                style: const TextStyle(fontSize: 15),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+
+                const SizedBox(height: 24),
+
+                // 练习入口
+                if (!_isSubsectionLevel && _questionCount > 0)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline_rounded, color: Colors.orange[700], size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '题目数据暂未细分到此小节，以下练习包含整章题目',
+                            style: TextStyle(color: Colors.orange[700], fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (_questionCount > 0)
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: FilledButton.icon(
+                      onPressed: _startPractice,
+                      icon: const Icon(Icons.play_circle_rounded),
+                      label: const Text('开始练习', style: TextStyle(fontSize: 16)),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: color,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  _buildEmptyState('暂无题目'),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildStatChip(String label, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white, size: 14),
+          const SizedBox(width: 4),
+          Text(label, style: const TextStyle(color: Colors.white, fontSize: 13)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(String text) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 32),
+        child: Text(text, style: const TextStyle(color: Colors.grey)),
+      ),
+    );
+  }
+
+  void _startPractice() {
+    final config = PracticeConfig(
+      subject: widget.subject,
+      chapterNumber: widget.chapterNumber,
+      subsection: _isSubsectionLevel ? widget.subsection.number : null,
+      mode: PracticeMode.practice,
+      shuffleQuestions: false,
+    );
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PracticePage(
+          config: config,
+          onCompleted: (result) async {
+            await StorageService.addHistory(result);
+            await StorageService.markChapterCompleted(widget.subject, widget.chapterNumber);
+            if (mounted) {
+              Navigator.pop(context);
+            }
+          },
+        ),
+      ),
+    );
+  }
+}
+
 /// 大纲详情页面 - 显示章节大纲和题库分类
 class TextbookDetailPage extends StatefulWidget {
   const TextbookDetailPage({super.key, required this.book});
@@ -306,6 +623,7 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
                 });
               },
               onPracticeTap: () => _startChapterPractice(chapter.number),
+              onSubsectionTap: (subsection) => _openSubsection(subsection, chapter.number),
               isCompleted: _completedChapters[chapter.number] ?? false,
               questionCount: _chapterQuestionCounts[chapter.number],
             );
@@ -377,6 +695,21 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 32),
         child: Text(text, style: const TextStyle(color: Colors.grey)),
+      ),
+    );
+  }
+
+  void _openSubsection(TextbookChapter subsection, String chapterNumber) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SubsectionDetailPage(
+          subsection: subsection,
+          chapterNumber: chapterNumber,
+          subject: widget.book.subject,
+          bookColor: widget.book.color,
+          bookTitle: widget.book.title,
+        ),
       ),
     );
   }
@@ -464,6 +797,7 @@ class _ChapterExpansionTile extends StatelessWidget {
     required this.isExpanded,
     required this.onTap,
     required this.onPracticeTap,
+    required this.onSubsectionTap,
     required this.isCompleted,
     this.questionCount,
   });
@@ -473,6 +807,7 @@ class _ChapterExpansionTile extends StatelessWidget {
   final bool isExpanded;
   final VoidCallback onTap;
   final VoidCallback onPracticeTap;
+  final void Function(TextbookChapter subsection) onSubsectionTap;
   final bool isCompleted;
   final int? questionCount;
 
@@ -539,22 +874,30 @@ class _ChapterExpansionTile extends StatelessWidget {
           if (isExpanded && chapter.subsections.isNotEmpty)
             Column(
               children: chapter.subsections.map((subsection) {
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 10),
-                  child: Row(
-                    children: [
-                      Text(
-                        subsection.number,
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          subsection.title,
-                          style: const TextStyle(fontSize: 14),
+                return InkWell(
+                  onTap: () => onSubsectionTap(subsection),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 12),
+                    child: Row(
+                      children: [
+                        Text(
+                          subsection.number,
+                          style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500),
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            subsection.title,
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                        ),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          size: 18,
+                          color: color.withOpacity(0.4),
+                        ),
+                      ],
+                    ),
                   ),
                 );
               }).toList(),

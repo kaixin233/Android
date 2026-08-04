@@ -25,6 +25,7 @@ class PracticeConfig {
     this.timeLimitSeconds,
     this.questionLimit,
     this.chapterNumber,
+    this.subsection,
   });
 
   final QuestionSubject? subject;
@@ -37,6 +38,7 @@ class PracticeConfig {
   final int? timeLimitSeconds;
   final int? questionLimit;
   final String? chapterNumber;
+  final String? subsection;
 }
 
 /// 答题记录，用于恢复已回答题目的选择状态
@@ -115,6 +117,7 @@ class _PracticePageState extends State<PracticePage> {
         type: widget.config.type,
         difficulty: widget.config.difficulty,
         chapterNumber: widget.config.chapterNumber,
+        subsection: widget.config.subsection,
         onlyFavorites: widget.config.onlyFavorites,
         favoriteKeys: favorites,
       );
