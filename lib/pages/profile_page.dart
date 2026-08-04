@@ -55,7 +55,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('一建备考学员',
+                            Text('二建备考学员',
                                 style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
                             const SizedBox(height: 4),
                             Text('已学习 ${app.completedChapters}/12 章',
@@ -212,16 +212,16 @@ class _ProfilePageState extends State<ProfilePage> {
                 ListTile(
                   leading: const Icon(Icons.info_outline_rounded),
                   title: const Text('关于'),
-                  subtitle: const Text('一级建造师学习助手 v1.0.2'),
+                  subtitle: const Text('二级建造师学习助手 v1.0.2'),
                   onTap: () {
                     showAboutDialog(
                       context: context,
-                      applicationName: '一级建造师学习',
+                      applicationName: '二级建造师学习',
                       applicationVersion: '1.0.2',
                       applicationLegalese: '© 2026',
                       children: [
                         const SizedBox(height: 12),
-                        const Text('一款专为一级建造师考试打造的学习助手，包含题库、错题本、考试模式、电子教材等功能。'),
+                        const Text('一款专为二级建造师考试打造的学习助手，包含题库、错题本、考试模式、电子教材等功能。'),
                       ],
                     );
                   },
@@ -262,7 +262,7 @@ class _ProfilePageState extends State<ProfilePage> {
       final bytes = utf8.encode(data);
       final outputFile = await FilePicker.platform.saveFile(
         dialogTitle: '导出数据',
-        fileName: 'yijian_backup_${DateTime.now().millisecondsSinceEpoch}.json',
+        fileName: 'erjian_backup_${DateTime.now().millisecondsSinceEpoch}.json',
         bytes: bytes,
       );
       if (outputFile != null && mounted) {

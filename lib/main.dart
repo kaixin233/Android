@@ -78,7 +78,7 @@ class _AppRootState extends State<_AppRoot> {
     }
 
     return MaterialApp(
-      title: '一级建造师学习',
+      title: '二级建造师学习',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green, brightness: Brightness.light),

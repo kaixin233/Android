@@ -8,8 +8,9 @@ class QuestionService {
 
   /// 获取所有题目（默认 + 导入）
   static Future<List<Question>> getAllQuestions() async {
+    final defaults = await DefaultQuestions.loadAll();
     final imported = await StorageService.loadImportedQuestions();
-    return [...DefaultQuestions.all, ...imported];
+    return [...defaults, ...imported];
   }
 
   /// 按科目获取题目

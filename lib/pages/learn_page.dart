@@ -25,7 +25,7 @@ class LearnPage extends StatelessWidget {
           ? null
           : const Color(0xFFF5FFF7),
       appBar: AppBar(
-        title: const Text('一级建造师'),
+        title: const Text('二级建造师'),
         centerTitle: false,
       ),
       body: ListView(

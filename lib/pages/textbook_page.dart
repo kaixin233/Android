@@ -49,7 +49,7 @@ class _TextbookPageState extends State<TextbookPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '一级建造师考试教材',
+                        '二级建造师考试教材',
                         style: theme.textTheme.titleMedium?.copyWith(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
