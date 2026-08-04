@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
@@ -17,7 +18,8 @@ class QuestionBankPage extends StatefulWidget {
 }
 
 class _QuestionBankPageState extends State<QuestionBankPage> {
-  List<Question> _questions = [];
+  List<Question> _allQuestions = [];
+  List<Question> _filteredQuestions = [];
   Set<String> _favorites = {};
   bool _isLoading = true;
   String _searchKeyword = '';
@@ -25,36 +27,75 @@ class _QuestionBankPageState extends State<QuestionBankPage> {
   QuestionType? _filterType;
   bool _onlyFavorites = false;
 
+  // 搜索防抖
+  Timer? _debounceTimer;
+  // 显示分页（滚动加载更多）
+  final ScrollController _scrollController = ScrollController();
+  int _displayCount = 50;
+  static const int _pageSize = 50;
+
   @override
   void initState() {
     super.initState();
     _loadData();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
+      if (_displayCount < _filteredQuestions.length) {
+        setState(() {
+          _displayCount =
+              (_displayCount + _pageSize).clamp(0, _filteredQuestions.length);
+        });
+      }
+    }
   }
 
   Future<void> _loadData() async {
     final questions = await QuestionService.getAllQuestions();
     final favorites = await StorageService.loadFavorites();
     setState(() {
-      _questions = questions;
+      _allQuestions = questions;
       _favorites = favorites;
       _isLoading = false;
     });
+    _applyFilters();
   }
 
-  List<Question> get _filteredQuestions {
-    return _questions.where((q) {
-      if (_onlyFavorites && !_favorites.contains(q.uniqueKey)) return false;
-      if (_filterSubject != null && q.subject != _filterSubject) return false;
-      if (_filterType != null && q.type != _filterType) return false;
-      if (_searchKeyword.isNotEmpty) {
-        final kw = _searchKeyword.toLowerCase();
-        if (!q.title.toLowerCase().contains(kw) &&
-            !q.prompt.toLowerCase().contains(kw)) {
-          return false;
+  void _applyFilters() {
+    setState(() {
+      _filteredQuestions = _allQuestions.where((q) {
+        if (_onlyFavorites && !_favorites.contains(q.uniqueKey)) return false;
+        if (_filterSubject != null && q.subject != _filterSubject) return false;
+        if (_filterType != null && q.type != _filterType) return false;
+        if (_searchKeyword.isNotEmpty) {
+          final kw = _searchKeyword.toLowerCase();
+          if (!q.title.toLowerCase().contains(kw) &&
+              !q.prompt.toLowerCase().contains(kw)) {
+            return false;
+          }
         }
-      }
-      return true;
-    }).toList();
+        return true;
+      }).toList();
+      _displayCount = _pageSize;
+    });
+  }
+
+  void _onSearchChanged(String value) {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+      _searchKeyword = value;
+      _applyFilters();
+    });
   }
 
   Future<void> _importQuestions() async {
@@ -137,7 +178,6 @@ class _QuestionBankPageState extends State<QuestionBankPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final filtered = _filteredQuestions;
 
     return Scaffold(
       appBar: AppBar(
@@ -175,7 +215,7 @@ class _QuestionBankPageState extends State<QuestionBankPage> {
                       ),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     ),
-                    onChanged: (value) => setState(() => _searchKeyword = value),
+                    onChanged: _onSearchChanged,
                   ),
                 ),
                 // 筛选器
@@ -188,22 +228,27 @@ class _QuestionBankPageState extends State<QuestionBankPage> {
                       ...QuestionSubject.values.map((s) => _buildFilterChip(
                             label: s.label,
                             selected: _filterSubject == s,
-                            onTap: () => setState(() {
+                            onTap: () {
                               _filterSubject = _filterSubject == s ? null : s;
-                            }),
+                              _applyFilters();
+                            },
                           )),
                       const SizedBox(width: 8),
                       ...QuestionType.values.map((t) => _buildFilterChip(
                             label: t.label,
                             selected: _filterType == t,
-                            onTap: () => setState(() {
+                            onTap: () {
                               _filterType = _filterType == t ? null : t;
-                            }),
+                              _applyFilters();
+                            },
                           )),
                       _buildFilterChip(
                         label: '收藏',
                         selected: _onlyFavorites,
-                        onTap: () => setState(() => _onlyFavorites = !_onlyFavorites),
+                        onTap: () {
+                          _onlyFavorites = !_onlyFavorites;
+                          _applyFilters();
+                        },
                         icon: Icons.star_rounded,
                       ),
                     ],
@@ -213,10 +258,10 @@ class _QuestionBankPageState extends State<QuestionBankPage> {
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Row(
                     children: [
-                      Text('共 ${filtered.length} 题', style: theme.textTheme.bodyMedium),
+                      Text('共 ${_filteredQuestions.length} 题', style: theme.textTheme.bodyMedium),
                       const Spacer(),
                       TextButton.icon(
-                        onPressed: filtered.isEmpty
+                        onPressed: _filteredQuestions.isEmpty
                             ? null
                             : () {
                                 Navigator.of(context).push(
@@ -241,7 +286,7 @@ class _QuestionBankPageState extends State<QuestionBankPage> {
                   ),
                 ),
                 Expanded(
-                  child: filtered.isEmpty
+                  child: _filteredQuestions.isEmpty
                       ? Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -254,11 +299,20 @@ class _QuestionBankPageState extends State<QuestionBankPage> {
                           ),
                         )
                       : ListView.separated(
+                          controller: _scrollController,
                           padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                          itemCount: filtered.length,
+                          itemCount: _displayCount < _filteredQuestions.length
+                              ? _displayCount + 1
+                              : _displayCount,
                           separatorBuilder: (_, __) => const SizedBox(height: 8),
                           itemBuilder: (context, index) {
-                            final q = filtered[index];
+                            if (index >= _displayCount) {
+                              return const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 16),
+                                child: Center(child: CircularProgressIndicator()),
+                              );
+                            }
+                            final q = _filteredQuestions[index];
                             final isFavorite = _favorites.contains(q.uniqueKey);
                             return _QuestionCard(
                               question: q,
