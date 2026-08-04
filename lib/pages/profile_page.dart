@@ -189,7 +189,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 const Divider(height: 1),
                 SwitchListTile(
-                  secondary: const Icon(Icons.auto_read_play_rounded, color: Colors.indigo),
+                  secondary: const Icon(Icons.playlist_play_rounded, color: Colors.indigo),
                   title: const Text('自动朗读题目'),
                   subtitle: const Text('进入题目时自动语音播报题目内容'),
                   value: app.ttsAutoReadQuestion,
