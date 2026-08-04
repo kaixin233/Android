@@ -464,7 +464,7 @@ class _CreatePlanDialogState extends State<_CreatePlanDialog> {
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<PlanType>(
-                  initialValue: _planType,
+                  value: _planType,
                   decoration: const InputDecoration(labelText: '计划类型'),
                   items: PlanType.values
                       .map((type) => DropdownMenuItem(value: type, child: Text(type.label)))
@@ -473,7 +473,7 @@ class _CreatePlanDialogState extends State<_CreatePlanDialog> {
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<QuestionSubject>(
-                  initialValue: _subject,
+                  value: _subject,
                   decoration: const InputDecoration(labelText: '科目'),
                   items: QuestionSubject.values
                       .map((subject) => DropdownMenuItem(value: subject, child: Text(subject.label)))
