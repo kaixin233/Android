@@ -49,11 +49,12 @@ jobs:
           flutter --version
           echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> $GITHUB_ENV
 
-      - name: Prepare Android SDK
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
         shell: bash
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
           yes | sdkmanager --licenses || true
           sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
