@@ -31,6 +31,7 @@ class QuestionService {
     QuestionType? type,
     QuestionDifficulty? difficulty,
     String? keyword,
+    String? chapterNumber,
     Set<String>? favoriteKeys,
     bool onlyFavorites = false,
   }) async {
@@ -39,6 +40,9 @@ class QuestionService {
       if (subject != null && q.subject != subject) return false;
       if (type != null && q.type != type) return false;
       if (difficulty != null && q.difficulty != difficulty) return false;
+      if (chapterNumber != null && chapterNumber.isNotEmpty) {
+        if (q.chapter == null || q.chapter != chapterNumber) return false;
+      }
       if (keyword != null && keyword.isNotEmpty) {
         final kw = keyword.toLowerCase();
         if (!q.title.toLowerCase().contains(kw) &&
@@ -55,9 +59,23 @@ class QuestionService {
 
   /// 根据唯一键集合获取题目
   static Future<List<Question>> getByKeys(List<String> keys) async {
-    final all = await getAllQuestions();
     final keySet = keys.toSet();
-    return all.where((q) => keySet.contains(q.uniqueKey)).toList();
+    final results = <Question>[];
+
+    // 优先使用缓存的默认题库，避免重复创建大列表
+    final cachedDefaults = DefaultQuestions.cachedAll;
+    if (cachedDefaults.isNotEmpty) {
+      results.addAll(cachedDefaults.where((q) => keySet.contains(q.uniqueKey)));
+    } else {
+      final defaults = await DefaultQuestions.loadAll();
+      results.addAll(defaults.where((q) => keySet.contains(q.uniqueKey)));
+    }
+
+    // 导入的题目通常较少，直接加载
+    final imported = await StorageService.loadImportedQuestions();
+    results.addAll(imported.where((q) => keySet.contains(q.uniqueKey)));
+
+    return results;
   }
 
   /// 导入题目（去重）
