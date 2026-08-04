@@ -6,11 +6,21 @@ import 'storage_service.dart';
 class QuestionService {
   QuestionService._();
 
-  /// 获取所有题目（默认 + 导入）
+  /// 全局缓存：合并后的所有题目，避免重复加载和拼接
+  static List<Question>? _cachedAll;
+
+  /// 清除缓存（导入/删除题目后调用）
+  static void clearCache() {
+    _cachedAll = null;
+  }
+
+  /// 获取所有题目（默认 + 导入），首次加载后缓存
   static Future<List<Question>> getAllQuestions() async {
+    if (_cachedAll != null) return _cachedAll!;
     final defaults = await DefaultQuestions.loadAll();
     final imported = await StorageService.loadImportedQuestions();
-    return [...defaults, ...imported];
+    _cachedAll = [...defaults, ...imported];
+    return _cachedAll!;
   }
 
   /// 按科目获取题目
@@ -84,38 +94,28 @@ if (subsection != null && subsection.isNotEmpty) {
   /// 根据唯一键集合获取题目
   static Future<List<Question>> getByKeys(List<String> keys) async {
     final keySet = keys.toSet();
-    final results = <Question>[];
-
-    // 优先使用缓存的默认题库，避免重复创建大列表
-    final cachedDefaults = DefaultQuestions.cachedAll;
-    if (cachedDefaults.isNotEmpty) {
-      results.addAll(cachedDefaults.where((q) => keySet.contains(q.uniqueKey)));
-    } else {
-      final defaults = await DefaultQuestions.loadAll();
-      results.addAll(defaults.where((q) => keySet.contains(q.uniqueKey)));
-    }
-
-    // 导入的题目通常较少，直接加载
-    final imported = await StorageService.loadImportedQuestions();
-    results.addAll(imported.where((q) => keySet.contains(q.uniqueKey)));
-
-    return results;
+    // 直接使用全局缓存，避免重复加载
+    final all = await getAllQuestions();
+    return all.where((q) => keySet.contains(q.uniqueKey)).toList();
   }
 
   /// 导入题目（去重）
   static Future<int> importQuestions(List<Question> newQuestions) async {
     final unique = await StorageService.importQuestions(newQuestions);
+    clearCache();
     return unique.length;
   }
 
   /// 删除导入的题目
   static Future<void> deleteImported(String uniqueKey) async {
     await StorageService.deleteImportedQuestion(uniqueKey);
+    clearCache();
   }
 
   /// 清空导入的题目
   static Future<void> clearImported() async {
     await StorageService.clearImportedQuestions();
+    clearCache();
   }
 
   /// 随机抽取题目

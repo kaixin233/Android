@@ -3,8 +3,10 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../models/question.dart';
+import '../providers/app_provider.dart';
 import '../services/question_service.dart';
 import '../services/storage_service.dart';
 import 'practice_page.dart';
@@ -264,6 +266,7 @@ class _QuestionBankPageState extends State<QuestionBankPage> {
                         onPressed: _filteredQuestions.isEmpty
                             ? null
                             : () {
+                                final provider = context.read<AppProvider>();
                                 Navigator.of(context).push(
                                   MaterialPageRoute(
                                     builder: (_) => PracticePage(
@@ -273,7 +276,7 @@ class _QuestionBankPageState extends State<QuestionBankPage> {
                                         shuffleQuestions: true,
                                       ),
                                       onCompleted: (result) async {
-                                        await StorageService.addHistory(result);
+                                        await provider.addHistory(result);
                                       },
                                     ),
                                   ),
@@ -320,6 +323,7 @@ class _QuestionBankPageState extends State<QuestionBankPage> {
                               onToggleFavorite: () => _toggleFavorite(q),
                               onDelete: () => _deleteQuestion(q),
                               onTap: () {
+                                final provider = context.read<AppProvider>();
                                 Navigator.of(context).push(
                                   MaterialPageRoute(
                                     builder: (_) => PracticePage(
@@ -328,7 +332,7 @@ class _QuestionBankPageState extends State<QuestionBankPage> {
                                         type: q.type,
                                       ),
                                       onCompleted: (result) async {
-                                        await StorageService.addHistory(result);
+                                        await provider.addHistory(result);
                                       },
                                     ),
                                   ),

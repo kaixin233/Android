@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../models/question.dart';
 import '../models/history_item.dart';
+import '../providers/app_provider.dart';
 import '../services/question_service.dart';
-import '../services/storage_service.dart';
 import 'practice_page.dart';
 
 /// 考试模式页面 - 倒计时、自动交卷
@@ -155,6 +156,7 @@ class _ExamModePageState extends State<ExamModePage> {
     final actualCount = available.length < _questionCount ? available.length : _questionCount;
 
     if (mounted) {
+      final provider = context.read<AppProvider>();
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => PracticePage(
@@ -167,7 +169,7 @@ class _ExamModePageState extends State<ExamModePage> {
               timeLimitSeconds: _durationMinutes * 60,
             ),
             onCompleted: (HistoryItem result) async {
-              await StorageService.addHistory(result);
+              await provider.addHistory(result);
             },
           ),
         ),

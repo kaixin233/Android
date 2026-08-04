@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../models/history_item.dart';
 import '../models/question.dart';
+import '../providers/app_provider.dart';
 import '../services/question_service.dart';
 import '../services/storage_service.dart';
 import 'practice_page.dart';
@@ -40,7 +42,7 @@ class _WrongQuestionsPageState extends State<WrongQuestionsPage> {
   }
 
   Future<void> _removeWrong(Question question) async {
-    await StorageService.removeWrongQuestion(question.uniqueKey);
+    await context.read<AppProvider>().removeWrongQuestion(question.uniqueKey);
     await _loadData();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -196,12 +198,13 @@ class _WrongQuestionsPageState extends State<WrongQuestionsPage> {
                           ),
                           FilledButton.icon(
                             onPressed: () {
+                              final provider = context.read<AppProvider>();
                               Navigator.of(context).push(
                                 MaterialPageRoute(
                                   builder: (_) => PracticePage(
                                     config: const PracticeConfig(mode: PracticeMode.wrong),
                                     onCompleted: (result) async {
-                                      await StorageService.addHistory(result);
+                                      await provider.addHistory(result);
                                     },
                                   ),
                                 ),
@@ -261,6 +264,7 @@ class _WrongQuestionsPageState extends State<WrongQuestionsPage> {
                                 tooltip: '移除',
                               ),
                               onTap: () {
+                                final provider = context.read<AppProvider>();
                                 Navigator.of(context).push(
                                   MaterialPageRoute(
                                     builder: (_) => PracticePage(
@@ -269,7 +273,7 @@ class _WrongQuestionsPageState extends State<WrongQuestionsPage> {
                                         type: q.type,
                                       ),
                                       onCompleted: (result) async {
-                                        await StorageService.addHistory(result);
+                                        await provider.addHistory(result);
                                       },
                                     ),
                                   ),

@@ -227,6 +227,7 @@ class _PracticePageState extends State<PracticePage> {
     final correct = _checkAnswer();
     final uniqueKey = _questions[_currentIndex].uniqueKey;
     final previous = _questionResults[uniqueKey];
+    final app = context.read<AppProvider>();
     setState(() {
       _submitted = true;
       _isCorrect = correct;
@@ -235,18 +236,18 @@ class _PracticePageState extends State<PracticePage> {
         if (previous.isCorrect && !correct) {
           _correctCount--;
           _wrongKeys.add(uniqueKey);
-          StorageService.addWrongQuestion(uniqueKey);
+          app.addWrongQuestion(uniqueKey);
         } else if (!previous.isCorrect && correct) {
           _correctCount++;
           _wrongKeys.remove(uniqueKey);
-          StorageService.removeWrongQuestion(uniqueKey);
+          app.removeWrongQuestion(uniqueKey);
         }
       } else {
         if (correct) {
           _correctCount++;
         } else {
           _wrongKeys.add(uniqueKey);
-          StorageService.addWrongQuestion(uniqueKey);
+          app.addWrongQuestion(uniqueKey);
         }
       }
       _questionResults[uniqueKey] = _AnswerRecord(
@@ -258,7 +259,6 @@ class _PracticePageState extends State<PracticePage> {
       );
     });
     // 震动反馈
-    final app = context.read<AppProvider>();
     if (app.vibrationEnabled) {
       if (correct) {
         HapticFeedback.mediumImpact();
@@ -469,6 +469,7 @@ class _PracticePageState extends State<PracticePage> {
   /// 显示 TTS 错误引导对话框（增强版，含诊断信息和操作按钮）
   void _showTtsErrorDialog() {
     String? diagInfo;
+    bool isDiagnosing = false;
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -517,15 +518,20 @@ class _PracticePageState extends State<PracticePage> {
                       },
                     ),
                     OutlinedButton.icon(
-                      icon: const Icon(Icons.refresh, size: 18),
+                      icon: isDiagnosing
+                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.refresh, size: 18),
                       label: const Text('诊断', style: TextStyle(fontSize: 13)),
-                      onPressed: () async {
-                        setDialogState(() {});
-                        final info = await TtsService.getDiagnostics();
-                        setDialogState(() {
-                          diagInfo = _formatDiagnostics(info);
-                        });
-                      },
+                      onPressed: isDiagnosing
+                          ? null
+                          : () async {
+                              setDialogState(() => isDiagnosing = true);
+                              final info = await TtsService.getDiagnostics();
+                              setDialogState(() {
+                                diagInfo = _formatDiagnostics(info);
+                                isDiagnosing = false;
+                              });
+                            },
                     ),
                   ],
                 ),
@@ -750,7 +756,7 @@ class _PracticePageState extends State<PracticePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 进度条
+              // 进度行：题号 + 进度条 + 百分比 + 科目标签
               Row(
                 children: [
                   Text(
@@ -759,32 +765,26 @@ class _PracticePageState extends State<PracticePage> {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: LinearProgressIndicator(
-                      value: progress,
-                      minHeight: 8,
-                      backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                    child: ProgressBarAnimation(
+                      progress: progress,
+                      color: theme.colorScheme.primary,
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  Text('${(progress * 100).toInt()}%',
+                      style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey)),
                   const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: question.subject == QuestionSubject.law
-                          ? Colors.blue.shade50
-                          : question.subject == QuestionSubject.management
-                              ? Colors.orange.shade50
-                              : Colors.purple.shade50,
+                      color: question.subject.color.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
                       question.subject.label,
                       style: TextStyle(
                         fontSize: 12,
-                        color: question.subject == QuestionSubject.law
-                            ? Colors.blue
-                            : question.subject == QuestionSubject.management
-                                ? Colors.orange
-                                : Colors.purple,
+                        color: question.subject.color,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -800,19 +800,6 @@ class _PracticePageState extends State<PracticePage> {
                   const Spacer(),
                   Text('已答对 $_correctCount 题',
                       style: theme.textTheme.bodySmall?.copyWith(color: Colors.green)),
-                ],
-              ),
-              const SizedBox(height: 12),
-              ProgressBarAnimation(
-                progress: (_currentIndex + 1) / _questions.length,
-                color: theme.colorScheme.primary,
-              ),
-              const SizedBox(height: 4),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('第 ${_currentIndex + 1} / ${_questions.length} 题'),
-                  Text('进度: ${((_currentIndex + 1) / _questions.length * 100).toInt()}%'),
                 ],
               ),
               const SizedBox(height: 20),

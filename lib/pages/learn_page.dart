@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import '../data/textbooks.dart';
 import '../models/question.dart';
 import '../providers/app_provider.dart';
-import '../services/storage_service.dart';
 import 'exam_mode_page.dart';
 import 'practice_page.dart';
 import 'textbook_page.dart';
@@ -172,7 +171,8 @@ class LearnPage extends StatelessWidget {
             shuffleQuestions: true,
           ),
           onCompleted: (result) async {
-            await StorageService.addHistory(result);
+            // 通过 AppProvider 更新状态，确保 UI 同步刷新
+            await context.read<AppProvider>().addHistory(result);
           },
         ),
       ),

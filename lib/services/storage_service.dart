@@ -349,8 +349,8 @@ class StorageService {
     final plans = raw
         .map((item) => StudyPlan.fromJson(jsonDecode(item) as Map<String, dynamic>))
         .toList();
-    await _updatePlanProgress(plans);
-    return plans;
+    // 仅在内存中计算进度，不再写回存储（避免每次读取触发写入）
+    return _computePlanProgress(plans);
   }
 
   static Future<void> saveStudyPlan(StudyPlan plan) async {
@@ -384,7 +384,7 @@ class StorageService {
     final progress = await _loadPlanProgress(planId);
     progress.add(DateTime.now().toIso8601String());
     await prefs.setString('${_planProgressKey}_$planId', jsonEncode(progress));
-    await _updatePlanProgress(await loadStudyPlans());
+    // 不再写回 plans 列表，loadStudyPlans 时会动态计算 completedDays
   }
 
   static Future<List<String>> _loadPlanProgress(String planId) async {
@@ -398,8 +398,8 @@ class StorageService {
     }
   }
 
-  static Future<void> _updatePlanProgress(List<StudyPlan> plans) async {
-    final prefs = await _instance;
+  /// 仅在内存中计算各计划的完成天数，不写回存储
+  static Future<List<StudyPlan>> _computePlanProgress(List<StudyPlan> plans) async {
     final updatedPlans = <StudyPlan>[];
     for (final plan in plans) {
       final progress = await _loadPlanProgress(plan.id);
@@ -421,10 +421,7 @@ class StorageService {
         totalDays: plan.totalDays,
       ));
     }
-    await prefs.setStringList(
-      _studyPlansKey,
-      updatedPlans.map((p) => jsonEncode(p.toJson())).toList(),
-    );
+    return updatedPlans;
   }
 
   // ========== 学习笔记 ==========

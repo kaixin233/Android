@@ -28,6 +28,12 @@ class TtsService {
 
   static Future<bool>? _initFuture;
 
+  /// 当前朗读完成回调（由 speak() 设置，由回调处理器调用）
+  static VoidCallback? _onComplete;
+
+  /// 标记回调是否已注册，避免重复注册
+  static bool _handlersRegistered = false;
+
   static const MethodChannel _nativeChannel =
       MethodChannel('com.example.android_app/tts_helper');
 
@@ -42,21 +48,29 @@ class TtsService {
   }
 
   static Future<bool> _doInitialize() async {
-    // 注册回调
-    _flutterTts.setStartHandler(() {
-      debugPrint('TTS: onStart 触发');
-      _isSpeaking = true;
-    });
+    // 注册回调（仅注册一次）
+    if (!_handlersRegistered) {
+      _flutterTts.setStartHandler(() {
+        debugPrint('TTS: onStart 触发');
+        _isSpeaking = true;
+      });
 
-    _flutterTts.setCompletionHandler(() {
-      debugPrint('TTS: onDone 触发');
-      _isSpeaking = false;
-    });
+      _flutterTts.setCompletionHandler(() {
+        debugPrint('TTS: onDone 触发');
+        _isSpeaking = false;
+        _onComplete?.call();
+        _onComplete = null;
+      });
 
-    _flutterTts.setErrorHandler((message) {
-      debugPrint('TTS: onError 触发: $message');
-      _isSpeaking = false;
-    });
+      _flutterTts.setErrorHandler((message) {
+        debugPrint('TTS: onError 触发: $message');
+        _isSpeaking = false;
+        _onComplete?.call();
+        _onComplete = null;
+      });
+
+      _handlersRegistered = true;
+    }
 
     try {
       await _flutterTts.setSharedInstance(true);
@@ -242,29 +256,14 @@ class TtsService {
         continue;
       }
 
-      // 设置回调
-      _flutterTts.setStartHandler(() {
-        debugPrint('TTS: onStart 触发');
-        _isSpeaking = true;
-      });
-
-      _flutterTts.setCompletionHandler(() {
-        debugPrint('TTS: onDone 触发');
-        _isSpeaking = false;
-        onComplete?.call();
-      });
-
-      _flutterTts.setErrorHandler((message) {
-        debugPrint('TTS: onError 触发: $message');
-        _isSpeaking = false;
-        onComplete?.call();
-      });
-
       try {
         // 先停止之前的朗读
         try {
           await _flutterTts.stop();
         } catch (_) {}
+
+        // 设置完成回调（回调处理器在 _doInitialize 中已注册）
+        _onComplete = onComplete;
 
         // 调用 speak()
         final result = await _flutterTts.speak(speechText);
@@ -288,6 +287,7 @@ class TtsService {
 
     debugPrint('TTS: 所有重试均失败');
     _isSpeaking = false;
+    _onComplete = null;
     onComplete?.call();
     return false;
   }
@@ -300,6 +300,7 @@ class TtsService {
       debugPrint('TTS stop failed: $e');
     }
     _isSpeaking = false;
+    _onComplete = null;
   }
 
   /// 暂停朗读
@@ -384,6 +385,7 @@ class TtsService {
     _initFuture = null;
     _isSpeaking = false;
     _isAvailable = false;
+    _onComplete = null;
   }
 
   /// 释放资源
@@ -392,5 +394,6 @@ class TtsService {
     _initFuture = null;
     _isSpeaking = false;
     _isAvailable = false;
+    _onComplete = null;
   }
 }

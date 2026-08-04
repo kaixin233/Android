@@ -212,12 +212,12 @@ class _ProfilePageState extends State<ProfilePage> {
                 ListTile(
                   leading: const Icon(Icons.info_outline_rounded),
                   title: const Text('关于'),
-                  subtitle: const Text('二级建造师学习助手 v1.0.2'),
+                  subtitle: const Text('二级建造师学习助手 v1.0.6'),
                   onTap: () {
                     showAboutDialog(
                       context: context,
                       applicationName: '二级建造师学习',
-                      applicationVersion: '1.0.2',
+                      applicationVersion: '1.0.6',
                       applicationLegalese: '© 2026',
                       children: [
                         const SizedBox(height: 12),
@@ -294,7 +294,9 @@ class _ProfilePageState extends State<ProfilePage> {
       final jsonString = utf8.decode(bytes);
       await StorageService.importAllData(jsonString);
 
+      // 刷新 AppProvider 状态，确保 UI 与存储同步
       if (mounted) {
+        await context.read<AppProvider>().refresh();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('数据导入成功')),
         );

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../models/study_plan.dart';
 import '../models/question.dart';
 import '../models/history_item.dart';
+import '../providers/app_provider.dart';
 import '../services/storage_service.dart';
 import 'practice_page.dart';
 
@@ -48,6 +50,7 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
   }
 
   void _startPlan(StudyPlan plan) {
+    final provider = context.read<AppProvider>();
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -59,7 +62,7 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
             shuffleQuestions: true,
           ),
           onCompleted: (result) async {
-            await StorageService.addHistory(result);
+            await provider.addHistory(result);
             await StorageService.markPlanDayCompleted(plan.id);
             await _loadPlans();
             if (mounted) {

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../data/textbooks.dart';
 import '../models/question.dart';
 import '../models/history_item.dart';
+import '../providers/app_provider.dart';
 import '../services/question_loader.dart';
 import '../services/question_service.dart';
 import '../services/storage_service.dart';
@@ -497,13 +499,14 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage> {
       shuffleQuestions: false,
     );
 
+    final provider = context.read<AppProvider>();
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => PracticePage(
           config: config,
           onCompleted: (result) async {
-            await StorageService.addHistory(result);
+            await provider.addHistory(result);
             await StorageService.markChapterCompleted(widget.subject, widget.chapterNumber);
             if (mounted) {
               Navigator.pop(context);
@@ -523,13 +526,14 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage> {
       shuffleQuestions: false,
     );
 
+    final provider = context.read<AppProvider>();
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => PracticePage(
           config: config,
           onCompleted: (result) async {
-            await StorageService.addHistory(result);
+            await provider.addHistory(result);
             await StorageService.markChapterCompleted(widget.subject, widget.chapterNumber);
             if (mounted) {
               Navigator.pop(context);
@@ -757,13 +761,14 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
       shuffleQuestions: false,
     );
 
+    final provider = context.read<AppProvider>();
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => PracticePage(
           config: config,
           onCompleted: (result) async {
-            await StorageService.addHistory(result);
+            await provider.addHistory(result);
             await StorageService.markChapterCompleted(widget.book.subject, chapterNumber);
             if (mounted) {
               Navigator.pop(context);
@@ -805,13 +810,14 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
       config = PracticeConfig(subject: subject);
     }
 
+    final provider = context.read<AppProvider>();
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => PracticePage(
           config: config,
           onCompleted: (result) async {
-            await StorageService.addHistory(result);
+            await provider.addHistory(result);
             if (category.chapterNumber != null) {
               await StorageService.markChapterCompleted(subject, category.chapterNumber!);
             }

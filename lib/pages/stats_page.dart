@@ -1,53 +1,30 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../models/history_item.dart';
 import '../models/question.dart';
-import '../services/storage_service.dart';
+import '../providers/app_provider.dart';
 
 /// 统计页面 - 展示学习数据可视化
-class StatsPage extends StatefulWidget {
+class StatsPage extends StatelessWidget {
   const StatsPage({super.key});
-
-  @override
-  State<StatsPage> createState() => _StatsPageState();
-}
-
-class _StatsPageState extends State<StatsPage> {
-  List<HistoryItem> _history = [];
-  int _streakDays = 0;
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadData();
-  }
-
-  Future<void> _loadData() async {
-    _history = await StorageService.loadHistory();
-    _streakDays = await StorageService.loadStreakDays();
-    setState(() => _isLoading = false);
-  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    if (_isLoading) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('学习统计')),
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
+    final app = context.watch<AppProvider>();
+    final history = app.history;
+    final streakDays = app.streakDays;
 
-    final totalQuestions = _history.fold<int>(0, (sum, h) => sum + h.totalCount);
-    final totalCorrect = _history.fold<int>(0, (sum, h) => sum + h.correctCount);
+    final totalQuestions = history.fold<int>(0, (sum, h) => sum + h.totalCount);
+    final totalCorrect = history.fold<int>(0, (sum, h) => sum + h.correctCount);
     final overallAccuracy = totalQuestions == 0 ? 0.0 : totalCorrect / totalQuestions;
-    final totalDuration = _history.fold<int>(0, (sum, h) => sum + h.durationSeconds);
+    final totalDuration = history.fold<int>(0, (sum, h) => sum + h.durationSeconds);
 
     return Scaffold(
       appBar: AppBar(title: const Text('学习统计')),
-      body: _history.isEmpty
+      body: history.isEmpty
           ? _buildEmpty(theme)
           : ListView(
               padding: const EdgeInsets.all(16),
@@ -58,21 +35,21 @@ class _StatsPageState extends State<StatsPage> {
                   totalCorrect: totalCorrect,
                   accuracy: overallAccuracy,
                   duration: totalDuration,
-                  practiceCount: _history.length,
-                  streakDays: _streakDays,
+                  practiceCount: history.length,
+                  streakDays: streakDays,
                 ),
                 const SizedBox(height: 16),
-                _buildAccuracyTrendChart(theme),
+                _buildAccuracyTrendChart(theme, history),
                 const SizedBox(height: 16),
-                _buildSubjectDistribution(theme),
+                _buildSubjectDistribution(theme, history),
                 const SizedBox(height: 16),
-                _buildSubjectAccuracy(theme),
+                _buildSubjectAccuracy(theme, history),
                 const SizedBox(height: 16),
-                _buildModeStats(theme),
+                _buildModeStats(theme, history),
                 const SizedBox(height: 16),
-                _buildTimeDistribution(theme),
+                _buildTimeDistribution(theme, history),
                 const SizedBox(height: 16),
-                _buildRecentHistory(theme),
+                _buildRecentHistory(theme, history),
               ],
             ),
     );
@@ -152,8 +129,8 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
-  Widget _buildAccuracyTrendChart(ThemeData theme) {
-    final recent = _history.length > 10 ? _history.sublist(_history.length - 10) : _history;
+  Widget _buildAccuracyTrendChart(ThemeData theme, List<HistoryItem> history) {
+    final recent = history.length > 10 ? history.sublist(history.length - 10) : history;
     final spots = <FlSpot>[];
     for (var i = 0; i < recent.length; i++) {
       final accuracy = recent[i].accuracy * 100;
@@ -212,10 +189,10 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
-  Widget _buildSubjectDistribution(ThemeData theme) {
+  Widget _buildSubjectDistribution(ThemeData theme, List<HistoryItem> history) {
     // 按科目统计练习次数
     final subjectCount = <QuestionSubject, int>{};
-    for (final h in _history) {
+    for (final h in history) {
       if (h.subject != null) {
         subjectCount[h.subject!] = (subjectCount[h.subject!] ?? 0) + 1;
       }
@@ -260,9 +237,9 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
-  Widget _buildSubjectAccuracy(ThemeData theme) {
+  Widget _buildSubjectAccuracy(ThemeData theme, List<HistoryItem> history) {
     final subjectStats = <QuestionSubject, Map<String, int>>{};
-    for (final h in _history) {
+    for (final h in history) {
       if (h.subject != null) {
         final stats = subjectStats.putIfAbsent(h.subject!, () => {'correct': 0, 'total': 0});
         stats['correct'] = stats['correct']! + h.correctCount;
@@ -326,9 +303,9 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
-  Widget _buildModeStats(ThemeData theme) {
+  Widget _buildModeStats(ThemeData theme, List<HistoryItem> history) {
     final modeCount = <PracticeMode, int>{};
-    for (final h in _history) {
+    for (final h in history) {
       modeCount[h.mode] = (modeCount[h.mode] ?? 0) + 1;
     }
     final bars = <BarChartGroupData>[];
@@ -393,9 +370,9 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
-  Widget _buildTimeDistribution(ThemeData theme) {
+  Widget _buildTimeDistribution(ThemeData theme, List<HistoryItem> history) {
     final hourCount = <int, int>{};
-    for (final h in _history) {
+    for (final h in history) {
       try {
         final dt = h.answeredAt;
         hourCount[dt.hour] = (hourCount[dt.hour] ?? 0) + 1;
@@ -462,8 +439,8 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
-  Widget _buildRecentHistory(ThemeData theme) {
-    final recent = _history.reversed.take(10).toList();
+  Widget _buildRecentHistory(ThemeData theme, List<HistoryItem> history) {
+    final recent = history.reversed.take(10).toList();
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),

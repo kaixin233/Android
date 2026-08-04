@@ -10,7 +10,6 @@ import '../services/storage_service.dart';
 
 class AppProvider extends ChangeNotifier {
   List<Question> _allQuestions = [];
-  bool _questionsLoaded = false;
   List<HistoryItem> _history = [];
   List<Note> _notes = [];
   List<StudyPlan> _studyPlans = [];
@@ -22,16 +21,7 @@ class AppProvider extends ChangeNotifier {
   String _themeMode = 'system';
   bool _vibrationEnabled = true;
 
-  List<Question> get allQuestions {
-    if (!_questionsLoaded) {
-      _questionsLoaded = true;
-      QuestionService.getAllQuestions().then((questions) {
-        _allQuestions = questions;
-        notifyListeners();
-      });
-    }
-    return _allQuestions;
-  }
+  List<Question> get allQuestions => _allQuestions;
   List<HistoryItem> get history => _history;
   List<Note> get notes => _notes;
   List<StudyPlan> get studyPlans => _studyPlans;
@@ -45,19 +35,32 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> initialize() async {
     try {
-      await Future.wait([
-        _loadHistory(),
-        _loadNotes(),
-        _loadStudyPlans(),
-        _loadFavorites(),
-        _loadWrongQuestions(),
-        _loadStats(),
-        _loadThemeMode(),
-        _loadVibrationEnabled(),
+      // 每个任务独立 catch，避免一个失败影响其他
+      final results = await Future.wait([
+        _loadHistory().catchError((e) => debugPrint('loadHistory error: $e')),
+        _loadNotes().catchError((e) => debugPrint('loadNotes error: $e')),
+        _loadStudyPlans().catchError((e) => debugPrint('loadStudyPlans error: $e')),
+        _loadFavorites().catchError((e) => debugPrint('loadFavorites error: $e')),
+        _loadWrongQuestions().catchError((e) => debugPrint('loadWrongQuestions error: $e')),
+        _loadStats().catchError((e) => debugPrint('loadStats error: $e')),
+        _loadThemeMode().catchError((e) => debugPrint('loadThemeMode error: $e')),
+        _loadVibrationEnabled().catchError((e) => debugPrint('loadVibrationEnabled error: $e')),
+        _loadAllQuestions().catchError((e) => debugPrint('loadAllQuestions error: $e')),
       ]);
     } catch (e) {
       debugPrint('Error initializing app: $e');
     }
+  }
+
+  Future<void> _loadAllQuestions() async {
+    _allQuestions = await QuestionService.getAllQuestions();
+  }
+
+  /// 重新加载题目列表（导入/删除题目后调用）
+  Future<void> reloadQuestions() async {
+    QuestionService.clearCache();
+    _allQuestions = await QuestionService.getAllQuestions();
+    notifyListeners();
   }
 
   Future<void> _loadHistory() async {
@@ -98,8 +101,8 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> addHistory(HistoryItem item) async {
     _history.add(item);
-    notifyListeners();
     await StorageService.addHistory(item);
+    // 一次性更新关联状态，避免多次 notifyListeners
     _streakDays = await StorageService.loadStreakDays();
     _completedChapters = await StorageService.loadCompletedChapters();
     notifyListeners();
@@ -193,6 +196,7 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> refresh() async {
+    QuestionService.clearCache();
     await initialize();
   }
 
