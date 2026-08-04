@@ -25,10 +25,10 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final app = context.watch<AppProvider>();
-    final progress = (app.completedChapters / 12).clamp(0.0, 1.0);
-    final totalQuestions = app.history.fold<int>(0, (s, h) => s + h.totalCount);
+    final progress = app.totalChapters == 0 ? 0.0 : (app.completedChapters / app.totalChapters).clamp(0.0, 1.0);
+    final totalAnswered = app.history.fold<int>(0, (s, h) => s + h.totalCount);
     final totalCorrect = app.history.fold<int>(0, (s, h) => s + h.correctCount);
-    final accuracy = totalQuestions == 0 ? 0.0 : totalCorrect / totalQuestions;
+    final accuracy = totalAnswered == 0 ? 0.0 : totalCorrect / totalAnswered;
 
     return Scaffold(
       appBar: AppBar(title: const Text('我的')),
@@ -58,7 +58,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             Text('二建备考学员',
                                 style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
                             const SizedBox(height: 4),
-                            Text('已学习 ${app.completedChapters}/12 章',
+                            Text('已学习 ${app.completedChapters}/${app.totalChapters} 章',
                                 style: TextStyle(color: Colors.grey.shade600)),
                           ],
                         ),
@@ -75,7 +75,7 @@ class _ProfilePageState extends State<ProfilePage> {
           // 统计概览
           Row(
             children: [
-              _statCard('累计答题', '$totalQuestions', Icons.quiz_rounded, Colors.blue, theme),
+              _statCard('累计答题', '$totalAnswered', Icons.quiz_rounded, Colors.blue, theme),
               const SizedBox(width: 12),
               _statCard('正确率', '${(accuracy * 100).toStringAsFixed(0)}%', Icons.trending_up_rounded, Colors.green, theme),
               const SizedBox(width: 12),

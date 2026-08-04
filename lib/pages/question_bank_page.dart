@@ -326,7 +326,7 @@ class _QuestionCard extends StatelessWidget {
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         leading: CircleAvatar(
-          backgroundColor: question.subject.color.withOpacity(0.1),
+          backgroundColor: question.subject.color.withValues(alpha: 0.1),
           child: Text(
             question.subject.label,
             style: TextStyle(
@@ -349,7 +349,7 @@ class _QuestionCard extends StatelessWidget {
             children: [
               _buildTag(question.type.label, theme.colorScheme.primaryContainer, theme.colorScheme.onPrimaryContainer),
               _buildTag(question.difficulty.label,
-                  question.difficulty.color.withOpacity(0.1),
+                  question.difficulty.color.withValues(alpha: 0.1),
                   question.difficulty.color),
             ],
           ),

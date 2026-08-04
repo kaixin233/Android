@@ -122,7 +122,7 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
             const SizedBox(height: 12),
             LinearProgressIndicator(
               value: plan.progress,
-              backgroundColor: color.withOpacity(0.1),
+              backgroundColor: color.withValues(alpha: 0.1),
               valueColor: AlwaysStoppedAnimation<Color>(color),
               borderRadius: BorderRadius.circular(8),
               minHeight: 8,
@@ -167,7 +167,7 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(text, style: TextStyle(color: color, fontSize: 12)),
@@ -180,8 +180,6 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
         return const Color(0xFF2196F3);
       case QuestionSubject.management:
         return const Color(0xFFFF9800);
-      case QuestionSubject.economy:
-        return const Color(0xFF4CAF50);
       case QuestionSubject.practice:
         return const Color(0xFF9C27B0);
     }
@@ -466,7 +464,7 @@ class _CreatePlanDialogState extends State<_CreatePlanDialog> {
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<PlanType>(
-                  value: _planType,
+                  initialValue: _planType,
                   decoration: const InputDecoration(labelText: '计划类型'),
                   items: PlanType.values
                       .map((type) => DropdownMenuItem(value: type, child: Text(type.label)))
@@ -475,7 +473,7 @@ class _CreatePlanDialogState extends State<_CreatePlanDialog> {
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<QuestionSubject>(
-                  value: _subject,
+                  initialValue: _subject,
                   decoration: const InputDecoration(labelText: '科目'),
                   items: QuestionSubject.values
                       .map((subject) => DropdownMenuItem(value: subject, child: Text(subject.label)))

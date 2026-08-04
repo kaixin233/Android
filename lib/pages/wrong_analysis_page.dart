@@ -73,7 +73,7 @@ class _WrongAnalysisPageState extends State<WrongAnalysisPage> {
                   height: 24,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    color: theme.colorScheme.surfaceVariant,
+                    color: theme.colorScheme.surfaceContainerHighest,
                   ),
                   child: Container(
                     height: 24,
@@ -122,7 +122,7 @@ class _WrongAnalysisPageState extends State<WrongAnalysisPage> {
                   height: 24,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    color: theme.colorScheme.surfaceVariant,
+                    color: theme.colorScheme.surfaceContainerHighest,
                   ),
                   child: Container(
                     height: 24,
@@ -171,7 +171,7 @@ class _WrongAnalysisPageState extends State<WrongAnalysisPage> {
                   height: 24,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    color: theme.colorScheme.surfaceVariant,
+                    color: theme.colorScheme.surfaceContainerHighest,
                   ),
                   child: Container(
                     height: 24,
@@ -203,8 +203,6 @@ class _WrongAnalysisPageState extends State<WrongAnalysisPage> {
         return const Color(0xFFEF4444);
       case QuestionSubject.management:
         return const Color(0xFF3B82F6);
-      case QuestionSubject.economy:
-        return const Color(0xFFF59E0B);
       case QuestionSubject.practice:
         return const Color(0xFF10B981);
     }

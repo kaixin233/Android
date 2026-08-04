@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../data/textbooks.dart';
 import '../models/history_item.dart';
 import '../models/note.dart';
 import '../models/question.dart';
@@ -9,6 +10,7 @@ import '../services/storage_service.dart';
 
 class AppProvider extends ChangeNotifier {
   List<Question> _allQuestions = [];
+  bool _questionsLoaded = false;
   List<HistoryItem> _history = [];
   List<Note> _notes = [];
   List<StudyPlan> _studyPlans = [];
@@ -20,7 +22,16 @@ class AppProvider extends ChangeNotifier {
   String _themeMode = 'system';
   bool _vibrationEnabled = true;
 
-  List<Question> get allQuestions => _allQuestions;
+  List<Question> get allQuestions {
+    if (!_questionsLoaded) {
+      _questionsLoaded = true;
+      QuestionService.getAllQuestions().then((questions) {
+        _allQuestions = questions;
+        notifyListeners();
+      });
+    }
+    return _allQuestions;
+  }
   List<HistoryItem> get history => _history;
   List<Note> get notes => _notes;
   List<StudyPlan> get studyPlans => _studyPlans;
@@ -35,7 +46,6 @@ class AppProvider extends ChangeNotifier {
   Future<void> initialize() async {
     try {
       await Future.wait([
-        _loadQuestions(),
         _loadHistory(),
         _loadNotes(),
         _loadStudyPlans(),
@@ -48,10 +58,6 @@ class AppProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('Error initializing app: $e');
     }
-  }
-
-  Future<void> _loadQuestions() async {
-    _allQuestions = await QuestionService.getAllQuestions();
   }
 
   Future<void> _loadHistory() async {
@@ -191,6 +197,8 @@ class AppProvider extends ChangeNotifier {
   }
 
   // ========== 统计 ==========
+
+  int get totalChapters => Textbooks.all.fold(0, (sum, book) => sum + book.chapters.length);
 
   int get totalQuestions => _allQuestions.length;
 

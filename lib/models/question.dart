@@ -10,7 +10,6 @@ enum QuestionType {
 enum QuestionSubject {
   law,        // 法规
   management, // 管理
-  economy,    // 经济
   practice,   // 实务
 }
 
@@ -70,8 +69,6 @@ extension QuestionSubjectExtension on QuestionSubject {
         return 'law';
       case QuestionSubject.management:
         return 'management';
-      case QuestionSubject.economy:
-        return 'economy';
       case QuestionSubject.practice:
         return 'practice';
     }
@@ -83,8 +80,6 @@ extension QuestionSubjectExtension on QuestionSubject {
         return '法规';
       case QuestionSubject.management:
         return '管理';
-      case QuestionSubject.economy:
-        return '经济';
       case QuestionSubject.practice:
         return '实务';
     }
@@ -96,8 +91,6 @@ extension QuestionSubjectExtension on QuestionSubject {
         return '建设工程法规及相关知识';
       case QuestionSubject.management:
         return '建设工程项目管理';
-      case QuestionSubject.economy:
-        return '建设工程经济';
       case QuestionSubject.practice:
         return '市政公用工程管理与实务';
     }
@@ -109,8 +102,6 @@ extension QuestionSubjectExtension on QuestionSubject {
         return Colors.blue;
       case QuestionSubject.management:
         return Colors.orange;
-      case QuestionSubject.economy:
-        return Colors.green;
       case QuestionSubject.practice:
         return Colors.purple;
     }
@@ -122,8 +113,6 @@ extension QuestionSubjectExtension on QuestionSubject {
         return Icons.gavel_rounded;
       case QuestionSubject.management:
         return Icons.build_rounded;
-      case QuestionSubject.economy:
-        return Icons.trending_up_rounded;
       case QuestionSubject.practice:
         return Icons.construction_rounded;
     }
@@ -135,8 +124,6 @@ extension QuestionSubjectExtension on QuestionSubject {
         return QuestionSubject.law;
       case 'management':
         return QuestionSubject.management;
-      case 'economy':
-        return QuestionSubject.economy;
       case 'practice':
         return QuestionSubject.practice;
       default:

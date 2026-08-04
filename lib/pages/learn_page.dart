@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../data/textbooks.dart';
 import '../models/question.dart';
 import '../providers/app_provider.dart';
 import '../services/storage_service.dart';
@@ -70,7 +71,7 @@ class LearnPage extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       decoration: BoxDecoration(
-                        color: colorScheme.onPrimary.withOpacity(0.2),
+                        color: colorScheme.onPrimary.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: Row(
@@ -94,7 +95,7 @@ class LearnPage extends StatelessWidget {
               Expanded(
                 child: _StatCard(
                   title: '已学章节',
-                  value: '${app.completedChapters}/12',
+                  value: '${app.completedChapters}/${app.totalChapters}',
                   icon: Icons.menu_book_rounded,
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const TextbookPage()),
@@ -147,9 +148,15 @@ class LearnPage extends StatelessWidget {
           ...QuestionSubject.values.map((subject) => _SubjectCard(
                 subject: subject,
                 onTap: () => _startPractice(context, subject: subject),
-                onBookTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const TextbookPage()),
-                ),
+                onBookTap: () {
+                  final book = Textbooks.all.firstWhere(
+                    (b) => b.subject == subject,
+                    orElse: () => Textbooks.all.first,
+                  );
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => TextbookDetailPage(book: book)),
+                  );
+                },
               )),
         ],
       ),
@@ -201,7 +208,7 @@ class _StatCard extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: theme.colorScheme.primary.withOpacity(0.2)),
+            border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.2)),
           ),
           child: Row(
             children: [
@@ -255,13 +262,13 @@ class _SubjectCard extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: color.withOpacity(0.3)),
+              border: Border.all(color: color.withValues(alpha: 0.3)),
             ),
             child: Row(
               children: [
                 CircleAvatar(
                   radius: 26,
-                  backgroundColor: color.withOpacity(0.12),
+                  backgroundColor: color.withValues(alpha: 0.12),
                   child: Icon(icon, color: color),
                 ),
                 const SizedBox(width: 12),

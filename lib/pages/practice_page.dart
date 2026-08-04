@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:math';
+import 'dart:math' show max;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -511,9 +511,7 @@ class _PracticePageState extends State<PracticePage> {
                           ? Colors.blue.shade50
                           : question.subject == QuestionSubject.management
                               ? Colors.orange.shade50
-                              : question.subject == QuestionSubject.economy
-                                  ? Colors.green.shade50
-                                  : Colors.purple.shade50,
+                              : Colors.purple.shade50,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
@@ -524,9 +522,7 @@ class _PracticePageState extends State<PracticePage> {
                             ? Colors.blue
                             : question.subject == QuestionSubject.management
                                 ? Colors.orange
-                                : question.subject == QuestionSubject.economy
-                                    ? Colors.green
-                                    : Colors.purple,
+                                : Colors.purple,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -634,7 +630,7 @@ class _PracticePageState extends State<PracticePage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
@@ -845,14 +841,14 @@ class _PracticePageState extends State<PracticePage> {
     Color? fgColor;
     if (submitted) {
       if (isCorrect) {
-        bgColor = color.withOpacity(0.1);
+        bgColor = color.withValues(alpha: 0.1);
         fgColor = color;
       } else if (isSelected) {
         bgColor = Colors.grey.shade200;
         fgColor = Colors.grey;
       }
     } else if (isSelected) {
-      bgColor = color.withOpacity(0.1);
+      bgColor = color.withValues(alpha: 0.1);
       fgColor = color;
     }
     return FilledButton.tonal(
