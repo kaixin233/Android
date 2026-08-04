@@ -202,6 +202,64 @@ class StorageService {
     await prefs.setBool(_vibrationEnabledKey, enabled);
   }
 
+  // ========== 语音播报设置 ==========
+
+  static const String _ttsAutoPlayExplanationKey = 'ttsAutoPlayExplanation';
+  static const String _ttsAutoReadQuestionKey = 'ttsAutoReadQuestion';
+  static const String _ttsSpeechRateKey = 'ttsSpeechRate';
+  static const String _ttsPitchKey = 'ttsPitch';
+  static const String _ttsVolumeKey = 'ttsVolume';
+
+  static Future<bool> loadTtsAutoPlayExplanation() async {
+    final prefs = await _instance;
+    return prefs.getBool(_ttsAutoPlayExplanationKey) ?? true;
+  }
+
+  static Future<void> saveTtsAutoPlayExplanation(bool enabled) async {
+    final prefs = await _instance;
+    await prefs.setBool(_ttsAutoPlayExplanationKey, enabled);
+  }
+
+  static Future<bool> loadTtsAutoReadQuestion() async {
+    final prefs = await _instance;
+    return prefs.getBool(_ttsAutoReadQuestionKey) ?? false;
+  }
+
+  static Future<void> saveTtsAutoReadQuestion(bool enabled) async {
+    final prefs = await _instance;
+    await prefs.setBool(_ttsAutoReadQuestionKey, enabled);
+  }
+
+  static Future<double> loadTtsSpeechRate() async {
+    final prefs = await _instance;
+    return prefs.getDouble(_ttsSpeechRateKey) ?? 0.5;
+  }
+
+  static Future<void> saveTtsSpeechRate(double rate) async {
+    final prefs = await _instance;
+    await prefs.setDouble(_ttsSpeechRateKey, rate);
+  }
+
+  static Future<double> loadTtsPitch() async {
+    final prefs = await _instance;
+    return prefs.getDouble(_ttsPitchKey) ?? 1.0;
+  }
+
+  static Future<void> saveTtsPitch(double pitch) async {
+    final prefs = await _instance;
+    await prefs.setDouble(_ttsPitchKey, pitch);
+  }
+
+  static Future<double> loadTtsVolume() async {
+    final prefs = await _instance;
+    return prefs.getDouble(_ttsVolumeKey) ?? 1.0;
+  }
+
+  static Future<void> saveTtsVolume(double volume) async {
+    final prefs = await _instance;
+    await prefs.setDouble(_ttsVolumeKey, volume);
+  }
+
   // ========== 连续学习天数 ==========
 
   static Future<int> loadStreakDays() async {

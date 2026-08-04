@@ -7,6 +7,7 @@ import '../models/question.dart';
 import '../models/study_plan.dart';
 import '../services/question_service.dart';
 import '../services/storage_service.dart';
+import '../services/tts_service.dart';
 
 class AppProvider extends ChangeNotifier {
   List<Question> _allQuestions = [];
@@ -21,6 +22,13 @@ class AppProvider extends ChangeNotifier {
   String _themeMode = 'system';
   bool _vibrationEnabled = true;
 
+  // 语音设置
+  bool _ttsAutoPlayExplanation = true;
+  bool _ttsAutoReadQuestion = false;
+  double _ttsSpeechRate = 0.5;
+  double _ttsPitch = 1.0;
+  double _ttsVolume = 1.0;
+
   List<Question> get allQuestions => _allQuestions;
   List<HistoryItem> get history => _history;
   List<Note> get notes => _notes;
@@ -32,6 +40,12 @@ class AppProvider extends ChangeNotifier {
   int get streakDays => _streakDays;
   String get themeMode => _themeMode;
   bool get vibrationEnabled => _vibrationEnabled;
+
+  bool get ttsAutoPlayExplanation => _ttsAutoPlayExplanation;
+  bool get ttsAutoReadQuestion => _ttsAutoReadQuestion;
+  double get ttsSpeechRate => _ttsSpeechRate;
+  double get ttsPitch => _ttsPitch;
+  double get ttsVolume => _ttsVolume;
 
   Future<void> initialize() async {
     try {
@@ -46,6 +60,7 @@ class AppProvider extends ChangeNotifier {
         _loadThemeMode().catchError((e) => debugPrint('loadThemeMode error: $e')),
         _loadVibrationEnabled().catchError((e) => debugPrint('loadVibrationEnabled error: $e')),
         _loadAllQuestions().catchError((e) => debugPrint('loadAllQuestions error: $e')),
+        _loadTtsSettings().catchError((e) => debugPrint('loadTtsSettings error: $e')),
       ]);
     } catch (e) {
       debugPrint('Error initializing app: $e');
@@ -95,6 +110,20 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> _loadVibrationEnabled() async {
     _vibrationEnabled = await StorageService.loadVibrationEnabled();
+  }
+
+  Future<void> _loadTtsSettings() async {
+    _ttsAutoPlayExplanation = await StorageService.loadTtsAutoPlayExplanation();
+    _ttsAutoReadQuestion = await StorageService.loadTtsAutoReadQuestion();
+    _ttsSpeechRate = await StorageService.loadTtsSpeechRate();
+    _ttsPitch = await StorageService.loadTtsPitch();
+    _ttsVolume = await StorageService.loadTtsVolume();
+    // 将用户保存的语音参数应用到 TTS 引擎
+    await TtsService.applySpeechParams(
+      rate: _ttsSpeechRate,
+      pitch: _ttsPitch,
+      volume: _ttsVolume,
+    );
   }
 
   // ========== 历史记录 ==========
@@ -193,6 +222,41 @@ class AppProvider extends ChangeNotifier {
     _vibrationEnabled = enabled;
     notifyListeners();
     await StorageService.saveVibrationEnabled(enabled);
+  }
+
+  // ========== 语音设置 ==========
+
+  Future<void> saveTtsAutoPlayExplanation(bool enabled) async {
+    _ttsAutoPlayExplanation = enabled;
+    notifyListeners();
+    await StorageService.saveTtsAutoPlayExplanation(enabled);
+  }
+
+  Future<void> saveTtsAutoReadQuestion(bool enabled) async {
+    _ttsAutoReadQuestion = enabled;
+    notifyListeners();
+    await StorageService.saveTtsAutoReadQuestion(enabled);
+  }
+
+  Future<void> saveTtsSpeechRate(double rate) async {
+    _ttsSpeechRate = rate;
+    notifyListeners();
+    await StorageService.saveTtsSpeechRate(rate);
+    await TtsService.applySpeechParams(rate: rate);
+  }
+
+  Future<void> saveTtsPitch(double pitch) async {
+    _ttsPitch = pitch;
+    notifyListeners();
+    await StorageService.saveTtsPitch(pitch);
+    await TtsService.applySpeechParams(pitch: pitch);
+  }
+
+  Future<void> saveTtsVolume(double volume) async {
+    _ttsVolume = volume;
+    notifyListeners();
+    await StorageService.saveTtsVolume(volume);
+    await TtsService.applySpeechParams(volume: volume);
   }
 
   Future<void> refresh() async {

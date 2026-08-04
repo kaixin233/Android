@@ -216,6 +216,98 @@ class TtsService {
     }
   }
 
+  /// 设置语音参数
+  static Future<void> applySpeechParams({
+    double? rate,
+    double? pitch,
+    double? volume,
+  }) async {
+    try {
+      if (rate != null) await _flutterTts.setSpeechRate(rate);
+      if (pitch != null) await _flutterTts.setPitch(pitch);
+      if (volume != null) await _flutterTts.setVolume(volume);
+    } catch (e) {
+      debugPrint('TTS: applySpeechParams failed: $e');
+    }
+  }
+
+  /// 文本预处理 - 将题目文本转换为更适合语音播报的形式
+  ///
+  /// 处理规则：
+  /// - （）或() 空括号 → "什么"
+  /// - （内容）有内容的括号 → 去掉括号保留内容
+  /// - _____ 连续下划线 → "什么"
+  /// - 【】 方括号 → 去掉括号保留内容
+  /// - □ ○ ◇ 等选择符号 → "什么"
+  /// - → ← ↑ ↓ 箭头 → 替换为文字描述
+  /// - ※ § 等特殊符号 → 清除
+  /// —— 破折号 → 逗号（语音停顿）
+  /// - · 间隔号 → 逗号
+  /// - Markdown 标记清理
+  /// - 多余空格和标点合并
+  static String preprocessText(String text) {
+    var result = text;
+
+    // 1. 空括号（）() → "什么"
+    result = result.replaceAll(RegExp(r'[（(]\s*[）)]'), '什么');
+
+    // 2. 有内容的括号：去掉括号保留内容（语音不需要括号）
+    result = result.replaceAll(RegExp(r'[（(]([^）)]+)[）)]'), r'$1');
+
+    // 3. 方括号【】[] → 去掉括号保留内容
+    result = result.replaceAll(RegExp(r'[【\[]([^】\]]+)[】\]]'), r'$1');
+
+    // 4. 连续下划线（填空横线）→ "什么"
+    result = result.replaceAll(RegExp(r'_{2,}'), '什么');
+
+    // 5. 单个下划线如果出现在空格位置也替换
+    result = result.replaceAll(RegExp(r'(?<=[\s，。、])_(?=[\s，。、])'), '什么');
+
+    // 6. 选择符号 □ ○ ◇ → "什么"
+    result = result.replaceAll(RegExp(r'[□○◇]'), '什么');
+
+    // 7. 箭头符号 → 文字描述
+    result = result.replaceAll('→', '变为');
+    result = result.replaceAll('←', '反向变为');
+    result = result.replaceAll('↑', '上升至');
+    result = result.replaceAll('↓', '下降至');
+
+    // 8. 破折号 → 逗号（语音停顿）
+    result = result.replaceAll('——', '，');
+    result = result.replaceAll('—', '，');
+
+    // 9. 间隔号 → 逗号
+    result = result.replaceAll('·', '，');
+
+    // 10. 清除特殊符号
+    result = result.replaceAll(RegExp(r'[※§★☆◆●○■□△▲▽▼]'), '');
+
+    // 11. 清理 Markdown 加粗标记
+    result = result.replaceAll('**', '');
+    result = result.replaceAll(RegExp(r'`([^`]+)`'), r'$1');
+
+    // 12. 清理 Markdown 标题标记
+    result = result.replaceAll(RegExp(r'^#+\s*'), '');
+    result = result.replaceAll(RegExp(r'\n#+\s*'), '\n');
+
+    // 13. 清理 Markdown 列表标记
+    result = result.replaceAll(RegExp(r'^\s*[-*+]\s+', multiLine: true), '');
+
+    // 14. 连续相同标点合并（如。。。→。）
+    result = result.replaceAll(RegExp(r'([，。！？、；：])\1+'), r'$1');
+
+    // 15. 多余空白合并
+    result = result.replaceAll(RegExp(r'\s{2,}'), ' ');
+
+    // 16. 标点前的空格清除
+    result = result.replaceAll(RegExp(r'\s+([，。！？、；：）」』])'), r'$1');
+
+    // 17. 标点后的多余空格清除
+    result = result.replaceAll(RegExp(r'([（「『])\s+'), r'$1');
+
+    return result.trim();
+  }
+
   /// 朗读文本
   ///
   /// 核心策略（基于诊断修复）：
@@ -224,8 +316,9 @@ class TtsService {
   /// - onStart 仅用于更新 _isSpeaking 状态
   /// - onDone/onError 用于重置状态和触发回调
   /// - 如果 speak() 返回 0，重试一次（重新初始化）
+  /// - 自动对文本进行预处理（括号替换等）
   static Future<bool> speak(String text, {VoidCallback? onComplete}) async {
-    final speechText = text.trim();
+    final speechText = preprocessText(text);
     if (speechText.isEmpty) {
       onComplete?.call();
       return false;
@@ -320,7 +413,7 @@ class TtsService {
 
   /// 设置语速 (0.0 - 1.0)
   static Future<void> setSpeechRate(double rate) async {
-    await _flutterTts.setSpeechRate(rate);
+    await applySpeechParams(rate: rate);
   }
 
   /// 打开系统 TTS 设置页面

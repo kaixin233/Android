@@ -92,6 +92,7 @@ class _PracticePageState extends State<PracticePage> {
   final Set<String> _wrongKeys = {};
   final Map<String, _AnswerRecord> _questionResults = {};
   bool _isSpeaking = false;
+  bool _isSpeakingExplanation = false;
 
   @override
   void initState() {
@@ -150,6 +151,14 @@ class _PracticePageState extends State<PracticePage> {
 
     if (widget.config.timeLimitSeconds != null) {
       _startTimer();
+    }
+
+    // 进入练习后自动朗读第一题
+    if (mounted && _questions.isNotEmpty) {
+      final app = context.read<AppProvider>();
+      if (app.ttsAutoReadQuestion) {
+        _speakQuestion();
+      }
     }
   }
 
@@ -279,6 +288,48 @@ class _PracticePageState extends State<PracticePage> {
         );
       }
     }
+
+    // 自动播报解析
+    if (app.ttsAutoPlayExplanation && mounted) {
+      _speakExplanation(correct);
+    }
+  }
+
+  /// 播报答题结果与解析
+  void _speakExplanation(bool isCorrect) async {
+    // 先停止当前朗读
+    if (_isSpeaking) {
+      await TtsService.stop();
+      if (mounted) setState(() => _isSpeaking = false);
+    }
+
+    final question = _questions[_currentIndex];
+    final buffer = StringBuffer();
+
+    // 答题结果提示
+    if (isCorrect) {
+      buffer.write('回答正确。');
+    } else {
+      buffer.write('回答错误。');
+      // 错误时播报正确答案
+      buffer.write('正确答案是：');
+      buffer.write(_getCorrectAnswerText(question));
+      buffer.write('。');
+    }
+
+    // 播报解析
+    if (question.explanation.isNotEmpty) {
+      buffer.write('解析：');
+      buffer.write(question.explanation);
+    }
+
+    if (mounted) setState(() => _isSpeakingExplanation = true);
+    await TtsService.speak(
+      buffer.toString(),
+      onComplete: () {
+        if (mounted) setState(() => _isSpeakingExplanation = false);
+      },
+    );
   }
 
   void _nextQuestion() {
@@ -291,6 +342,13 @@ class _PracticePageState extends State<PracticePage> {
       _currentIndex++;
       _restoreQuestionState();
     });
+    // 自动朗读下一题
+    if (mounted) {
+      final app = context.read<AppProvider>();
+      if (app.ttsAutoReadQuestion && !_submitted) {
+        _speakQuestion();
+      }
+    }
   }
 
   void _previousQuestion() {
@@ -300,12 +358,20 @@ class _PracticePageState extends State<PracticePage> {
       _currentIndex--;
       _restoreQuestionState();
     });
+    // 自动朗读上一题
+    if (mounted) {
+      final app = context.read<AppProvider>();
+      if (app.ttsAutoReadQuestion && !_submitted) {
+        _speakQuestion();
+      }
+    }
   }
 
   void _stopSpeakingIfNeeded() {
-    if (_isSpeaking) {
+    if (_isSpeaking || _isSpeakingExplanation) {
       TtsService.stop();
       _isSpeaking = false;
+      _isSpeakingExplanation = false;
     }
   }
 
@@ -438,7 +504,14 @@ class _PracticePageState extends State<PracticePage> {
   /// 朗读当前题目和选项
   Future<void> _speakQuestion() async {
     if (_questions.isEmpty || _currentIndex >= _questions.length) return;
-    setState(() => _isSpeaking = true);
+    // 如果正在播报解析，先停止
+    if (_isSpeakingExplanation) {
+      await TtsService.stop();
+    }
+    setState(() {
+      _isSpeaking = true;
+      _isSpeakingExplanation = false;
+    });
 
     final question = _questions[_currentIndex];
     final buffer = StringBuffer();
@@ -657,10 +730,15 @@ class _PracticePageState extends State<PracticePage> {
     return buffer.toString();
   }
 
-  /// 停止朗读
+  /// 停止所有朗读
   Future<void> _stopSpeaking() async {
     await TtsService.stop();
-    if (mounted) setState(() => _isSpeaking = false);
+    if (mounted) {
+      setState(() {
+        _isSpeaking = false;
+        _isSpeakingExplanation = false;
+      });
+    }
   }
 
   @override
@@ -707,11 +785,17 @@ class _PracticePageState extends State<PracticePage> {
       appBar: AppBar(
         title: Text(_getPracticeTitle()),
         actions: [
-          // 语音播报按钮
+          // 语音播报按钮（朗读题目或停止解析播报）
           IconButton(
-            icon: Icon(_isSpeaking ? Icons.stop_circle_rounded : Icons.volume_up_rounded),
-            tooltip: _isSpeaking ? '停止朗读' : '朗读题目',
-            onPressed: _isSpeaking ? _stopSpeaking : _speakQuestion,
+            icon: Icon(
+              (_isSpeaking || _isSpeakingExplanation)
+                  ? Icons.stop_circle_rounded
+                  : Icons.volume_up_rounded,
+            ),
+            tooltip: (_isSpeaking || _isSpeakingExplanation) ? '停止朗读' : '朗读题目',
+            onPressed: (_isSpeaking || _isSpeakingExplanation)
+                ? _stopSpeaking
+                : _speakQuestion,
           ),
           if (widget.config.timeLimitSeconds != null)
             Padding(
@@ -1154,6 +1238,26 @@ class _PracticePageState extends State<PracticePage> {
                   color: _isCorrect ? Colors.green : Colors.orange,
                 ),
               ),
+              const Spacer(),
+              // 朗读解析按钮
+              if (question.explanation.isNotEmpty)
+                IconButton(
+                  icon: Icon(
+                    _isSpeakingExplanation
+                        ? Icons.stop_circle_rounded
+                        : Icons.volume_up_rounded,
+                    size: 20,
+                    color: _isCorrect ? Colors.green : Colors.orange,
+                  ),
+                  tooltip: _isSpeakingExplanation ? '停止朗读' : '朗读解析',
+                  onPressed: () {
+                    if (_isSpeakingExplanation) {
+                      _stopSpeakingIfNeeded();
+                    } else {
+                      _speakExplanation(_isCorrect);
+                    }
+                  },
+                ),
             ],
           ),
           const SizedBox(height: 8),
