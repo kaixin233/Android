@@ -114,6 +114,7 @@ class _PracticePageState extends State<PracticePage> {
         subject: widget.config.subject,
         type: widget.config.type,
         difficulty: widget.config.difficulty,
+        chapterNumber: widget.config.chapterNumber,
         onlyFavorites: widget.config.onlyFavorites,
         favoriteKeys: favorites,
       );
@@ -252,6 +253,19 @@ class _PracticePageState extends State<PracticePage> {
         HapticFeedback.mediumImpact();
       } else {
         HapticFeedback.heavyImpact();
+      }
+    }
+    // 更新知识点统计（仅在首次答题时）
+    if (previous == null) {
+      final question = _questions[_currentIndex];
+      for (final kp in question.knowledgePoints) {
+        StorageService.updateKnowledgePointStats(
+          kp,
+          isCorrect: correct,
+          subject: question.subject,
+          chapter: question.chapter,
+          pointName: kp,
+        );
       }
     }
   }
