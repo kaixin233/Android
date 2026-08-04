@@ -15,12 +15,6 @@ import java.util.concurrent.TimeUnit
 
 /**
  * TTS 辅助插件 - 提供原生层 TTS 诊断和系统设置跳转功能
- *
- * 方法：
- * - openTtsSettings: 打开系统 TTS 设置页面
- * - installTtsData: 打开语音数据安装页面
- * - getEnginesInfo: 通过 PackageManager 查询已安装的 TTS 引擎
- * - checkVoiceData: 创建临时 TextToSpeech 实例检查语音数据可用性
  */
 class TtsHelperPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
@@ -36,7 +30,7 @@ class TtsHelperPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         channel = MethodChannel(binding.binaryMessenger, CHANNEL_NAME)
         channel.setMethodCallHandler(this)
         context = binding.applicationContext
-        Log.i(TAG, "TtsHelperPlugin 已挂载")
+        Log.i(TAG, "TtsHelperPlugin attached")
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -51,50 +45,43 @@ class TtsHelperPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
     /**
      * 打开系统 TTS 设置页面
-     * 小米设备路径：设置 → 更多设置 → 无障碍 → 文字转语音输出
      */
     private fun openTtsSettings(result: MethodChannel.Result) {
         try {
-            // 尝试多种 Intent，适配不同厂商
             val intents = listOf(
                 Intent("com.android.settings.TTS_SETTINGS"),
-                Intent("android.settings.TTS_SETTINGS"),
-                Intent().apply {
-                    action = "android.speech.tts.engine.config.TTS_SETTINGS"
-                }
+                Intent("android.settings.TTS_SETTINGS")
             )
 
             for (intent in intents) {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 if (intent.resolveActivity(context.packageManager) != null) {
                     context.startActivity(intent)
-                    Log.i(TAG, "已打开 TTS 设置页面")
+                    Log.i(TAG, "Opened TTS settings")
                     result.success(true)
                     return
                 }
             }
 
-            // 如果以上 Intent 都不行，尝试直接打开无障碍设置
+            // Fallback: open accessibility settings
             val accessibilityIntent = Intent("android.settings.ACCESSIBILITY_SETTINGS")
             accessibilityIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             if (accessibilityIntent.resolveActivity(context.packageManager) != null) {
                 context.startActivity(accessibilityIntent)
-                Log.i(TAG, "已打开无障碍设置页面（TTS 设置在其中的子菜单）")
+                Log.i(TAG, "Opened accessibility settings (TTS is in submenu)")
                 result.success(true)
                 return
             }
 
-            Log.w(TAG, "未找到 TTS 设置 Activity")
             result.success(false)
         } catch (e: Exception) {
-            Log.e(TAG, "打开 TTS 设置失败", e)
+            Log.e(TAG, "Failed to open TTS settings", e)
             result.success(false)
         }
     }
 
     /**
      * 打开语音数据安装页面
-     * 用于引导用户下载/安装中文语音包
      */
     private fun installTtsData(result: MethodChannel.Result) {
         try {
@@ -102,21 +89,19 @@ class TtsHelperPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             if (intent.resolveActivity(context.packageManager) != null) {
                 context.startActivity(intent)
-                Log.i(TAG, "已打开语音数据安装页面")
+                Log.i(TAG, "Opened TTS data install page")
                 result.success(true)
             } else {
-                Log.w(TAG, "未找到语音数据安装 Activity")
                 result.success(false)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "打开语音数据安装页面失败", e)
+            Log.e(TAG, "Failed to open TTS data install", e)
             result.success(false)
         }
     }
 
     /**
-     * 通过 PackageManager 查询已安装的 TTS 引擎
-     * 不创建 TextToSpeech 实例，不会干扰 flutter_tts 插件
+     * 通过 PackageManager 查询已安装的 TTS 引擎（不创建 TextToSpeech 实例）
      */
     private fun getEnginesInfo(result: MethodChannel.Result) {
         try {
@@ -124,34 +109,34 @@ class TtsHelperPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             val intent = Intent(TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE)
             val resolveInfos = pm.queryIntentServices(intent, 0)
 
-            val engines = resolveInfos.map { resolveInfo ->
+            val engines: MutableList<Map<String, Any>> = mutableListOf()
+            for (resolveInfo in resolveInfos) {
                 val serviceInfo = resolveInfo.serviceInfo
                 val appInfo = serviceInfo.applicationInfo
-                mapOf(
+                val label = pm.getApplicationLabel(appInfo).toString()
+                engines.add(mapOf(
                     "packageName" to serviceInfo.packageName,
-                    "label" to pm.getApplicationLabel(appInfo).toString(),
-                    "enabled" to resolveInfo.isEnabled
-                )
+                    "label" to label
+                ))
             }
 
-            Log.i(TAG, "查询到 ${engines.size} 个 TTS 引擎: $engines")
+            Log.i(TAG, "Found ${engines.size} TTS engines")
             result.success(mapOf(
                 "engineCount" to engines.size,
                 "engines" to engines
             ))
         } catch (e: Exception) {
-            Log.e(TAG, "查询 TTS 引擎失败", e)
+            Log.e(TAG, "Failed to query TTS engines", e)
             result.success(mapOf(
                 "engineCount" to 0,
-                "engines" to emptyList<Any>(),
-                "error" to (e.message ?: "未知错误")
+                "engines" to emptyList<Map<String, Any>>(),
+                "error" to (e.message ?: "unknown error")
             ))
         }
     }
 
     /**
-     * 检查语音数据可用性
-     * 创建一个临时 TextToSpeech 实例，检查中文语音数据状态后立即关闭
+     * 检查语音数据可用性（创建临时 TextToSpeech 实例）
      */
     private fun checkVoiceData(result: MethodChannel.Result) {
         Thread {
@@ -170,39 +155,43 @@ class TtsHelperPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                                 val chineseStatus = ttsInstance.isLanguageAvailable(Locale.SIMPLIFIED_CHINESE)
                                 val voices = ttsInstance.voices
 
-                                val chineseVoices = voices?.filter {
-                                    it.locale?.language == "zh"
-                                }?.map {
-                                    mapOf(
-                                        "name" to it.name,
-                                        "locale" to (it.locale?.toLanguageTag() ?: "unknown"),
-                                        "quality" to when (it.quality) {
-                                            TextToSpeech.VOICE_QUALITY_VERY_HIGH -> "VERY_HIGH"
-                                            TextToSpeech.VOICE_QUALITY_HIGH -> "HIGH"
-                                            TextToSpeech.VOICE_QUALITY_NORMAL -> "NORMAL"
-                                            TextToSpeech.VOICE_QUALITY_LOW -> "LOW"
-                                            TextToSpeech.VOICE_QUALITY_VERY_LOW -> "VERY_LOW"
-                                            else -> "UNKNOWN"
+                                val chineseVoices: MutableList<Map<String, Any>> = mutableListOf()
+                                if (voices != null) {
+                                    for (voice in voices) {
+                                        val locale = voice.locale
+                                        if (locale != null && locale.language == "zh") {
+                                            chineseVoices.add(mapOf(
+                                                "name" to voice.name,
+                                                "locale" to locale.toLanguageTag()
+                                            ))
                                         }
-                                    )
-                                } ?: emptyList<Any>()
+                                    }
+                                }
 
-                                val chineseStatusText = when (chineseStatus) {
-                                    TextToSpeech.LANG_AVAILABLE -> "LANG_AVAILABLE (语言可用，但可能无语音数据)"
-                                    TextToSpeech.LANG_COUNTRY_AVAILABLE -> "LANG_COUNTRY_AVAILABLE (语言和国家可用)"
-                                    TextToSpeech.LANG_COUNTRY_VAR_AVAILABLE -> "LANG_COUNTRY_VAR_AVAILABLE (完全可用)"
-                                    TextToSpeech.LANG_MISSING_DATA -> "LANG_MISSING_DATA (缺少语音数据，需要安装)"
-                                    TextToSpeech.LANG_NOT_SUPPORTED -> "LANG_NOT_SUPPORTED (不支持中文)"
+                                val engineList: MutableList<Map<String, Any>> = mutableListOf()
+                                if (engines != null) {
+                                    for (engine in engines) {
+                                        engineList.add(mapOf(
+                                            "name" to engine.name,
+                                            "label" to engine.label
+                                        ))
+                                    }
+                                }
+
+                                val chineseStatusText: String = when (chineseStatus) {
+                                    TextToSpeech.LANG_AVAILABLE -> "LANG_AVAILABLE"
+                                    TextToSpeech.LANG_COUNTRY_AVAILABLE -> "LANG_COUNTRY_AVAILABLE"
+                                    TextToSpeech.LANG_COUNTRY_VAR_AVAILABLE -> "LANG_COUNTRY_VAR_AVAILABLE"
+                                    TextToSpeech.LANG_MISSING_DATA -> "LANG_MISSING_DATA (need install)"
+                                    TextToSpeech.LANG_NOT_SUPPORTED -> "LANG_NOT_SUPPORTED"
                                     else -> "UNKNOWN($chineseStatus)"
                                 }
 
                                 checkResult = mapOf(
                                     "initStatus" to "SUCCESS",
                                     "defaultEngine" to (defaultEngine ?: "unknown"),
-                                    "engineCount" to (engines?.size ?: 0),
-                                    "engines" to (engines?.map {
-                                        mapOf("name" to it.name, "label" to it.label)
-                                    } ?: emptyList<Any>()),
+                                    "engineCount" to engineList.size,
+                                    "engines" to engineList,
                                     "chineseStatus" to chineseStatus,
                                     "chineseStatusText" to chineseStatusText,
                                     "voiceCount" to (voices?.size ?: 0),
@@ -211,22 +200,21 @@ class TtsHelperPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                                     "needInstallData" to (chineseStatus == TextToSpeech.LANG_MISSING_DATA)
                                 )
 
-                                Log.i(TAG, "语音数据检查结果: $checkResult")
+                                Log.i(TAG, "Voice data check: $checkResult")
                             }
                         } else {
                             checkResult = mapOf(
                                 "initStatus" to "ERROR",
-                                "error" to "TTS 引擎初始化失败 (status=$status)",
+                                "error" to "TTS init failed (status=$status)",
                                 "isChineseAvailable" to false,
                                 "needInstallData" to true
                             )
-                            Log.e(TAG, "TTS 引擎初始化失败: status=$status")
                         }
                     } catch (e: Exception) {
-                        Log.e(TAG, "语音数据检查异常", e)
+                        Log.e(TAG, "Voice data check error", e)
                         checkResult = mapOf(
                             "initStatus" to "ERROR",
-                            "error" to "检查异常: ${e.message}",
+                            "error" to "check error: ${e.message}",
                             "isChineseAvailable" to false,
                             "needInstallData" to true
                         )
@@ -235,38 +223,34 @@ class TtsHelperPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     }
                 }
 
-                // 等待初始化回调，最多5秒
                 latch.await(5, TimeUnit.SECONDS)
 
-                // 关闭临时实例
                 try {
                     tts?.shutdown()
                 } catch (_) {}
 
-                // 如果超时
                 if (checkResult.isEmpty()) {
                     checkResult = mapOf(
                         "initStatus" to "TIMEOUT",
-                        "error" to "TTS 引擎初始化超时（5秒），设备可能未安装可用的 TTS 引擎",
+                        "error" to "TTS init timeout (5s)",
                         "isChineseAvailable" to false,
                         "needInstallData" to true
                     )
                 }
 
-                // 在主线程返回结果
                 val finalResult = checkResult
                 Handler(Looper.getMainLooper()).post {
                     result.success(finalResult)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "checkVoiceData 异常", e)
+                Log.e(TAG, "checkVoiceData exception", e)
                 try {
                     tts?.shutdown()
                 } catch (_) {}
                 Handler(Looper.getMainLooper()).post {
                     result.success(mapOf(
                         "initStatus" to "ERROR",
-                        "error" to "检查异常: ${e.message}",
+                        "error" to "exception: ${e.message}",
                         "isChineseAvailable" to false,
                         "needInstallData" to true
                     ))
@@ -277,6 +261,6 @@ class TtsHelperPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
-        Log.i(TAG, "TtsHelperPlugin 已卸载")
+        Log.i(TAG, "TtsHelperPlugin detached")
     }
 }
