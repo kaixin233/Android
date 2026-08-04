@@ -8,14 +8,17 @@ import 'package:flutter_tts/flutter_tts.dart';
 
 /// 语音播报服务 - 用于朗读题目和选项
 ///
-/// 针对小米/MIUI 设备优化要点：
-/// 1. 小米自带 TTS 引擎包名为 com.xiaomi.mibrain.speech（非 com.xiaomi.mi.speech）
-/// 2. 不强制调用 setEngine()：FlutterTts 创建时已自动绑定系统默认引擎，
-///    重复调用 setEngine() 反而可能导致引擎重绑失败
-/// 3. 语言设置非阻塞：小米引擎可能不通过 getLanguages() 报告支持中文，
-///    但实际可以朗读中文，因此语言设置失败时不阻止朗读
-/// 4. 不使用 awaitSpeakCompletion(true)，避免引擎静默失败时 speak() 永久挂起
-/// 5. 使用 onStart 回调检测朗读是否真正启动，3秒超时判定失败后自动重试
+/// 针对小米/MIUI 设备的优化（基于实际诊断数据）：
+///
+/// 诊断发现：小米引擎报告可用语言为 [zh, en, zh-Hans, zh-Hant]，
+/// 但 setLanguage('zh-CN') 和 setLanguage('zh-Hans') 均返回 0（失败）。
+///
+/// 核心修复：
+/// 1. 语言设置：直接用 getLanguages() 返回的原始字符串调用 setLanguage()
+/// 2. 语言设置完全非阻塞：无论成功失败都标记引擎可用
+/// 3. speak() 返回 1 即视为成功，不依赖 onStart 回调
+///    （小米引擎可能不触发 onStart，但实际在播放）
+/// 4. 不使用 awaitSpeakCompletion(true)，避免永久挂起
 class TtsService {
   TtsService._();
 
@@ -23,17 +26,12 @@ class TtsService {
   static bool _isSpeaking = false;
   static bool _isAvailable = false;
 
-  /// 缓存初始化 Future，避免并发初始化竞态
   static Future<bool>? _initFuture;
 
-  /// 原生通道：打开 TTS 设置、安装语音数据等
   static const MethodChannel _nativeChannel =
       MethodChannel('com.example.android_app/tts_helper');
 
-  /// 是否正在朗读
   static bool get isSpeaking => _isSpeaking;
-
-  /// TTS 引擎是否可用
   static bool get isAvailable => _isAvailable;
 
   /// 初始化 TTS 引擎
@@ -46,15 +44,17 @@ class TtsService {
   static Future<bool> _doInitialize() async {
     // 注册回调
     _flutterTts.setStartHandler(() {
+      debugPrint('TTS: onStart 触发');
       _isSpeaking = true;
     });
 
     _flutterTts.setCompletionHandler(() {
+      debugPrint('TTS: onDone 触发');
       _isSpeaking = false;
     });
 
     _flutterTts.setErrorHandler((message) {
-      debugPrint('TTS error: $message');
+      debugPrint('TTS: onError 触发: $message');
       _isSpeaking = false;
     });
 
@@ -62,25 +62,23 @@ class TtsService {
       await _flutterTts.setSharedInstance(true);
 
       if (Platform.isAndroid) {
-        // 检查默认引擎是否存在（不强制 setEngine）
         final defaultEngine = await _flutterTts.getDefaultEngine;
         debugPrint('TTS: 系统默认引擎: $defaultEngine');
 
         if (defaultEngine == null || defaultEngine.toString().isEmpty) {
-          // 没有默认引擎，尝试手动绑定
           final engineBound = await _tryBindEngine();
           if (!engineBound) {
-            debugPrint('TTS: 无法绑定 TTS 引擎，设备可能未安装语音引擎');
+            debugPrint('TTS: 无法绑定 TTS 引擎');
             _isAvailable = false;
             return false;
           }
         }
 
-        // 引擎已就绪，等待原生层初始化完成
+        // 等待原生层初始化完成
         await Future.delayed(const Duration(milliseconds: 500));
       }
 
-      // 尝试设置语言（非阻塞：失败不阻止朗读）
+      // 尝试设置语言（完全非阻塞）
       await _trySetLanguage();
 
       // 设置语音参数
@@ -88,10 +86,10 @@ class TtsService {
       await _flutterTts.setPitch(1.0);
       await _flutterTts.setVolume(1.0);
 
-      // 不使用 awaitSpeakCompletion(true)，避免小米设备上 speak() 永久挂起
+      // 不使用 awaitSpeakCompletion(true)
       await _flutterTts.awaitSpeakCompletion(false);
 
-      debugPrint('TTS: 初始化成功');
+      debugPrint('TTS: 初始化成功（语言设置可能未成功，但不阻止朗读）');
       _isAvailable = true;
       return true;
     } catch (e, stackTrace) {
@@ -107,46 +105,34 @@ class TtsService {
     try {
       final engines = await _flutterTts.getEngines;
       if (engines is! List<dynamic> || engines.isEmpty) {
-        debugPrint('TTS: 设备未安装任何 TTS 引擎');
         return false;
       }
 
-      debugPrint('TTS: 已安装引擎列表: $engines');
+      debugPrint('TTS: 已安装引擎: $engines');
 
-      // 已知引擎包名（正确的包名）
       const preferredEngines = [
-        'com.xiaomi.mibrain.speech', // 小米系统语音引擎
-        'com.google.android.tts',     // Google TTS
-        'com.iflytek.speechsuite',    // 讯飞语音
-        'com.baidu.duersdk.opensdk',  // 百度语音
-        'com.huawei.hiai',            // 华为语音引擎
+        'com.xiaomi.mibrain.speech',
+        'com.google.android.tts',
+        'com.iflytek.speechsuite',
+        'com.baidu.duersdk.opensdk',
+        'com.huawei.hiai',
       ];
 
-      // 先尝试首选引擎
       for (final preferred in preferredEngines) {
         for (final engine in engines) {
           final candidate = engine.toString().trim();
           if (candidate == preferred) {
-            debugPrint('TTS: 尝试绑定首选引擎: $candidate');
             final result = await _flutterTts.setEngine(candidate);
-            if (result == 1) {
-              debugPrint('TTS: 引擎绑定成功: $candidate');
-              return true;
-            }
+            if (result == 1) return true;
           }
         }
       }
 
-      // 再尝试任意可用引擎
       for (final engine in engines) {
         final candidate = engine.toString().trim();
         if (candidate.isNotEmpty) {
-          debugPrint('TTS: 尝试绑定引擎: $candidate');
           final result = await _flutterTts.setEngine(candidate);
-          if (result == 1) {
-            debugPrint('TTS: 引擎绑定成功: $candidate');
-            return true;
-          }
+          if (result == 1) return true;
         }
       }
 
@@ -157,71 +143,73 @@ class TtsService {
     }
   }
 
-  /// 尝试设置首选语言（非阻塞）
+  /// 尝试设置首选语言（完全非阻塞）
   ///
-  /// 小米引擎可能不通过 getLanguages() 报告支持中文，
-  /// 但实际可以朗读中文，因此即使语言设置失败也不阻止朗读
+  /// 诊断发现：小米引擎报告 [zh, en, zh-Hans, zh-Hant]，
+  /// 但 setLanguage('zh-Hans') 可能返回 0。
+  /// 修复：直接用 getLanguages() 返回的原始字符串逐个尝试 setLanguage()。
+  /// 即使全部失败，也不阻止朗读——引擎可能内部支持中文。
   static Future<void> _trySetLanguage() async {
-    const preferredLanguages = <String>[
-      'zh-CN',
-      'zh-Hans-CN',
-      'zh-Hans',
-      'cmn-CN',
-      'en-US',
-    ];
-
     try {
       final languages = await _flutterTts.getLanguages;
-      if (languages is List<dynamic> && languages.isNotEmpty) {
-        debugPrint('TTS: 可用语言: $languages');
-        for (final language in preferredLanguages) {
-          final normalizedLanguage =
-              language.toLowerCase().replaceAll('-', '');
-          final hasMatch = languages.any((candidate) {
-            final value =
-                candidate.toString().toLowerCase().replaceAll('-', '');
-            return value.contains(normalizedLanguage);
-          });
-          if (hasMatch) {
-            final result = await _flutterTts.setLanguage(language);
-            if (result == 1) {
-              debugPrint('TTS: 语言设置成功: $language');
-              return;
-            }
+      if (languages is! List<dynamic> || languages.isEmpty) {
+        debugPrint('TTS: 引擎未报告可用语言，跳过语言设置');
+        return;
+      }
+
+      debugPrint('TTS: 可用语言: $languages');
+
+      // 策略1：优先尝试中文相关语言（直接用引擎返回的原始字符串）
+      for (final lang in languages) {
+        final langStr = lang.toString();
+        final langLower = langStr.toLowerCase();
+        if (langLower.startsWith('zh') || langLower.contains('cmn')) {
+          debugPrint('TTS: 尝试 setLanguage("$langStr")');
+          final result = await _flutterTts.setLanguage(langStr);
+          debugPrint('TTS: setLanguage("$langStr") => $result');
+          if (result == 1) {
+            debugPrint('TTS: 语言设置成功: $langStr');
+            return;
           }
         }
-      } else {
-        debugPrint('TTS: 引擎未报告可用语言列表，尝试直接设置');
       }
 
-      // 尝试直接设置中文
-      final result = await _flutterTts.setLanguage('zh-CN');
-      if (result == 1) {
-        debugPrint('TTS: 语言设置成功: zh-CN (直接设置)');
-        return;
+      // 策略2：尝试标准中文 locale
+      const standardLocales = ['zh-CN', 'zh-Hans', 'zh', 'cmn-CN', 'en-US'];
+      for (final locale in standardLocales) {
+        final result = await _flutterTts.setLanguage(locale);
+        debugPrint('TTS: setLanguage("$locale") => $result');
+        if (result == 1) {
+          debugPrint('TTS: 语言设置成功: $locale');
+          return;
+        }
       }
 
-      // 尝试英文降级
-      final enResult = await _flutterTts.setLanguage('en-US');
-      if (enResult == 1) {
-        debugPrint('TTS: 降级使用英文');
-        return;
+      // 策略3：尝试引擎返回的任意语言
+      for (final lang in languages) {
+        final langStr = lang.toString();
+        final result = await _flutterTts.setLanguage(langStr);
+        if (result == 1) {
+          debugPrint('TTS: 语言设置成功(降级): $langStr');
+          return;
+        }
       }
 
-      // 语言设置全部失败，但不阻止朗读
-      // 小米引擎可能内部支持中文但不通过标准 API 报告
-      debugPrint('TTS: 语言设置失败，但仍标记为可用（引擎可能内部支持中文）');
+      // 全部失败，但不阻止朗读
+      debugPrint('TTS: 所有语言设置均失败，但仍标记为可用（引擎可能内部支持中文）');
     } catch (e) {
-      debugPrint('TTS _trySetLanguage failed: $e（不阻止朗读）');
+      debugPrint('TTS: _trySetLanguage 异常: $e（不阻止朗读）');
     }
   }
 
   /// 朗读文本
   ///
-  /// 核心机制：
-  /// - speak() 立即返回（不等待朗读完成）
-  /// - 通过 onStart 回调检测朗读是否真正启动，3秒超时判定失败
-  /// - 失败后自动重试（最多3次），每次重试重新初始化
+  /// 核心策略（基于诊断修复）：
+  /// - speak() 返回 1 即视为成功，不等待 onStart 回调
+  ///   （小米引擎可能不触发 onStart，但实际在播放声音）
+  /// - onStart 仅用于更新 _isSpeaking 状态
+  /// - onDone/onError 用于重置状态和触发回调
+  /// - 如果 speak() 返回 0，重试一次（重新初始化）
   static Future<bool> speak(String text, {VoidCallback? onComplete}) async {
     final speechText = text.trim();
     if (speechText.isEmpty) {
@@ -229,55 +217,46 @@ class TtsService {
       return false;
     }
 
-    for (int attempt = 0; attempt < 3; attempt++) {
+    // 最多重试 2 次
+    for (int attempt = 0; attempt < 2; attempt++) {
       if (attempt > 0) {
         debugPrint('TTS: 重试朗读 (第 ${attempt + 1} 次)');
+        // 只重置 initFuture，不重置 _isAvailable
         _initFuture = null;
-        _isAvailable = false;
         await Future.delayed(const Duration(milliseconds: 300));
       }
 
+      // 确保引擎已初始化
       bool ready = false;
       try {
         ready = await initialize().timeout(
           const Duration(seconds: 5),
-          onTimeout: () {
-            debugPrint('TTS: 初始化超时（5秒）');
-            return false;
-          },
+          onTimeout: () => false,
         );
       } catch (e) {
         debugPrint('TTS: 初始化异常: $e');
       }
 
-      if (!ready || !_isAvailable) {
-        debugPrint('TTS: 引擎不可用 (第 ${attempt + 1} 次)');
+      if (!ready) {
+        debugPrint('TTS: 初始化失败 (第 ${attempt + 1} 次)');
         continue;
       }
 
-      // 使用 Completer 检测 onStart
-      final startCompleter = Completer<void>();
-
+      // 设置回调
       _flutterTts.setStartHandler(() {
-        debugPrint('TTS: onStart 回调触发');
+        debugPrint('TTS: onStart 触发');
         _isSpeaking = true;
-        if (!startCompleter.isCompleted) {
-          startCompleter.complete();
-        }
       });
 
       _flutterTts.setCompletionHandler(() {
-        debugPrint('TTS: onDone 回调触发');
+        debugPrint('TTS: onDone 触发');
         _isSpeaking = false;
         onComplete?.call();
       });
 
       _flutterTts.setErrorHandler((message) {
-        debugPrint('TTS: onError 回调触发: $message');
+        debugPrint('TTS: onError 触发: $message');
         _isSpeaking = false;
-        if (!startCompleter.isCompleted) {
-          startCompleter.completeError('TTS error: $message');
-        }
         onComplete?.call();
       });
 
@@ -285,48 +264,29 @@ class TtsService {
         // 先停止之前的朗读
         try {
           await _flutterTts.stop();
-        } catch (e) {
-          debugPrint('TTS: stop 异常（可忽略）: $e');
-        }
-
-        final result = await _flutterTts.speak(speechText);
-
-        if (result != 1) {
-          debugPrint('TTS: speak 返回失败 (result=$result)');
-          continue;
-        }
-
-        // 等待 onStart 回调（最多 3 秒）
-        try {
-          await startCompleter.future.timeout(
-            const Duration(seconds: 3),
-            onTimeout: () {
-              debugPrint('TTS: onStart 未在3秒内触发，引擎可能未真正启动');
-            },
-          );
-
-          if (startCompleter.isCompleted) {
-            debugPrint('TTS: 朗读成功启动');
-            return true;
-          }
-        } catch (e) {
-          debugPrint('TTS: 等待 onStart 异常: $e');
-        }
-
-        // onStart 未触发，停止并重试
-        try {
-          await _flutterTts.stop();
         } catch (_) {}
-        _isSpeaking = false;
-        debugPrint('TTS: 朗读未启动，准备重试');
+
+        // 调用 speak()
+        final result = await _flutterTts.speak(speechText);
+        debugPrint('TTS: speak() 返回 $result');
+
+        if (result == 1) {
+          // speak() 返回 1 = 引擎已接受朗读请求
+          // 不等待 onStart 回调（小米引擎可能不触发 onStart）
+          _isSpeaking = true;
+          debugPrint('TTS: 朗读已提交，引擎将播放');
+          return true;
+        }
+
+        // speak() 返回 0，可能引擎未就绪，重试
+        debugPrint('TTS: speak 返回失败，准备重试');
       } catch (e, stackTrace) {
-        debugPrint('TTS speak failed: $e');
+        debugPrint('TTS speak异常: $e');
         debugPrintStack(stackTrace: stackTrace);
-        _isSpeaking = false;
       }
     }
 
-    debugPrint('TTS: 所有重试均失败，语音不可用');
+    debugPrint('TTS: 所有重试均失败');
     _isSpeaking = false;
     onComplete?.call();
     return false;
@@ -362,7 +322,7 @@ class TtsService {
     await _flutterTts.setSpeechRate(rate);
   }
 
-  /// 打开系统 TTS 设置页面（Android 专用）
+  /// 打开系统 TTS 设置页面
   static Future<bool> openTtsSettings() async {
     if (!Platform.isAndroid) return false;
     try {
@@ -374,7 +334,7 @@ class TtsService {
     }
   }
 
-  /// 打开语音数据安装页面（Android 专用）
+  /// 打开语音数据安装页面
   static Future<bool> installTtsData() async {
     if (!Platform.isAndroid) return false;
     try {
@@ -386,7 +346,7 @@ class TtsService {
     }
   }
 
-  /// 获取诊断信息（用于调试和错误提示）
+  /// 获取诊断信息
   static Future<Map<String, dynamic>> getDiagnostics() async {
     final info = <String, dynamic>{};
     try {
@@ -402,6 +362,13 @@ class TtsService {
               await _nativeChannel.invokeMethod('getEnginesInfo');
           info['nativeEngines'] = nativeEngines;
         } catch (_) {}
+
+        // 原生语音数据检查
+        try {
+          final voiceData =
+              await _nativeChannel.invokeMethod('checkVoiceData');
+          info['voiceData'] = voiceData;
+        } catch (_) {}
       }
     } catch (e) {
       info['error'] = e.toString();
@@ -409,7 +376,7 @@ class TtsService {
     return info;
   }
 
-  /// 重置 TTS 状态（用于手动重试）
+  /// 重置 TTS 状态
   static Future<void> reset() async {
     try {
       await _flutterTts.stop();

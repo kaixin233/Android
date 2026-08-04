@@ -593,10 +593,6 @@ class _PracticePageState extends State<PracticePage> {
     buffer.writeln('引擎可用: ${info['isAvailable']}');
     buffer.writeln('正在朗读: ${info['isSpeaking']}');
 
-    if (info['triedEngines'] != null) {
-      buffer.writeln('已尝试引擎: ${info['triedEngines']}');
-    }
-
     if (info['defaultEngine'] != null) {
       buffer.writeln('默认引擎: ${info['defaultEngine']}');
     }
@@ -617,6 +613,34 @@ class _PracticePageState extends State<PracticePage> {
         for (final e in native['engines'] as List) {
           buffer.writeln('  - ${e['packageName']} (${e['label']})');
         }
+      }
+    }
+
+    if (info['voiceData'] != null) {
+      final vd = info['voiceData'] as Map;
+      buffer.writeln('--- 语音数据检查 ---');
+      buffer.writeln('初始化: ${vd['initStatus']}');
+      if (vd['defaultEngine'] != null) {
+        buffer.writeln('引擎: ${vd['defaultEngine']}');
+      }
+      if (vd['chineseStatusText'] != null) {
+        buffer.writeln('中文状态: ${vd['chineseStatusText']}');
+      }
+      if (vd['isChineseAvailable'] != null) {
+        buffer.writeln('中文可用: ${vd['isChineseAvailable']}');
+      }
+      if (vd['needInstallData'] != null) {
+        buffer.writeln('需安装数据: ${vd['needInstallData']}');
+      }
+      if (vd['chineseVoices'] != null) {
+        final voices = vd['chineseVoices'] as List;
+        buffer.writeln('中文语音数: ${voices.length}');
+        for (final v in voices) {
+          buffer.writeln('  - ${v['name']} (${v['locale']})');
+        }
+      }
+      if (vd['error'] != null) {
+        buffer.writeln('错误: ${vd['error']}');
       }
     }
 
