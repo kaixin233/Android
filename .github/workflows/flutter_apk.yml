@@ -49,11 +49,20 @@ jobs:
           flutter --version
           echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> $GITHUB_ENV
 
+      - name: Prepare Android SDK
+        shell: bash
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          yes | sdkmanager --licenses || true
+          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
       - name: Generate local.properties
         shell: bash
         run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           cat > android/local.properties <<EOF
-          sdk.dir=$ANDROID_HOME
+          sdk.dir=$SDK_ROOT
           flutter.sdk=$FLUTTER_ROOT
           flutter.buildMode=release
           flutter.versionName=1.0.2
@@ -68,21 +77,21 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
+          mkdir -p "$RUNNER_TEMP/android-signing"
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "Using signing key from GitHub Secrets"
-            echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
-            printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=%s\n' \
-              "$KEYSTORE_PASSWORD" "$KEY_PASSWORD" "$KEY_ALIAS" "release.keystore" \
-              > android/key.properties
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/android-signing/release.keystore"
+            cat > android/key.properties <<EOF
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=$RUNNER_TEMP/android-signing/release.keystore
+          EOF
           else
             echo "WARNING: No signing secrets configured, generating temporary debug key"
-            mkdir -p android/app
-            printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=%s\n' \
-              "android" "android" "androiddebugkey" "debug.keystore" \
-              > android/key.properties
             keytool -genkeypair \
               -v \
-              -keystore android/app/debug.keystore \
+              -keystore "$RUNNER_TEMP/android-signing/debug.keystore" \
               -storetype JKS \
               -storepass android \
               -keypass android \
@@ -91,6 +100,12 @@ jobs:
               -keysize 2048 \
               -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
+            cat > android/key.properties <<EOF
+          storePassword=android
+          keyPassword=android
+          keyAlias=androiddebugkey
+          storeFile=$RUNNER_TEMP/android-signing/debug.keystore
+          EOF
           fi
 
       - name: Install dependencies
