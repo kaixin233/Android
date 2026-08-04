@@ -487,8 +487,9 @@ class _PracticePageState extends State<PracticePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  '您的设备可能未安装或未启用中文语音引擎，'
-                  '或引擎缺少中文语音数据。',
+                  '语音引擎未能正常启动朗读。'
+                  '小米设备请使用系统自带的「系统语音引擎」'
+                  '（包名 com.xiaomi.mibrain.speech）。',
                   style: TextStyle(fontSize: 14),
                 ),
                 const SizedBox(height: 12),
@@ -536,8 +537,9 @@ class _PracticePageState extends State<PracticePage> {
                 const SizedBox(height: 6),
                 const Text(
                   '1. 点击上方「TTS设置」按钮\n'
-                  '2. 选择语音引擎（推荐 Google TTS 或讯飞）\n'
-                  '3. 点击「安装语音」下载中文语音数据\n'
+                  '2. 确认语音引擎为「系统语音引擎」\n'
+                  '   （小米自带，无需额外安装）\n'
+                  '3. 如仍不可用，点击「安装语音」下载数据\n'
                   '4. 返回 App 点击「重试」',
                   style: TextStyle(fontSize: 12, height: 1.6),
                 ),
