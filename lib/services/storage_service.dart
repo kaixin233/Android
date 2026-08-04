@@ -502,7 +502,9 @@ class StorageService {
   static Future<void> updateKnowledgePointStats(
     String pointId, {
     required bool isCorrect,
-    String? subjectName,
+    QuestionSubject? subject,
+    String? chapter,
+    String? pointName,
   }) async {
     final stats = await loadKnowledgeStats();
     final index = stats.indexWhere((s) => s.point.id == pointId);
@@ -524,6 +526,23 @@ class StorageService {
         lastPracticeDate: DateTime.now(),
         trend: _updateTrend(current.trend, isCorrect ? 1.0 : 0.0),
       );
+    } else {
+      // 新知识点：自动创建统计条目
+      stats.add(KnowledgePointStats(
+        point: KnowledgePoint(
+          id: pointId,
+          name: pointName ?? pointId,
+          subject: subject,
+          chapter: chapter,
+          totalQuestions: 1,
+          correctCount: isCorrect ? 1 : 0,
+          masteryLevel: _calculateMastery(1, isCorrect ? 1 : 0),
+        ),
+        wrongCount: isCorrect ? 0 : 1,
+        practiceCount: 1,
+        lastPracticeDate: DateTime.now(),
+        trend: [isCorrect ? 1.0 : 0.0],
+      ));
     }
     
     await saveKnowledgeStats(stats);
