@@ -83,7 +83,7 @@ class _StatsPageState extends State<StatsPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.insights_rounded, size: 80, color: theme.colorScheme.primary.withValues(alpha: 0.5)),
+          Icon(Icons.insights_rounded, size: 80, color: theme.colorScheme.primary.withOpacity(0.5)),
           const SizedBox(height: 16),
           Text('暂无学习数据',
               style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey)),
@@ -137,7 +137,7 @@ class _StatsPageState extends State<StatsPage> {
       child: Column(
         children: [
           CircleAvatar(
-            backgroundColor: color.withValues(alpha: 0.1),
+            backgroundColor: color.withOpacity(0.1),
             child: Icon(icon, color: color),
           ),
           const SizedBox(height: 8),
@@ -198,7 +198,7 @@ class _StatsPageState extends State<StatsPage> {
                       barWidth: 3,
                       belowBarData: BarAreaData(
                         show: true,
-                        color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                        color: theme.colorScheme.primary.withOpacity(0.2),
                       ),
                       dotData: const FlDotData(show: true),
                     ),
@@ -311,7 +311,7 @@ class _StatsPageState extends State<StatsPage> {
                     const SizedBox(height: 4),
                     LinearProgressIndicator(
                       value: accuracy,
-                      backgroundColor: colors[subject]!.withValues(alpha: 0.1),
+                      backgroundColor: colors[subject]!.withOpacity(0.1),
                       valueColor: AlwaysStoppedAnimation<Color>(colors[subject]!),
                       borderRadius: BorderRadius.circular(8),
                       minHeight: 8,
@@ -412,7 +412,7 @@ class _StatsPageState extends State<StatsPage> {
             toY: (hourCount[hours[i]] ?? 0).toDouble(),
             color: hourCount[hours[i]] != null && hourCount[hours[i]]! > 0
                 ? theme.colorScheme.primary
-                : theme.colorScheme.primary.withValues(alpha: 0.2),
+                : theme.colorScheme.primary.withOpacity(0.2),
             width: 8,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
           ),

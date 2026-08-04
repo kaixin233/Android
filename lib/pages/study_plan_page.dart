@@ -122,7 +122,7 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
             const SizedBox(height: 12),
             LinearProgressIndicator(
               value: plan.progress,
-              backgroundColor: color.withValues(alpha: 0.1),
+              backgroundColor: color.withOpacity(0.1),
               valueColor: AlwaysStoppedAnimation<Color>(color),
               borderRadius: BorderRadius.circular(8),
               minHeight: 8,
@@ -167,7 +167,7 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
+        color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(text, style: TextStyle(color: color, fontSize: 12)),

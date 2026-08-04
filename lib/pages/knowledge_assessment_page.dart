@@ -133,7 +133,7 @@ class _KnowledgeAssessmentPageState extends State<KnowledgeAssessmentPage> {
                                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                                             decoration: BoxDecoration(
                                               borderRadius: BorderRadius.circular(20),
-                                              color: _getMasteryColor(stat.point.masteryLevel).withValues(alpha: 0.1),
+                                              color: _getMasteryColor(stat.point.masteryLevel).withOpacity(0.1),
                                             ),
                                             child: Text(
                                               _getMasteryLevel(stat.point.masteryLevel),
@@ -270,7 +270,7 @@ class RadarChartPainter extends CustomPainter {
     canvas.drawPath(dataPath, dataPaint);
 
     final dataFillPaint = Paint()
-      ..color = theme.colorScheme.primary.withValues(alpha: 0.2)
+      ..color = theme.colorScheme.primary.withOpacity(0.2)
       ..style = PaintingStyle.fill;
     canvas.drawPath(dataPath, dataFillPaint);
 

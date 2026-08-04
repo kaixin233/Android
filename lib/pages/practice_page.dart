@@ -630,7 +630,7 @@ class _PracticePageState extends State<PracticePage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
+        color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
@@ -841,14 +841,14 @@ class _PracticePageState extends State<PracticePage> {
     Color? fgColor;
     if (submitted) {
       if (isCorrect) {
-        bgColor = color.withValues(alpha: 0.1);
+        bgColor = color.withOpacity(0.1);
         fgColor = color;
       } else if (isSelected) {
         bgColor = Colors.grey.shade200;
         fgColor = Colors.grey;
       }
     } else if (isSelected) {
-      bgColor = color.withValues(alpha: 0.1);
+      bgColor = color.withOpacity(0.1);
       fgColor = color;
     }
     return FilledButton.tonal(

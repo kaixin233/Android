@@ -73,7 +73,7 @@ class _WrongAnalysisPageState extends State<WrongAnalysisPage> {
                   height: 24,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    color: theme.colorScheme.surfaceContainerHighest,
+                    color: theme.colorScheme.surfaceVariant,
                   ),
                   child: Container(
                     height: 24,
@@ -122,7 +122,7 @@ class _WrongAnalysisPageState extends State<WrongAnalysisPage> {
                   height: 24,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    color: theme.colorScheme.surfaceContainerHighest,
+                    color: theme.colorScheme.surfaceVariant,
                   ),
                   child: Container(
                     height: 24,
@@ -171,7 +171,7 @@ class _WrongAnalysisPageState extends State<WrongAnalysisPage> {
                   height: 24,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    color: theme.colorScheme.surfaceContainerHighest,
+                    color: theme.colorScheme.surfaceVariant,
                   ),
                   child: Container(
                     height: 24,
