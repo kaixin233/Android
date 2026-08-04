@@ -97,6 +97,8 @@ class _PracticePageState extends State<PracticePage> {
   void initState() {
     super.initState();
     _loadQuestions();
+    // 预热 TTS 引擎，避免首次点击朗读时出现明显延迟
+    TtsService.initialize();
   }
 
   @override
@@ -450,12 +452,23 @@ class _PracticePageState extends State<PracticePage> {
       }
     }
 
-    await TtsService.speak(
+    final success = await TtsService.speak(
       buffer.toString(),
       onComplete: () {
         if (mounted) setState(() => _isSpeaking = false);
       },
     );
+
+    // 朗读启动失败时，重置状态并提示用户
+    if (!success && mounted) {
+      setState(() => _isSpeaking = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('语音播报不可用，请检查设备是否安装了语音引擎'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   /// 停止朗读

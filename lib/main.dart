@@ -3,8 +3,11 @@ import 'package:provider/provider.dart';
 
 import 'pages/home_page.dart';
 import 'providers/app_provider.dart';
+import 'services/tts_service.dart';
 
 void main() {
+  // 预热 TTS 引擎，不阻塞应用启动
+  TtsService.initialize();
   runApp(const MyApp());
 }
 
