@@ -49,8 +49,12 @@ if (subsection != null && subsection.isNotEmpty) {
       }
       if (keyword != null && keyword.isNotEmpty) {
         final kw = keyword.toLowerCase();
-        if (!q.title.toLowerCase().contains(kw) &&
-            !q.prompt.toLowerCase().contains(kw)) {
+        final matchesTitle = q.title.toLowerCase().contains(kw);
+        final matchesPrompt = q.prompt.toLowerCase().contains(kw);
+        final matchesKnowledgePoints = q.knowledgePoints.any(
+          (kp) => kp.toLowerCase().contains(kw) || kw.contains(kp.toLowerCase()),
+        );
+        if (!matchesTitle && !matchesPrompt && !matchesKnowledgePoints) {
           return false;
         }
       }

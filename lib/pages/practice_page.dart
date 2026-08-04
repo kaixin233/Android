@@ -10,6 +10,7 @@ import '../models/history_item.dart';
 import '../providers/app_provider.dart';
 import '../services/question_service.dart';
 import '../services/storage_service.dart';
+import '../services/tts_service.dart';
 import '../utils/animations.dart';
 
 /// 练习页面配置
@@ -26,6 +27,7 @@ class PracticeConfig {
     this.questionLimit,
     this.chapterNumber,
     this.subsection,
+    this.keyword,
   });
 
   final QuestionSubject? subject;
@@ -39,6 +41,7 @@ class PracticeConfig {
   final int? questionLimit;
   final String? chapterNumber;
   final String? subsection;
+  final String? keyword;
 }
 
 /// 答题记录，用于恢复已回答题目的选择状态
@@ -88,6 +91,7 @@ class _PracticePageState extends State<PracticePage> {
   Timer? _timer;
   final Set<String> _wrongKeys = {};
   final Map<String, _AnswerRecord> _questionResults = {};
+  bool _isSpeaking = false;
 
   @override
   void initState() {
@@ -99,6 +103,7 @@ class _PracticePageState extends State<PracticePage> {
   void dispose() {
     _timer?.cancel();
     _fillBlankController.dispose();
+    TtsService.stop();
     super.dispose();
   }
 
@@ -118,6 +123,7 @@ class _PracticePageState extends State<PracticePage> {
         difficulty: widget.config.difficulty,
         chapterNumber: widget.config.chapterNumber,
         subsection: widget.config.subsection,
+        keyword: widget.config.keyword,
         onlyFavorites: widget.config.onlyFavorites,
         favoriteKeys: favorites,
       );
@@ -278,6 +284,7 @@ class _PracticePageState extends State<PracticePage> {
       _finishPractice();
       return;
     }
+    _stopSpeakingIfNeeded();
     setState(() {
       _currentIndex++;
       _restoreQuestionState();
@@ -286,10 +293,18 @@ class _PracticePageState extends State<PracticePage> {
 
   void _previousQuestion() {
     if (_currentIndex == 0) return;
+    _stopSpeakingIfNeeded();
     setState(() {
       _currentIndex--;
       _restoreQuestionState();
     });
+  }
+
+  void _stopSpeakingIfNeeded() {
+    if (_isSpeaking) {
+      TtsService.stop();
+      _isSpeaking = false;
+    }
   }
 
   /// 恢复当前题目的已答状态
@@ -386,9 +401,9 @@ class _PracticePageState extends State<PracticePage> {
               }
             },
             child: const Text('再练一次'),
-          ),
-        ],
-      ),
+              ),
+          ],
+        ),
     );
   }
 
@@ -416,6 +431,37 @@ class _PracticePageState extends State<PracticePage> {
     final m = remaining ~/ 60;
     final s = remaining % 60;
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  /// 朗读当前题目和选项
+  Future<void> _speakQuestion() async {
+    if (_questions.isEmpty || _currentIndex >= _questions.length) return;
+    setState(() => _isSpeaking = true);
+
+    final question = _questions[_currentIndex];
+    final buffer = StringBuffer();
+    buffer.write(question.prompt);
+
+    if (question.options.isNotEmpty) {
+      buffer.write('。选项如下：');
+      for (var i = 0; i < question.options.length; i++) {
+        final label = String.fromCharCode('A'.codeUnitAt(0) + i);
+        buffer.write('$label，${question.options[i]}。');
+      }
+    }
+
+    await TtsService.speak(
+      buffer.toString(),
+      onComplete: () {
+        if (mounted) setState(() => _isSpeaking = false);
+      },
+    );
+  }
+
+  /// 停止朗读
+  Future<void> _stopSpeaking() async {
+    await TtsService.stop();
+    if (mounted) setState(() => _isSpeaking = false);
   }
 
   @override
@@ -462,6 +508,12 @@ class _PracticePageState extends State<PracticePage> {
       appBar: AppBar(
         title: Text(_getPracticeTitle()),
         actions: [
+          // 语音播报按钮
+          IconButton(
+            icon: Icon(_isSpeaking ? Icons.stop_circle_rounded : Icons.volume_up_rounded),
+            tooltip: _isSpeaking ? '停止朗读' : '朗读题目',
+            onPressed: _isSpeaking ? _stopSpeaking : _speakQuestion,
+          ),
           if (widget.config.timeLimitSeconds != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),

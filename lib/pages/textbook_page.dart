@@ -368,37 +368,46 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage> {
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              width: 28,
-                              height: 28,
-                              decoration: BoxDecoration(
-                                color: color.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  '${index + 1}',
-                                  style: TextStyle(
-                                    color: color,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
+                      child: InkWell(
+                        onTap: () => _startKnowledgePointPractice(point),
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 28,
+                                height: 28,
+                                decoration: BoxDecoration(
+                                  color: color.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    '${index + 1}',
+                                    style: TextStyle(
+                                      color: color,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                point,
-                                style: const TextStyle(fontSize: 15),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  point,
+                                  style: const TextStyle(fontSize: 15),
+                                ),
                               ),
-                            ),
-                          ],
+                              Icon(
+                                Icons.arrow_forward_ios_rounded,
+                                size: 16,
+                                color: color.withOpacity(0.4),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     );
@@ -484,6 +493,32 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage> {
       subject: widget.subject,
       chapterNumber: widget.chapterNumber,
       subsection: _isSubsectionLevel ? widget.subsection.number : null,
+      mode: PracticeMode.practice,
+      shuffleQuestions: false,
+    );
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PracticePage(
+          config: config,
+          onCompleted: (result) async {
+            await StorageService.addHistory(result);
+            await StorageService.markChapterCompleted(widget.subject, widget.chapterNumber);
+            if (mounted) {
+              Navigator.pop(context);
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  void _startKnowledgePointPractice(String knowledgePoint) {
+    final config = PracticeConfig(
+      subject: widget.subject,
+      chapterNumber: widget.chapterNumber,
+      keyword: knowledgePoint,
       mode: PracticeMode.practice,
       shuffleQuestions: false,
     );
