@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
 /// 语音播报服务 - 用于朗读题目和选项
@@ -17,39 +18,87 @@ class TtsService {
   static Future<void> initialize() async {
     if (_initialized) return;
 
+    try {
+      await _flutterTts.setSharedInstance(true);
+      await _setPreferredLanguage();
+      await _flutterTts.setSpeechRate(0.5);
+      await _flutterTts.setPitch(1.0);
+      await _flutterTts.setVolume(1.0);
+      await _flutterTts.setSilence(0);
+
+      _flutterTts.setStartHandler(() {
+        _isSpeaking = true;
+      });
+
+      _flutterTts.setCompletionHandler(() {
+        _isSpeaking = false;
+      });
+
+      _flutterTts.setErrorHandler((message) {
+        debugPrint('TTS error: $message');
+        _isSpeaking = false;
+      });
+
+      _initialized = true;
+    } catch (e, stackTrace) {
+      debugPrint('TTS initialize failed: $e');
+      debugPrintStack(stackTrace: stackTrace);
+      _initialized = false;
+    }
+  }
+
+  static Future<void> _setPreferredLanguage() async {
+    const preferredLanguages = <String>[
+      'zh-CN',
+      'zh-Hans-CN',
+      'zh-Hans',
+      'cmn-CN',
+      'en-US',
+    ];
+
+    final languages = await _flutterTts.getLanguages;
+    if (languages is List<dynamic>) {
+      for (final language in preferredLanguages) {
+        final normalizedLanguage = language.toLowerCase().replaceAll('-', '');
+        final hasMatch = languages.any((candidate) {
+          final value = candidate.toString().toLowerCase().replaceAll('-', '');
+          return value.contains(normalizedLanguage);
+        });
+        if (hasMatch) {
+          await _flutterTts.setLanguage(language);
+          return;
+        }
+      }
+    }
+
     await _flutterTts.setLanguage('zh-CN');
-    await _flutterTts.setSpeechRate(0.45); // 适中语速
-    await _flutterTts.setPitch(1.0);
-    await _flutterTts.setVolume(1.0);
-
-    _flutterTts.setStartHandler(() {
-      _isSpeaking = true;
-    });
-
-    _flutterTts.setCompletionHandler(() {
-      _isSpeaking = false;
-    });
-
-    _flutterTts.setErrorHandler((message) {
-      _isSpeaking = false;
-    });
-
-    _initialized = true;
   }
 
   /// 朗读文本
   static Future<void> speak(String text, {VoidCallback? onComplete}) async {
+    final speechText = text.trim();
+    if (speechText.isEmpty) return;
+
     await initialize();
     _flutterTts.setCompletionHandler(() {
       _isSpeaking = false;
       onComplete?.call();
     });
     _flutterTts.setErrorHandler((message) {
+      debugPrint('TTS speak error: $message');
       _isSpeaking = false;
       onComplete?.call();
     });
-    await _flutterTts.speak(text);
-    _isSpeaking = true;
+
+    try {
+      await _flutterTts.speak(speechText);
+      _isSpeaking = true;
+    } catch (e, stackTrace) {
+      debugPrint('TTS speak failed: $e');
+      debugPrintStack(stackTrace: stackTrace);
+      _isSpeaking = false;
+      onComplete?.call();
+    }
   }
 
   /// 停止朗读
