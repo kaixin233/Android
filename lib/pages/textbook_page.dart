@@ -3,11 +3,11 @@ import 'package:flutter/material.dart';
 import '../data/textbooks.dart';
 import '../models/question.dart';
 import '../models/history_item.dart';
+import '../services/question_loader.dart';
 import '../services/storage_service.dart';
 import 'practice_page.dart';
-import 'pdf_reader_page.dart';
 
-/// 电子教材页面 - 显示4本PDF教材，点击打开
+/// 大纲与考点页面 - 显示教材章节大纲和题库分类
 class TextbookPage extends StatefulWidget {
   const TextbookPage({super.key});
 
@@ -21,7 +21,7 @@ class _TextbookPageState extends State<TextbookPage> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('电子教材'),
+        title: const Text('大纲与考点'),
         centerTitle: false,
       ),
       body: ListView(
@@ -49,14 +49,14 @@ class _TextbookPageState extends State<TextbookPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '二级建造师考试教材',
+                        '二级建造师考试大纲',
                         style: theme.textTheme.titleMedium?.copyWith(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       Text(
-                        '2026版全套电子教材，点击即可在线阅读',
+                        '按章节大纲浏览考点，学练结合高效备考',
                         style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
                       ),
                     ],
@@ -82,8 +82,8 @@ class _TextbookPageState extends State<TextbookPage> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  _buildTip('结合教材与题库，学练结合效果更佳'),
-                  _buildTip('先看教材掌握知识点，再做对应科目题目'),
+                  _buildTip('按章节大纲逐章练习，系统掌握各知识点'),
+                  _buildTip('先做章节练习巩固基础，再挑战模拟测试'),
                   _buildTip('错题反复练习，直至完全掌握'),
                   _buildTip('考前冲刺阶段，使用考试模式模拟实战'),
                 ],
@@ -172,7 +172,7 @@ class _TextbookCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          book.subject.label,
+                          '${book.chapters.length}章 · ${book.questionBankCategories.length}个练习分类',
                           style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
                         ),
                       ),
@@ -189,7 +189,7 @@ class _TextbookCard extends StatelessWidget {
   }
 }
 
-/// 教材详情页面 - 显示目录和项目题库分类
+/// 大纲详情页面 - 显示章节大纲和题库分类
 class TextbookDetailPage extends StatefulWidget {
   const TextbookDetailPage({super.key, required this.book});
 
@@ -201,27 +201,37 @@ class TextbookDetailPage extends StatefulWidget {
 
 class _TextbookDetailPageState extends State<TextbookDetailPage> {
   List<bool> _expandedChapters = [];
-  int _readProgress = 1;
   Map<String, bool> _completedChapters = {};
+  Map<String, int> _chapterQuestionCounts = {};
 
   @override
   void initState() {
     super.initState();
     _expandedChapters = List.filled(widget.book.chapters.length, false);
-    _loadProgress();
+    _loadData();
   }
 
-  Future<void> _loadProgress() async {
-    final progress = await StorageService.loadReadProgress(widget.book.subject);
-    setState(() {
-      _readProgress = progress;
-    });
+  Future<void> _loadData() async {
+    // 加载章节完成状态
     for (final chapter in widget.book.chapters) {
       final completed = await StorageService.isChapterCompleted(widget.book.subject, chapter.number);
-      setState(() {
-        _completedChapters[chapter.number] = completed;
-      });
+      if (mounted) {
+        setState(() {
+          _completedChapters[chapter.number] = completed;
+        });
+      }
     }
+    // 加载题目数量
+    try {
+      final index = await QuestionLoader.loadSubjectIndex(widget.book.subject.name);
+      if (mounted) {
+        setState(() {
+          for (final entry in index.entries) {
+            _chapterQuestionCounts[entry.key] = entry.value.count;
+          }
+        });
+      }
+    } catch (_) {}
   }
 
   @override
@@ -270,41 +280,18 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                ElevatedButton(
-                  onPressed: () => _openPdf(context, widget.book),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: color,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.open_in_new_rounded),
-                      SizedBox(width: 8),
-                      Text('在线阅读教材'),
-                    ],
-                  ),
+                Row(
+                  children: [
+                    _buildStatChip('${widget.book.chapters.length} 章', Icons.list_alt_rounded),
+                    const SizedBox(width: 8),
+                    _buildStatChip('${widget.book.questionBankCategories.length} 个练习', Icons.quiz_rounded),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                if (_readProgress > 1)
-                  Row(
-                    children: [
-                      const Icon(Icons.history_rounded, color: Colors.white70, size: 16),
-                      const SizedBox(width: 6),
-                      Text(
-                        '上次阅读至第 $_readProgress 页',
-                        style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
-                      ),
-                    ],
-                  ),
               ],
             ),
           ),
           const SizedBox(height: 20),
-          _buildSectionHeader('📖 教材目录', color),
+          _buildSectionHeader('📖 章节大纲', color),
           const SizedBox(height: 12),
           ...widget.book.chapters.asMap().entries.map((entry) {
             final index = entry.key;
@@ -318,23 +305,44 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
                   _expandedChapters[index] = !_expandedChapters[index];
                 });
               },
-              onSectionTap: (page) => _openPdf(context, widget.book),
+              onPracticeTap: () => _startChapterPractice(chapter.number),
               isCompleted: _completedChapters[chapter.number] ?? false,
-              readProgressPage: _readProgress,
+              questionCount: _chapterQuestionCounts[chapter.number],
             );
           }),
           if (widget.book.chapters.isEmpty)
-            _buildEmptyState('暂无目录信息'),
+            _buildEmptyState('暂无大纲信息'),
           const SizedBox(height: 24),
-          _buildSectionHeader('📝 项目题库', color),
+          _buildSectionHeader('📝 题库练习', color),
           const SizedBox(height: 12),
           ...widget.book.questionBankCategories.map((category) => _QuestionBankCard(
                 category: category,
                 color: color,
+                questionCount: category.chapterNumber != null
+                    ? _chapterQuestionCounts[category.chapterNumber]
+                    : null,
                 onTap: () => _handleQuestionBankTap(category),
               )),
           if (widget.book.questionBankCategories.isEmpty)
             _buildEmptyState('暂无题库分类'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatChip(String label, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white, size: 14),
+          const SizedBox(width: 4),
+          Text(label, style: const TextStyle(color: Colors.white, fontSize: 13)),
         ],
       ),
     );
@@ -373,10 +381,27 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
     );
   }
 
-  void _openPdf(BuildContext context, Textbook book) {
-    Navigator.of(context).push(
+  void _startChapterPractice(String chapterNumber) {
+    final config = PracticeConfig(
+      subject: widget.book.subject,
+      chapterNumber: chapterNumber,
+      mode: PracticeMode.practice,
+      shuffleQuestions: false,
+    );
+
+    Navigator.push(
+      context,
       MaterialPageRoute(
-        builder: (_) => PdfReaderPage(textbook: book),
+        builder: (context) => PracticePage(
+          config: config,
+          onCompleted: (result) async {
+            await StorageService.addHistory(result);
+            await StorageService.markChapterCompleted(widget.book.subject, chapterNumber);
+            if (mounted) {
+              Navigator.pop(context);
+            }
+          },
+        ),
       ),
     );
   }
@@ -418,14 +443,14 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
         builder: (context) => PracticePage(
           config: config,
           onCompleted: (result) async {
-                    await StorageService.addHistory(result);
-                    if (category.chapterNumber != null) {
-                      await StorageService.markChapterCompleted(subject, category.chapterNumber!);
-                    }
-                    if (mounted) {
-                      Navigator.pop(context);
-                    }
-                  },
+            await StorageService.addHistory(result);
+            if (category.chapterNumber != null) {
+              await StorageService.markChapterCompleted(subject, category.chapterNumber!);
+            }
+            if (mounted) {
+              Navigator.pop(context);
+            }
+          },
         ),
       ),
     );
@@ -438,25 +463,21 @@ class _ChapterExpansionTile extends StatelessWidget {
     required this.color,
     required this.isExpanded,
     required this.onTap,
-    required this.onSectionTap,
+    required this.onPracticeTap,
     required this.isCompleted,
-    required this.readProgressPage,
+    this.questionCount,
   });
 
   final TextbookChapter chapter;
   final Color color;
   final bool isExpanded;
   final VoidCallback onTap;
-  final void Function(int) onSectionTap;
+  final VoidCallback onPracticeTap;
   final bool isCompleted;
-  final int readProgressPage;
+  final int? questionCount;
 
   @override
   Widget build(BuildContext context) {
-    final isPastReadProgress = chapter.page <= readProgressPage;
-    final isCurrentReading = readProgressPage >= chapter.page && 
-        (chapter.subsections.isEmpty || readProgressPage < chapter.subsections.last.page);
-
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -487,24 +508,28 @@ class _ChapterExpansionTile extends StatelessWidget {
                   Expanded(
                     child: Text(
                       chapter.title,
-                      style: TextStyle(
-                        fontSize: 15,
-                        color: isCurrentReading ? color : null,
-                        fontWeight: isCurrentReading ? FontWeight.w600 : null,
+                      style: const TextStyle(fontSize: 15),
+                    ),
+                  ),
+                  if (questionCount != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '$questionCount题',
+                        style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
                       ),
                     ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: onPracticeTap,
+                    icon: Icon(Icons.play_circle_rounded, color: color),
+                    tooltip: '开始练习',
+                    visualDensity: VisualDensity.compact,
                   ),
-                  const SizedBox(width: 12),
-                  Text(
-                    'P${chapter.page}',
-                    style: TextStyle(
-                      color: isPastReadProgress ? color.withOpacity(0.7) : Colors.grey,
-                    ),
-                  ),
-                  if (isCurrentReading)
-                    const SizedBox(width: 8),
-                  if (isCurrentReading)
-                    const Icon(Icons.bookmark_rounded, color: Colors.amber, size: 16),
                 ],
               ),
             ),
@@ -512,42 +537,27 @@ class _ChapterExpansionTile extends StatelessWidget {
           if (isExpanded && chapter.subsections.isNotEmpty)
             const Divider(height: 0),
           if (isExpanded && chapter.subsections.isNotEmpty)
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              child: Column(
-                children: chapter.subsections.map((subsection) {
-                  final isSubPastRead = subsection.page <= readProgressPage;
-                  return InkWell(
-                    onTap: () => onSectionTap(subsection.page),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 10),
-                      child: Row(
-                        children: [
-                          Text(
-                            subsection.number,
-                            style: TextStyle(color: isSubPastRead ? color.withOpacity(0.7) : Colors.grey),
-                            textAlign: TextAlign.right,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              subsection.title,
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: isSubPastRead ? null : Colors.grey,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            'P${subsection.page}',
-                            style: TextStyle(color: isSubPastRead ? color.withOpacity(0.5) : Colors.grey, fontSize: 12),
-                          ),
-                        ],
+            Column(
+              children: chapter.subsections.map((subsection) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 10),
+                  child: Row(
+                    children: [
+                      Text(
+                        subsection.number,
+                        style: TextStyle(color: Colors.grey),
                       ),
-                    ),
-                  );
-                }).toList(),
-              ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          subsection.title,
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
             ),
         ],
       ),
@@ -560,11 +570,13 @@ class _QuestionBankCard extends StatelessWidget {
     required this.category,
     required this.color,
     required this.onTap,
+    this.questionCount,
   });
 
   final QuestionBankCategory category;
   final Color color;
   final VoidCallback onTap;
+  final int? questionCount;
 
   @override
   Widget build(BuildContext context) {
@@ -613,7 +625,7 @@ class _QuestionBankCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (category.chapterNumber != null)
+                if (questionCount != null)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
@@ -621,7 +633,7 @@ class _QuestionBankCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      '第${category.chapterNumber}章',
+                      '$questionCount题',
                       style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -634,20 +646,4 @@ class _QuestionBankCard extends StatelessWidget {
       ),
     );
   }
-}
-
-/// 提供给其他页面使用的工具函数：根据科目打开对应教材
-void openTextbookBySubject(BuildContext context, QuestionSubject subject) {
-  final book = Textbooks.bySubject(subject);
-  if (book == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('未找到该科目的教材')),
-    );
-    return;
-  }
-  Navigator.of(context).push(
-    MaterialPageRoute(
-      builder: (_) => PdfReaderPage(textbook: book),
-    ),
-  );
 }

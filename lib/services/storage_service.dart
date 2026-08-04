@@ -234,7 +234,6 @@ class StorageService {
   // ========== 章节完成状态 ==========
 
   static const String _chapterProgressKey = 'chapterProgress';
-  static const String _readProgressKey = 'readProgress';
 
   static Future<void> markChapterCompleted(QuestionSubject subject, String chapterNumber) async {
     final progress = await _loadChapterProgress();
@@ -267,36 +266,6 @@ class StorageService {
     await prefs.setString(_chapterProgressKey, jsonEncode(progress));
   }
 
-  // ========== 阅读进度 ==========
-
-  static Future<void> saveReadProgress(QuestionSubject subject, int page) async {
-    final progress = await _loadReadProgress();
-    progress[subject.name] = page;
-    await _saveReadProgress(progress);
-  }
-
-  static Future<int> loadReadProgress(QuestionSubject subject) async {
-    final progress = await _loadReadProgress();
-    return progress[subject.name] ?? 1;
-  }
-
-  static Future<Map<String, int>> _loadReadProgress() async {
-    final prefs = await _instance;
-    final raw = prefs.getString(_readProgressKey);
-    if (raw == null) return {};
-    try {
-      final Map<String, dynamic> decoded = jsonDecode(raw) as Map<String, dynamic>;
-      return decoded.map((k, v) => MapEntry(k, v as int));
-    } catch (e) {
-      return {};
-    }
-  }
-
-  static Future<void> _saveReadProgress(Map<String, int> progress) async {
-    final prefs = await _instance;
-    await prefs.setString(_readProgressKey, jsonEncode(progress));
-  }
-
   // ========== 数据导出 ==========
 
   static Future<String> exportAllData() async {
@@ -307,7 +276,6 @@ class StorageService {
     final completedChapters = await loadCompletedChapters();
     final streakDays = await loadStreakDays();
     final chapterProgress = await _loadChapterProgress();
-    final readProgress = await _loadReadProgress();
 
     final data = {
       'version': '1.0',
@@ -319,7 +287,6 @@ class StorageService {
       'completedChapters': completedChapters,
       'streakDays': streakDays,
       'chapterProgress': chapterProgress,
-      'readProgress': readProgress,
     };
     return const JsonEncoder.withIndent('  ').convert(data);
   }
@@ -365,10 +332,6 @@ class StorageService {
 
       if (data.containsKey('chapterProgress')) {
         await prefs.setString(_chapterProgressKey, jsonEncode(data['chapterProgress']));
-      }
-
-      if (data.containsKey('readProgress')) {
-        await prefs.setString(_readProgressKey, jsonEncode(data['readProgress']));
       }
     } catch (e) {
       rethrow;

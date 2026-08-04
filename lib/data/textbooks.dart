@@ -34,12 +34,11 @@ class QuestionBankCategory {
   final String? chapterNumber;
 }
 
-/// 教材信息
+/// 教材信息（题目大纲，不含PDF）
 class Textbook {
   const Textbook({
     required this.title,
     required this.subject,
-    required this.fileName,
     required this.color,
     required this.icon,
     this.description = '',
@@ -49,14 +48,11 @@ class Textbook {
 
   final String title;
   final QuestionSubject subject;
-  final String fileName;
   final int color;
   final IconData icon;
   final String description;
   final List<TextbookChapter> chapters;
   final List<QuestionBankCategory> questionBankCategories;
-
-  String get webUrl => 'PDF/$fileName';
 }
 
 /// 法规教材章节（二建）
@@ -497,7 +493,6 @@ class Textbooks {
     Textbook(
       title: '二建法规电子教材',
       subject: QuestionSubject.law,
-      fileName: '2026版一建法规电子教材.pdf',
       color: 0xFF2196F3,
       icon: Icons.gavel_rounded,
       description: '建设工程法规及相关知识',
@@ -507,7 +502,6 @@ class Textbooks {
     Textbook(
       title: '二建管理电子教材',
       subject: QuestionSubject.management,
-      fileName: '2026版一建管理电子教材.pdf',
       color: 0xFFFF9800,
       icon: Icons.build_rounded,
       description: '建设工程施工管理',
@@ -517,7 +511,6 @@ class Textbooks {
     Textbook(
       title: '二建市政实务电子教材',
       subject: QuestionSubject.practice,
-      fileName: '2026版一建市政实务电子教材.pdf',
       color: 0xFF9C27B0,
       icon: Icons.construction_rounded,
       description: '市政公用工程管理与实务',

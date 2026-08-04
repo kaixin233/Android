@@ -280,7 +280,7 @@ class _SubjectCard extends StatelessWidget {
                 IconButton(
                   onPressed: onBookTap,
                   icon: const Icon(Icons.menu_book_rounded),
-                  tooltip: '查看教材',
+                  tooltip: '查看大纲',
                 ),
                 FilledButton.tonal(
                   onPressed: onTap,
