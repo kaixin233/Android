@@ -227,7 +227,7 @@ class TtsHelperPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
                 try {
                     tts?.shutdown()
-                } catch (_) {}
+                } catch (_: Exception) {}
 
                 if (checkResult.isEmpty()) {
                     checkResult = mapOf(
@@ -246,7 +246,7 @@ class TtsHelperPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 Log.e(TAG, "checkVoiceData exception", e)
                 try {
                     tts?.shutdown()
-                } catch (_) {}
+                } catch (_: Exception) {}
                 Handler(Looper.getMainLooper()).post {
                     result.success(mapOf(
                         "initStatus" to "ERROR",
