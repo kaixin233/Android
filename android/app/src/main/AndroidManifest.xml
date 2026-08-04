@@ -49,5 +49,17 @@
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
+        <!-- Required for opening TTS voice data installation page on Android 11+ -->
+        <intent>
+            <action android:name="android.speech.tts.engine.INSTALL_TTS_DATA" />
+        </intent>
+        <!-- Required for checking TTS voice data availability on Android 11+ -->
+        <intent>
+            <action android:name="android.speech.tts.engine.CHECK_TTS_DATA" />
+        </intent>
+        <!-- Required for querying TTS engine settings activity on Android 11+ -->
+        <intent>
+            <action android:name="android.speech.tts.engine.config.TTS_SETTINGS" />
+        </intent>
     </queries>
 </manifest>

@@ -459,16 +459,170 @@ class _PracticePageState extends State<PracticePage> {
       },
     );
 
-    // 朗读启动失败时，重置状态并提示用户
+    // 朗读启动失败时，重置状态并引导用户
     if (!success && mounted) {
       setState(() => _isSpeaking = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('语音播报不可用，请检查设备是否安装了语音引擎'),
-          duration: Duration(seconds: 3),
-        ),
-      );
+      _showTtsErrorDialog();
     }
+  }
+
+  /// 显示 TTS 错误引导对话框（增强版，含诊断信息和操作按钮）
+  void _showTtsErrorDialog() {
+    String? diagInfo;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.volume_off, color: Colors.orange),
+              SizedBox(width: 8),
+              Expanded(child Text('语音播报不可用')),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '您的设备可能未安装或未启用中文语音引擎，'
+                  '或引擎缺少中文语音数据。',
+                  style: TextStyle(fontSize: 14),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  '快捷操作：',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.icon(
+                      icon: const Icon(Icons.settings, size: 18),
+                      label: const Text('TTS设置', style: TextStyle(fontSize: 13)),
+                      onPressed: () async {
+                        await TtsService.openTtsSettings();
+                      },
+                    ),
+                    FilledButton.icon(
+                      icon: const Icon(Icons.download, size: 18),
+                      label: const Text('安装语音', style: TextStyle(fontSize: 13)),
+                      onPressed: () async {
+                        await TtsService.installTtsData();
+                      },
+                    ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('诊断', style: TextStyle(fontSize: 13)),
+                      onPressed: () async {
+                        setDialogState(() {});
+                        final info = await TtsService.getDiagnostics();
+                        setDialogState(() {
+                          diagInfo = _formatDiagnostics(info);
+                        });
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  '手动设置步骤：',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  '1. 点击上方「TTS设置」按钮\n'
+                  '2. 选择语音引擎（推荐 Google TTS 或讯飞）\n'
+                  '3. 点击「安装语音」下载中文语音数据\n'
+                  '4. 返回 App 点击「重试」',
+                  style: TextStyle(fontSize: 12, height: 1.6),
+                ),
+                if (diagInfo != null) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: SelectableText(
+                      diagInfo!,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('关闭'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                // 重置 TTS 状态后重试
+                TtsService.reset().then((_) {
+                  if (mounted) _speakQuestion();
+                });
+              },
+              child: const Text('重试'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 格式化诊断信息为可读文本
+  String _formatDiagnostics(Map<String, dynamic> info) {
+    final buffer = StringBuffer();
+    buffer.writeln('=== TTS 诊断信息 ===');
+
+    buffer.writeln('引擎可用: ${info['isAvailable']}');
+    buffer.writeln('正在朗读: ${info['isSpeaking']}');
+
+    if (info['triedEngines'] != null) {
+      buffer.writeln('已尝试引擎: ${info['triedEngines']}');
+    }
+
+    if (info['defaultEngine'] != null) {
+      buffer.writeln('默认引擎: ${info['defaultEngine']}');
+    }
+
+    if (info['engines'] != null) {
+      buffer.writeln('已安装引擎: ${info['engines']}');
+    }
+
+    if (info['languages'] != null) {
+      buffer.writeln('可用语言: ${info['languages']}');
+    }
+
+    if (info['nativeEngines'] != null) {
+      final native = info['nativeEngines'] as Map;
+      buffer.writeln('原生引擎数: ${native['engineCount']}');
+      if (native['engines'] != null) {
+        buffer.writeln('原生引擎列表:');
+        for (final e in native['engines'] as List) {
+          buffer.writeln('  - ${e['packageName']} (${e['label']})');
+        }
+      }
+    }
+
+    if (info['error'] != null) {
+      buffer.writeln('错误: ${info['error']}');
+    }
+
+    return buffer.toString();
   }
 
   /// 停止朗读
