@@ -406,6 +406,7 @@ class _PracticePageState extends State<PracticePage> {
 
   Future<void> _finishPractice() async {
     _timer?.cancel();
+    _stopSpeakingIfNeeded();
     final total = _questions.length;
     final result = HistoryItem(
       title: _getPracticeTitle(),
@@ -417,42 +418,149 @@ class _PracticePageState extends State<PracticePage> {
       mode: widget.config.mode,
       wrongQuestionKeys: _wrongKeys.toList(),
     );
+
+    // 先保存结果，但不导航——导航由弹窗按钮统一处理
     await widget.onCompleted(result);
 
     if (!mounted) return;
-    showDialog<void>(
+
+    final accuracy = total == 0 ? 0 : (_correctCount * 100 ~/ total);
+    final hasWrong = _wrongKeys.isNotEmpty;
+
+    await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        title: const Text('练习完成'),
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        titlePadding: EdgeInsets.zero,
+        title: Container(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+          decoration: BoxDecoration(
+            color: accuracy >= 80
+                ? Colors.green.shade50
+                : accuracy >= 60
+                    ? Colors.orange.shade50
+                    : Colors.red.shade50,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
+              Icon(
+                accuracy >= 80
+                    ? Icons.emoji_events_rounded
+                    : accuracy >= 60
+                        ? Icons.thumb_up_rounded
+                        : Icons.refresh_rounded,
+                size: 48,
+                color: accuracy >= 80
+                    ? Colors.amber
+                    : accuracy >= 60
+                        ? Colors.orange
+                        : Colors.red,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                accuracy >= 80 ? '优秀！' : accuracy >= 60 ? '不错！' : '继续加油！',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: accuracy >= 80
+                      ? Colors.green
+                      : accuracy >= 60
+                          ? Colors.orange
+                          : Colors.red,
+                ),
+              ),
+            ],
+          ),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('答对：$_correctCount / $total 题',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            Text('正确率：${total == 0 ? 0 : (_correctCount * 100 ~/ total)}%'),
+            // 正确率大字显示
+            Center(
+              child: Text(
+                '$accuracy%',
+                style: TextStyle(
+                  fontSize: 40,
+                  fontWeight: FontWeight.bold,
+                  color: accuracy >= 80
+                      ? Colors.green
+                      : accuracy >= 60
+                          ? Colors.orange
+                          : Colors.red,
+                ),
+              ),
+            ),
             const SizedBox(height: 4),
-            Text('用时：${_formatDuration(_elapsedSeconds)}'),
-            if (_wrongKeys.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text('错题数：${_wrongKeys.length}（已加入错题本）',
-                  style: const TextStyle(color: Colors.red)),
+            Center(
+              child: Text(
+                '答对 $_correctCount / $total 题',
+                style: const TextStyle(fontSize: 16, color: Colors.grey),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(Icons.timer_outlined, size: 18, color: Colors.grey.shade600),
+                const SizedBox(width: 8),
+                Text('用时：${_formatDuration(_elapsedSeconds)}'),
+              ],
+            ),
+            if (hasWrong) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(Icons.error_outline, size: 18, color: Colors.red.shade400),
+                  const SizedBox(width: 8),
+                  Text('错题 ${_wrongKeys.length} 道已加入错题本',
+                      style: TextStyle(color: Colors.red.shade400)),
+                ],
+              ),
             ],
           ],
         ),
         actions: [
+          // 错题回顾按钮（仅有错题时显示）
+          if (hasWrong)
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                // 回到错题重做模式
+                setState(() {
+                  _currentIndex = 0;
+                  _correctCount = 0;
+                  _elapsedSeconds = 0;
+                  _questionResults.clear();
+                  _selectedIndex = null;
+                  _selectedIndices = {};
+                  _selectedBool = null;
+                  _fillBlankController.clear();
+                  _submitted = false;
+                  // 只保留错题
+                  final wrongSet = _wrongKeys.toSet();
+                  _questions = _questions
+                      .where((q) => wrongSet.contains(q.uniqueKey))
+                      .toList();
+                  _wrongKeys.clear();
+                });
+              },
+              child: const Text('错题回顾'),
+            ),
           TextButton(
             onPressed: () {
-              Navigator.of(context).pop();
+              Navigator.of(dialogContext).pop();
               Navigator.of(context).pop();
             },
             child: const Text('返回'),
           ),
           FilledButton(
             onPressed: () {
-              Navigator.of(context).pop();
+              Navigator.of(dialogContext).pop();
               setState(() {
                 _currentIndex = 0;
                 _correctCount = 0;
@@ -464,6 +572,7 @@ class _PracticePageState extends State<PracticePage> {
                 _selectedBool = null;
                 _fillBlankController.clear();
                 _submitted = false;
+                _isCorrect = false;
                 // 重新洗牌
                 if (widget.config.shuffleQuestions) {
                   _questions.shuffle();
@@ -477,9 +586,9 @@ class _PracticePageState extends State<PracticePage> {
               }
             },
             child: const Text('再练一次'),
-              ),
-          ],
-        ),
+          ),
+        ],
+      ),
     );
   }
 

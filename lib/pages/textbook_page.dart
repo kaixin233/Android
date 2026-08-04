@@ -8,6 +8,7 @@ import '../providers/app_provider.dart';
 import '../services/question_loader.dart';
 import '../services/question_service.dart';
 import '../services/storage_service.dart';
+import '../services/knowledge_service.dart';
 import 'practice_page.dart';
 
 /// 大纲与考点页面 - 显示教材章节大纲和题库分类
@@ -326,7 +327,7 @@ class _TextbookCard extends StatelessWidget {
   }
 }
 
-/// 小节详情页面 - 展示该小节的考点列表和练习入口
+/// 小节详情页面 - 双Tab展示考点知识和章节练习
 class SubsectionDetailPage extends StatefulWidget {
   const SubsectionDetailPage({
     super.key,
@@ -347,20 +348,50 @@ class SubsectionDetailPage extends StatefulWidget {
   State<SubsectionDetailPage> createState() => _SubsectionDetailPageState();
 }
 
-class _SubsectionDetailPageState extends State<SubsectionDetailPage> {
+class _SubsectionDetailPageState extends State<SubsectionDetailPage>
+    with SingleTickerProviderStateMixin {
   bool _isLoading = true;
-  List<String> _knowledgePoints = [];
+  List<String> _questionKnowledgePoints = [];
   int _questionCount = 0;
   bool _isSubsectionLevel = false;
+  List<KnowledgeSection> _knowledgeSections = [];
+  late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _loadData();
   }
 
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadData() async {
-    // 先尝试按小节筛选
+    // 并行加载题目数据和考点知识
+    final results = await Future.wait([
+      _loadQuestions(),
+      _loadKnowledge(),
+    ]);
+
+    final questionData = results[0] as _QuestionData;
+    final knowledgeSections = results[1] as List<KnowledgeSection>;
+
+    if (mounted) {
+      setState(() {
+        _questionKnowledgePoints = questionData.knowledgePoints;
+        _questionCount = questionData.questionCount;
+        _isSubsectionLevel = questionData.isSubsectionLevel;
+        _knowledgeSections = knowledgeSections;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<_QuestionData> _loadQuestions() async {
     var questions = await QuestionService.filter(
       subject: widget.subject,
       chapterNumber: widget.chapterNumber,
@@ -369,7 +400,6 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage> {
 
     bool subsectionLevel = false;
     if (questions.isEmpty) {
-      // 题目数据未细分到小节，回退到整章
       questions = await QuestionService.filter(
         subject: widget.subject,
         chapterNumber: widget.chapterNumber,
@@ -383,13 +413,31 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage> {
       points.addAll(q.knowledgePoints);
     }
 
-    if (mounted) {
-      setState(() {
-        _knowledgePoints = points.toList()..sort();
-        _questionCount = questions.length;
-        _isSubsectionLevel = subsectionLevel;
-        _isLoading = false;
-      });
+    return _QuestionData(
+      knowledgePoints: points.toList()..sort(),
+      questionCount: questions.length,
+      isSubsectionLevel: subsectionLevel,
+    );
+  }
+
+  Future<List<KnowledgeSection>> _loadKnowledge() async {
+    try {
+      // 先尝试精确匹配小节号
+      var sections = await KnowledgeService.getSectionsBySubsection(
+        subject: widget.subject,
+        chapterNumber: widget.chapterNumber,
+        subsectionNumber: widget.subsection.number,
+      );
+      // 如果精确匹配无结果，回退到整章
+      if (sections.isEmpty) {
+        sections = await KnowledgeService.getSectionsBySubsection(
+          subject: widget.subject,
+          chapterNumber: widget.chapterNumber,
+        );
+      }
+      return sections;
+    } catch (_) {
+      return [];
     }
   }
 
@@ -402,198 +450,226 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage> {
       appBar: AppBar(
         title: Text('${widget.subsection.number} ${widget.subsection.title}'),
         centerTitle: false,
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(icon: Icon(Icons.menu_book_rounded, size: 18), text: '考点知识'),
+            Tab(icon: Icon(Icons.quiz_rounded, size: 18), text: '章节练习'),
+          ],
+          labelColor: color,
+          indicatorColor: color,
+        ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(16),
+          : TabBarView(
+              controller: _tabController,
               children: [
-                // 小节信息卡片
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [color, color.withOpacity(0.7)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.bookmark_rounded, color: Colors.white, size: 28),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '${widget.subsection.number} ${widget.subsection.title}',
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '${widget.bookTitle} · 第${widget.chapterNumber}章',
-                                  style: TextStyle(color: Colors.white70, fontSize: 13),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          _buildStatChip(
-                            '$_questionCount 题',
-                            Icons.quiz_rounded,
-                          ),
-                          const SizedBox(width: 8),
-                          _buildStatChip(
-                            '${_knowledgePoints.length} 个考点',
-                            Icons.lightbulb_rounded,
-                          ),
-                          const SizedBox(width: 8),
-                          _buildStatChip(
-                            'P${widget.subsection.page}',
-                            Icons.menu_book_rounded,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
+                _buildKnowledgeTab(theme, color),
+                _buildPracticeTab(theme, color),
+              ],
+            ),
+    );
+  }
 
-                // 考点列表
-                Row(
-                  children: [
-                    Container(
-                      width: 4,
-                      height: 24,
-                      decoration: BoxDecoration(
-                        color: color,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      '考点列表',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: color,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
+  /// 考点知识 Tab - 展示从HTML解析的考点内容
+  Widget _buildKnowledgeTab(ThemeData theme, Color color) {
+    if (_knowledgeSections.isEmpty) {
+      return _buildEmptyState('暂无考点知识内容', icon: Icons.menu_book_outlined);
+    }
 
-                if (_knowledgePoints.isEmpty)
-                  _buildEmptyState('暂无考点数据')
-                else
-                  ..._knowledgePoints.asMap().entries.map((entry) {
-                    final index = entry.key;
-                    final point = entry.value;
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      child: InkWell(
-                        onTap: () => _startKnowledgePointPractice(point),
-                        borderRadius: BorderRadius.circular(12),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                width: 28,
-                                height: 28,
-                                decoration: BoxDecoration(
-                                  color: color.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Center(
-                                  child: Text(
-                                    '${index + 1}',
-                                    style: TextStyle(
-                                      color: color,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  point,
-                                  style: const TextStyle(fontSize: 15),
-                                ),
-                              ),
-                              Icon(
-                                Icons.arrow_forward_ios_rounded,
-                                size: 16,
-                                color: color.withOpacity(0.4),
-                              ),
-                            ],
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _knowledgeSections.length,
+      itemBuilder: (context, index) {
+        final section = _knowledgeSections[index];
+        return _KnowledgeSectionCard(section: section, color: color);
+      },
+    );
+  }
+
+  /// 章节练习 Tab - 展示题目相关考点和练习入口
+  Widget _buildPracticeTab(ThemeData theme, Color color) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        // 小节信息卡片
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [color, color.withOpacity(0.7)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.bookmark_rounded, color: Colors.white, size: 28),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${widget.subsection.number} ${widget.subsection.title}',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                      ),
-                    );
-                  }),
-
-                const SizedBox(height: 24),
-
-                // 练习入口
-                if (!_isSubsectionLevel && _questionCount > 0)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.orange.withOpacity(0.3)),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.info_outline_rounded, color: Colors.orange[700], size: 20),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            '题目数据暂未细分到此小节，以下练习包含整章题目',
-                            style: TextStyle(color: Colors.orange[700], fontSize: 13),
-                          ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${widget.bookTitle} · 第${widget.chapterNumber}章',
+                          style: const TextStyle(color: Colors.white70, fontSize: 13),
                         ),
                       ],
                     ),
                   ),
-                if (_questionCount > 0)
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: FilledButton.icon(
-                      onPressed: _startPractice,
-                      icon: const Icon(Icons.play_circle_rounded),
-                      label: const Text('开始练习', style: TextStyle(fontSize: 16)),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: color,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  _buildStatChip('$_questionCount 题', Icons.quiz_rounded),
+                  const SizedBox(width: 8),
+                  _buildStatChip(
+                    '${_questionKnowledgePoints.length} 个考点',
+                    Icons.lightbulb_rounded,
+                  ),
+                  const SizedBox(width: 8),
+                  _buildStatChip('P${widget.subsection.page}', Icons.menu_book_rounded),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // 题目考点列表
+        if (_questionKnowledgePoints.isNotEmpty) ...[
+          _buildSectionHeader('题目考点', color),
+          const SizedBox(height: 12),
+          ..._questionKnowledgePoints.asMap().entries.map((entry) {
+            final index = entry.key;
+            final point = entry.value;
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: InkWell(
+                onTap: () => _startKnowledgePointPractice(point),
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: color.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Center(
+                          child: Text(
+                            '${index + 1}',
+                            style: TextStyle(
+                              color: color,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  )
-                else
-                  _buildEmptyState('暂无题目'),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(point, style: const TextStyle(fontSize: 15)),
+                      ),
+                      Icon(
+                        Icons.arrow_forward_ios_rounded,
+                        size: 16,
+                        color: color.withOpacity(0.4),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
+          const SizedBox(height: 24),
+        ],
+
+        // 练习入口
+        if (!_isSubsectionLevel && _questionCount > 0)
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.orange.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.orange.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline_rounded, color: Colors.orange[700], size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '题目数据暂未细分到此小节，以下练习包含整章题目',
+                    style: TextStyle(color: Colors.orange[700], fontSize: 13),
+                  ),
+                ),
               ],
             ),
+          ),
+        if (_questionCount > 0)
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: FilledButton.icon(
+              onPressed: _startPractice,
+              icon: const Icon(Icons.play_circle_rounded),
+              label: const Text('开始练习', style: TextStyle(fontSize: 16)),
+              style: FilledButton.styleFrom(
+                backgroundColor: color,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          )
+        else
+          _buildEmptyState('暂无题目', icon: Icons.quiz_outlined),
+      ],
+    );
+  }
+
+  Widget _buildSectionHeader(String title, Color color) {
+    return Row(
+      children: [
+        Container(
+          width: 4,
+          height: 24,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+      ],
     );
   }
 
@@ -615,11 +691,18 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage> {
     );
   }
 
-  Widget _buildEmptyState(String text) {
+  Widget _buildEmptyState(String text, {IconData icon = Icons.inbox_rounded}) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 32),
-        child: Text(text, style: const TextStyle(color: Colors.grey)),
+        padding: const EdgeInsets.symmetric(vertical: 48),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 48, color: Colors.grey.shade300),
+            const SizedBox(height: 16),
+            Text(text, style: const TextStyle(color: Colors.grey)),
+          ],
+        ),
       ),
     );
   }
@@ -642,9 +725,6 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage> {
           onCompleted: (result) async {
             await provider.addHistory(result);
             await StorageService.markChapterCompleted(widget.subject, widget.chapterNumber);
-            if (mounted) {
-              Navigator.pop(context);
-            }
           },
         ),
       ),
@@ -669,11 +749,233 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage> {
           onCompleted: (result) async {
             await provider.addHistory(result);
             await StorageService.markChapterCompleted(widget.subject, widget.chapterNumber);
-            if (mounted) {
-              Navigator.pop(context);
-            }
           },
         ),
+      ),
+    );
+  }
+}
+
+/// 题目数据封装
+class _QuestionData {
+  final List<String> knowledgePoints;
+  final int questionCount;
+  final bool isSubsectionLevel;
+
+  const _QuestionData({
+    required this.knowledgePoints,
+    required this.questionCount,
+    required this.isSubsectionLevel,
+  });
+}
+
+/// 考点知识段落渲染组件
+class _KnowledgeSectionCard extends StatelessWidget {
+  const _KnowledgeSectionCard({required this.section, required this.color});
+
+  final KnowledgeSection section;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: isDark ? theme.colorScheme.surfaceVariant.withOpacity(0.3) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.15)),
+        boxShadow: isDark
+            ? null
+            : [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 2))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 小节标题
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.08),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(Icons.book_rounded, color: color, size: 18),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    section.title,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : color,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // 段落内容
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: _buildParagraphs(theme, isDark),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildParagraphs(ThemeData theme, bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: section.paragraphs.map((p) {
+        if (p.isHeading) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 12, bottom: 6),
+            child: Text(
+              p.text,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.blue.shade200 : color,
+              ),
+            ),
+          );
+        }
+        if (p.isSubheading) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 10, bottom: 4),
+            child: Text(
+              p.text,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.teal.shade200 : color.withOpacity(0.8),
+              ),
+            ),
+          );
+        }
+        if (p.isBold) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 6, bottom: 2),
+            child: Text(
+              p.text,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.orange.shade200 : Colors.red.shade700,
+              ),
+            ),
+          );
+        }
+        return Padding(
+          padding: const EdgeInsets.only(top: 2, bottom: 4),
+          child: Text(
+            p.text,
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.7,
+              color: isDark ? Colors.white70 : Colors.black87,
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+/// 章节考点知识页面 - 展示整章所有小节的考点内容
+class ChapterKnowledgePage extends StatefulWidget {
+  const ChapterKnowledgePage({
+    super.key,
+    required this.subject,
+    required this.chapterNumber,
+    required this.chapterTitle,
+    required this.bookColor,
+    required this.bookTitle,
+  });
+
+  final QuestionSubject subject;
+  final String chapterNumber;
+  final String chapterTitle;
+  final int bookColor;
+  final String bookTitle;
+
+  @override
+  State<ChapterKnowledgePage> createState() => _ChapterKnowledgePageState();
+}
+
+class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
+  bool _isLoading = true;
+  List<KnowledgeSection> _sections = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    try {
+      final sections = await KnowledgeService.getSectionsBySubsection(
+        subject: widget.subject,
+        chapterNumber: widget.chapterNumber,
+      );
+      if (mounted) {
+        setState(() {
+          _sections = sections;
+          _isLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Color(widget.bookColor);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('第${widget.chapterNumber}章 考点知识'),
+        centerTitle: false,
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _sections.isEmpty
+              ? _buildEmptyState()
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _sections.length,
+                  itemBuilder: (context, index) =>
+                      _KnowledgeSectionCard(section: _sections[index], color: color),
+                ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.menu_book_outlined, size: 64, color: Colors.grey.shade300),
+          const SizedBox(height: 16),
+          const Text('暂无考点知识内容', style: TextStyle(color: Colors.grey)),
+        ],
       ),
     );
   }
@@ -911,6 +1213,7 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
                   });
                 },
                 onPracticeTap: () => _startChapterPractice(chapter.number),
+                onKnowledgeTap: () => _openChapterKnowledge(chapter),
                 onSubsectionTap: (subsection) => _openSubsection(subsection, chapter.number),
                 isCompleted: _completedChapters[chapter.number] ?? false,
                 questionCount: _chapterQuestionCounts[chapter.number],
@@ -1003,6 +1306,21 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
     );
   }
 
+  void _openChapterKnowledge(TextbookChapter chapter) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChapterKnowledgePage(
+          subject: widget.book.subject,
+          chapterNumber: chapter.number,
+          chapterTitle: chapter.title,
+          bookColor: widget.book.color,
+          bookTitle: widget.book.title,
+        ),
+      ),
+    );
+  }
+
   void _startChapterPractice(String chapterNumber) {
     final config = PracticeConfig(
       subject: widget.book.subject,
@@ -1020,9 +1338,6 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
           onCompleted: (result) async {
             await provider.addHistory(result);
             await StorageService.markChapterCompleted(widget.book.subject, chapterNumber);
-            if (mounted) {
-              Navigator.pop(context);
-            }
           },
         ),
       ),
@@ -1071,9 +1386,6 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
             if (category.chapterNumber != null) {
               await StorageService.markChapterCompleted(subject, category.chapterNumber!);
             }
-            if (mounted) {
-              Navigator.pop(context);
-            }
           },
         ),
       ),
@@ -1094,9 +1406,6 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
           config: config,
           onCompleted: (result) async {
             await provider.addHistory(result);
-            if (mounted) {
-              Navigator.pop(context);
-            }
           },
         ),
       ),
@@ -1119,9 +1428,6 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
           config: config,
           onCompleted: (result) async {
             await provider.addHistory(result);
-            if (mounted) {
-              Navigator.pop(context);
-            }
           },
         ),
       ),
@@ -1205,6 +1511,7 @@ class _ChapterExpansionTile extends StatelessWidget {
     required this.isCompleted,
     this.questionCount,
     this.searchQuery = '',
+    this.onKnowledgeTap,
   });
 
   final TextbookChapter chapter;
@@ -1216,6 +1523,7 @@ class _ChapterExpansionTile extends StatelessWidget {
   final bool isCompleted;
   final int? questionCount;
   final String searchQuery;
+  final VoidCallback? onKnowledgeTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1264,7 +1572,14 @@ class _ChapterExpansionTile extends StatelessWidget {
                         style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
                       ),
                     ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 4),
+                  if (onKnowledgeTap != null)
+                    IconButton(
+                      onPressed: onKnowledgeTap,
+                      icon: Icon(Icons.menu_book_rounded, color: color.withOpacity(0.7)),
+                      tooltip: '查看考点',
+                      visualDensity: VisualDensity.compact,
+                    ),
                   IconButton(
                     onPressed: onPracticeTap,
                     icon: Icon(Icons.play_circle_rounded, color: color),

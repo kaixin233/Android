@@ -65,9 +65,6 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
             await provider.addHistory(result);
             await StorageService.markPlanDayCompleted(plan.id);
             await _loadPlans();
-            if (mounted) {
-              Navigator.pop(context);
-            }
           },
         ),
       ),
@@ -381,12 +378,15 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
                     ),
                     FilledButton(
                       onPressed: () {
+                        final provider = context.read<AppProvider>();
                         Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) => PracticePage(
                               config: PracticeConfig(subject: QuestionSubject.law, questionLimit: 10),
-                              onCompleted: (_) async => Navigator.pop(context),
+                              onCompleted: (result) async {
+                                await provider.addHistory(result);
+                              },
                             ),
                           ),
                         );
