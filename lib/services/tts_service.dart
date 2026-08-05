@@ -30,6 +30,7 @@ class TtsService {
 
   /// 当前朗读完成回调（由 speak() 设置，由回调处理器调用）
   static VoidCallback? _onComplete;
+  static Completer<bool>? _currentCompletionCompleter;
 
   /// 朗读代际计数器，用于防止旧的 stop() 异步清空新的 speak() 回调
   static int _speakGeneration = 0;
@@ -372,7 +373,7 @@ class TtsService {
   /// - onDone/onError 用于重置状态和触发回调
   /// - 如果 speak() 返回 0，重试一次（重新初始化）
   /// - 自动对文本进行预处理（括号替换等）
-  static Future<bool> speak(String text, {VoidCallback? onComplete}) async {
+  static Future<bool> speak(String text, {VoidCallback? onComplete, bool waitForCompletion = false}) async {
     final speechText = preprocessText(text);
     if (speechText.isEmpty) {
       // 空文本不算失败，直接回调继续下一节
@@ -435,7 +436,23 @@ class TtsService {
         _isStoppingForRestart = false;
 
         // 6. 设置新的完成回调（此时 stop() 的回调已被安全忽略）
-        _onComplete = onComplete;
+        Completer<bool>? completionCompleter;
+        bool completed = false;
+        if (waitForCompletion) {
+          completionCompleter = Completer<bool>();
+          _currentCompletionCompleter = completionCompleter;
+          _onComplete = () {
+            if (completed) return;
+            completed = true;
+            onComplete?.call();
+            if (!completionCompleter!.isCompleted) {
+              completionCompleter.complete(true);
+            }
+            _currentCompletionCompleter = null;
+          };
+        } else {
+          _onComplete = onComplete;
+        }
 
         // 7. 调用 speak()，添加超时防止挂起
         final result = await _flutterTts.speak(speechText).timeout(
@@ -449,10 +466,28 @@ class TtsService {
 
         if (result == 1) {
           // speak() 返回 1 = 引擎已接受朗读请求
-          // 不等待 onStart 回调（小米引擎可能不触发 onStart）
           _isSpeaking = true;
           debugPrint('TTS: 朗读已提交，引擎将播放');
-          return true;
+
+          if (!waitForCompletion) {
+            return true;
+          }
+
+          // 如果正常回调未触发，则在语音预计播放结束后自动继续
+          final fallbackDuration = _estimateSpeechDuration(speechText);
+          Future.delayed(fallbackDuration, () {
+            if (!completed && _speakGeneration == gen) {
+              debugPrint('TTS: speak() 完成回调超时，触发回退完成');
+              completed = true;
+              onComplete?.call();
+              if (!completionCompleter!.isCompleted) {
+                completionCompleter.complete(true);
+              }
+              _currentCompletionCompleter = null;
+            }
+          });
+
+          return completionCompleter!.future;
         }
 
         // speak() 返回 0，可能引擎未就绪，重试
@@ -468,8 +503,16 @@ class TtsService {
     debugPrint('TTS: 所有重试均失败');
     _isSpeaking = false;
     _onComplete = null;
+    _currentCompletionCompleter = null;
     onComplete?.call();
     return false;
+  }
+
+  static Duration _estimateSpeechDuration(String text) {
+    final cleanText = text.replaceAll(RegExp(r'\s+'), ' ');
+    final wordCount = cleanText.split(' ').length;
+    final baseMillis = wordCount * 280;
+    return Duration(milliseconds: baseMillis.clamp(3000, 30000));
   }
 
   /// 停止朗读
@@ -477,6 +520,11 @@ class TtsService {
     // 先清空回调，防止 stop() 触发的完成事件调用旧回调
     _onComplete = null;
     _isStoppingForRestart = true;
+    _speakGeneration++;
+    if (_currentCompletionCompleter != null && !_currentCompletionCompleter!.isCompleted) {
+      _currentCompletionCompleter!.complete(false);
+      _currentCompletionCompleter = null;
+    }
     try {
       await _flutterTts.stop();
     } catch (e) {
