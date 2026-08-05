@@ -422,8 +422,25 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
       _playingSectionIndex = index;
     });
 
-    final text = _knowledgeSections[index].toSpeechText();
-    final success = await TtsService.speak(text, waitForCompletion: true);
+    final raw = _knowledgeSections[index].toSpeechText();
+    final chunks = _cleanAndChunk(raw);
+    var overallSuccess = true;
+
+    for (var i = 0; i < chunks.length; i++) {
+      if (!_isPlayingKnowledge || !mounted) {
+        overallSuccess = false;
+        break;
+      }
+
+      final chunk = chunks[i];
+      final success = await TtsService.speak(chunk, waitForCompletion: true);
+      if (!success) {
+        overallSuccess = false;
+        break;
+      }
+      // 小段间短暂停顿，避免句子连读
+      await Future.delayed(const Duration(milliseconds: 180));
+    }
 
     if (mounted) {
       setState(() {
@@ -432,7 +449,7 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
       });
     }
 
-    if (!success && mounted) {
+    if (!overallSuccess && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('语音播报失败，请重试')),
       );
@@ -500,12 +517,22 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
           _playingSectionIndex = i;
         });
 
-        final text = _knowledgeSections[i].toSpeechText();
-        final success = await TtsService.speak(text, waitForCompletion: true);
-        if (!success || !_isPlayingKnowledge || !mounted) {
-          break;
+        final raw = _knowledgeSections[i].toSpeechText();
+        final chunks = _cleanAndChunk(raw);
+        var ok = true;
+        for (var c = 0; c < chunks.length; c++) {
+          if (!_isPlayingKnowledge || !mounted) {
+            ok = false;
+            break;
+          }
+          final success = await TtsService.speak(chunks[c], waitForCompletion: true);
+          if (!success) {
+            ok = false;
+            break;
+          }
+          await Future.delayed(const Duration(milliseconds: 160));
         }
-        await Future.delayed(const Duration(milliseconds: 200));
+        if (!ok || !_isPlayingKnowledge || !mounted) break;
       }
 
       if (mounted) {
@@ -552,6 +579,50 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
       );
     }
     return ready;
+  }
+
+  /// 将原始文本/HTML清洗为纯文本，并按语音友好的句子或长度分块返回
+  List<String> _cleanAndChunk(String raw) {
+    // 移除常见 HTML 标签与实体（简单处理，复杂 HTML 可用后端预处理）
+    var s = raw.replaceAll(RegExp(r'<[^>]*>', multiLine: true), ' ');
+    s = s.replaceAll('&nbsp;', ' ');
+    s = s.replaceAll('&lt;', '<');
+    s = s.replaceAll('&gt;', '>');
+    s = s.replaceAll('&amp;', '&');
+    s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    if (s.isEmpty) return [];
+
+    // 先按中文句号、问号、感叹号或英文标点拆分为句子
+    final sentenceSep = RegExp(r'(?<=[。！？!?;；.])\s*');
+    final parts = s.split(sentenceSep).map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+
+    // 合并句子以控制每块长度（目标 160-260 字符）
+    const int target = 220;
+    final List<String> chunks = [];
+    var buffer = StringBuffer();
+
+    for (var p in parts) {
+      if (buffer.isEmpty) {
+        buffer.write(p);
+      } else if ((buffer.length + p.length) <= target) {
+        buffer.write(' ');
+        buffer.write(p);
+      } else {
+        chunks.add(buffer.toString());
+        buffer = StringBuffer(p);
+      }
+    }
+    if (buffer.isNotEmpty) chunks.add(buffer.toString());
+
+    // 如果没有切出句子（比如整段无标点），再按长度切分
+    if (chunks.isEmpty) {
+      for (var i = 0; i < s.length; i += target) {
+        chunks.add(s.substring(i, (i + target).clamp(0, s.length)));
+      }
+    }
+
+    return chunks;
   }
 
   Future<void> _loadData() async {
