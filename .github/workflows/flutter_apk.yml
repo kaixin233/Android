@@ -56,7 +56,7 @@ jobs:
         shell: bash
         run: |
           yes | sdkmanager --licenses || true
-          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;26.1.10909125"
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;26.1.10909125"
 
       - name: Generate local.properties
         shell: bash
