@@ -369,6 +369,8 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _loadData();
+    // 预热 TTS 引擎，避免首次点击朗读时出现明显延迟
+    TtsService.initialize();
   }
 
   @override
@@ -400,42 +402,17 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
 
     if (!mounted) return;
 
-    // 先初始化 TTS
-    bool ready;
-    try {
-      ready = await TtsService.initialize();
-    } catch (e) {
-      debugPrint('TTS initialize 异常: $e');
-      ready = false;
-    }
-
-    if (!mounted) return;
-
-    if (!ready) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('语音播报不可用，请检查系统语音引擎设置')),
-      );
-      return;
-    }
-
-    // 读取语音参数
-    double speechRate = 0.5;
-    double speechPitch = 1.0;
-    double speechVolume = 1.0;
+    // 应用用户保存的语音参数（TTS 初始化由 speak() 内部处理，含重试逻辑）
     try {
       final app = context.read<AppProvider>();
-      speechRate = app.ttsSpeechRate;
-      speechPitch = app.ttsPitch;
-      speechVolume = app.ttsVolume;
+      await TtsService.applySpeechParams(
+        rate: app.ttsSpeechRate,
+        pitch: app.ttsPitch,
+        volume: app.ttsVolume,
+      );
     } catch (e) {
-      debugPrint('读取语音参数失败，使用默认值: $e');
+      debugPrint('读取/应用语音参数失败，使用默认值: $e');
     }
-
-    await TtsService.applySpeechParams(
-      rate: speechRate,
-      pitch: speechPitch,
-      volume: speechVolume,
-    );
 
     if (!mounted) return;
 
@@ -491,42 +468,17 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
         return;
       }
 
-      // 先初始化 TTS
-      bool ready;
-      try {
-        ready = await TtsService.initialize();
-      } catch (e, st) {
-        debugPrint('TTS initialize 异常: $e\n$st');
-        ready = false;
-      }
-
-      if (!mounted) return;
-
-      if (!ready) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('语音播报不可用，请检查系统语音引擎设置')),
-        );
-        return;
-      }
-
-      // 读取语音参数（在 mounted 检查之后）
-      double speechRate = 0.5;
-      double speechPitch = 1.0;
-      double speechVolume = 1.0;
+      // 应用用户保存的语音参数（TTS 初始化由 speak() 内部处理，含重试逻辑）
       try {
         final app = context.read<AppProvider>();
-        speechRate = app.ttsSpeechRate;
-        speechPitch = app.ttsPitch;
-        speechVolume = app.ttsVolume;
+        await TtsService.applySpeechParams(
+          rate: app.ttsSpeechRate,
+          pitch: app.ttsPitch,
+          volume: app.ttsVolume,
+        );
       } catch (e) {
-        debugPrint('读取语音参数失败，使用默认值: $e');
+        debugPrint('读取/应用语音参数失败，使用默认值: $e');
       }
-
-      await TtsService.applySpeechParams(
-        rate: speechRate,
-        pitch: speechPitch,
-        volume: speechVolume,
-      );
 
       if (!mounted) return;
 
@@ -1474,6 +1426,8 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
   void initState() {
     super.initState();
     _loadData();
+    // 预热 TTS 引擎，避免首次点击朗读时出现明显延迟
+    TtsService.initialize();
   }
 
   @override
@@ -1520,42 +1474,17 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
 
     if (!mounted) return;
 
-    // 先初始化 TTS
-    bool ready;
-    try {
-      ready = await TtsService.initialize();
-    } catch (e) {
-      debugPrint('TTS initialize 异常: $e');
-      ready = false;
-    }
-
-    if (!mounted) return;
-
-    if (!ready) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('语音播报不可用，请检查系统语音引擎设置')),
-      );
-      return;
-    }
-
-    // 读取语音参数
-    double speechRate = 0.5;
-    double speechPitch = 1.0;
-    double speechVolume = 1.0;
+    // 应用用户保存的语音参数（TTS 初始化由 speak() 内部处理，含重试逻辑）
     try {
       final app = context.read<AppProvider>();
-      speechRate = app.ttsSpeechRate;
-      speechPitch = app.ttsPitch;
-      speechVolume = app.ttsVolume;
+      await TtsService.applySpeechParams(
+        rate: app.ttsSpeechRate,
+        pitch: app.ttsPitch,
+        volume: app.ttsVolume,
+      );
     } catch (e) {
-      debugPrint('读取语音参数失败，使用默认值: $e');
+      debugPrint('读取/应用语音参数失败，使用默认值: $e');
     }
-
-    await TtsService.applySpeechParams(
-      rate: speechRate,
-      pitch: speechPitch,
-      volume: speechVolume,
-    );
 
     if (!mounted) return;
 
@@ -1608,42 +1537,17 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
         return;
       }
 
-      // 先初始化 TTS
-      bool ready;
-      try {
-        ready = await TtsService.initialize();
-      } catch (e, st) {
-        debugPrint('TTS initialize 异常: $e\n$st');
-        ready = false;
-      }
-
-      if (!mounted) return;
-
-      if (!ready) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('语音播报不可用，请检查系统语音引擎设置')),
-        );
-        return;
-      }
-
-      // 读取语音参数（在 mounted 检查之后）
-      double speechRate = 0.5;
-      double speechPitch = 1.0;
-      double speechVolume = 1.0;
+      // 应用用户保存的语音参数（TTS 初始化由 speak() 内部处理，含重试逻辑）
       try {
         final app = context.read<AppProvider>();
-        speechRate = app.ttsSpeechRate;
-        speechPitch = app.ttsPitch;
-        speechVolume = app.ttsVolume;
+        await TtsService.applySpeechParams(
+          rate: app.ttsSpeechRate,
+          pitch: app.ttsPitch,
+          volume: app.ttsVolume,
+        );
       } catch (e) {
-        debugPrint('读取语音参数失败，使用默认值: $e');
+        debugPrint('读取/应用语音参数失败，使用默认值: $e');
       }
-
-      await TtsService.applySpeechParams(
-        rate: speechRate,
-        pitch: speechPitch,
-        volume: speechVolume,
-      );
 
       if (!mounted) return;
 
