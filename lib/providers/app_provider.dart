@@ -25,6 +25,7 @@ class AppProvider extends ChangeNotifier {
   // 语音设置
   bool _ttsAutoPlayExplanation = true;
   bool _ttsAutoReadQuestion = false;
+  bool _ttsSkipExplanationOnCorrect = false;
   double _ttsSpeechRate = 0.5;
   double _ttsPitch = 1.0;
   double _ttsVolume = 1.0;
@@ -43,6 +44,7 @@ class AppProvider extends ChangeNotifier {
 
   bool get ttsAutoPlayExplanation => _ttsAutoPlayExplanation;
   bool get ttsAutoReadQuestion => _ttsAutoReadQuestion;
+  bool get ttsSkipExplanationOnCorrect => _ttsSkipExplanationOnCorrect;
   double get ttsSpeechRate => _ttsSpeechRate;
   double get ttsPitch => _ttsPitch;
   double get ttsVolume => _ttsVolume;
@@ -115,6 +117,7 @@ class AppProvider extends ChangeNotifier {
   Future<void> _loadTtsSettings() async {
     _ttsAutoPlayExplanation = await StorageService.loadTtsAutoPlayExplanation();
     _ttsAutoReadQuestion = await StorageService.loadTtsAutoReadQuestion();
+    _ttsSkipExplanationOnCorrect = await StorageService.loadTtsSkipExplanationOnCorrect();
     _ttsSpeechRate = await StorageService.loadTtsSpeechRate();
     _ttsPitch = await StorageService.loadTtsPitch();
     _ttsVolume = await StorageService.loadTtsVolume();
@@ -236,6 +239,12 @@ class AppProvider extends ChangeNotifier {
     _ttsAutoReadQuestion = enabled;
     notifyListeners();
     await StorageService.saveTtsAutoReadQuestion(enabled);
+  }
+
+  Future<void> saveTtsSkipExplanationOnCorrect(bool enabled) async {
+    _ttsSkipExplanationOnCorrect = enabled;
+    notifyListeners();
+    await StorageService.saveTtsSkipExplanationOnCorrect(enabled);
   }
 
   Future<void> saveTtsSpeechRate(double rate) async {

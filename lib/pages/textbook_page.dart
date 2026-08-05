@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../data/textbooks.dart';
 import '../models/question.dart';
 import '../models/history_item.dart';
+import '../models/knowledge_point.dart';
 import '../providers/app_provider.dart';
 import '../services/question_loader.dart';
 import '../services/question_service.dart';
@@ -356,6 +357,8 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
   bool _isSubsectionLevel = false;
   List<KnowledgeSection> _knowledgeSections = [];
   late TabController _tabController;
+  // 知识点练习状态：key = 知识点名称, value = 统计数据
+  Map<String, KnowledgePointStats> _kpStats = {};
 
   @override
   void initState() {
@@ -371,14 +374,16 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
   }
 
   Future<void> _loadData() async {
-    // 并行加载题目数据和考点知识
+    // 并行加载题目数据、考点知识和知识点统计
     final results = await Future.wait([
       _loadQuestions(),
       _loadKnowledge(),
+      _loadKnowledgeStats(),
     ]);
 
     final questionData = results[0] as _QuestionData;
     final knowledgeSections = results[1] as List<KnowledgeSection>;
+    final kpStats = results[2] as Map<String, KnowledgePointStats>;
 
     if (mounted) {
       setState(() {
@@ -386,6 +391,7 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
         _questionCount = questionData.questionCount;
         _isSubsectionLevel = questionData.isSubsectionLevel;
         _knowledgeSections = knowledgeSections;
+        _kpStats = kpStats;
         _isLoading = false;
       });
     }
@@ -438,6 +444,15 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
       return sections;
     } catch (_) {
       return [];
+    }
+  }
+
+  Future<Map<String, KnowledgePointStats>> _loadKnowledgeStats() async {
+    try {
+      final stats = await StorageService.loadKnowledgeStats();
+      return {for (final s in stats) s.point.id: s};
+    } catch (_) {
+      return {};
     }
   }
 
@@ -557,49 +572,8 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
           ..._questionKnowledgePoints.asMap().entries.map((entry) {
             final index = entry.key;
             final point = entry.value;
-            return Card(
-              margin: const EdgeInsets.only(bottom: 8),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: InkWell(
-                onTap: () => _startKnowledgePointPractice(point),
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: color.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Center(
-                          child: Text(
-                            '${index + 1}',
-                            style: TextStyle(
-                              color: color,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(point, style: const TextStyle(fontSize: 15)),
-                      ),
-                      Icon(
-                        Icons.arrow_forward_ios_rounded,
-                        size: 16,
-                        color: color.withOpacity(0.4),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
+            final stats = _kpStats[point];
+            return _buildKnowledgePointCard(index, point, stats, color);
           }),
           const SizedBox(height: 24),
         ],
@@ -707,6 +681,195 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     );
   }
 
+  /// 构建知识点卡片，展示练习状态标识
+  Widget _buildKnowledgePointCard(
+    int index,
+    String point,
+    KnowledgePointStats? stats,
+    Color color,
+  ) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    // 判断练习状态
+    _KPStatus status;
+    String statusText;
+    Color statusColor;
+    IconData statusIcon;
+
+    if (stats == null || stats.practiceCount == 0) {
+      status = _KPStatus.unpracticed;
+      statusText = '未练习';
+      statusColor = Colors.grey;
+      statusIcon = Icons.radio_button_unchecked_rounded;
+    } else if (stats.point.masteryLevel >= 0.8) {
+      status = _KPStatus.mastered;
+      statusText = '已掌握';
+      statusColor = Colors.green;
+      statusIcon = Icons.check_circle_rounded;
+    } else if (stats.point.totalQuestions > 0 &&
+        stats.point.accuracy < 0.6) {
+      status = _KPStatus.needsReview;
+      statusText = '需巩固';
+      statusColor = Colors.orange;
+      statusIcon = Icons.warning_amber_rounded;
+    } else {
+      status = _KPStatus.practiced;
+      statusText = '已练习';
+      statusColor = Colors.blue;
+      statusIcon = Icons.play_circle_outline_rounded;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: isDark ? theme.colorScheme.surfaceVariant.withOpacity(0.3) : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: statusColor.withOpacity(status == _KPStatus.unpracticed ? 0.15 : 0.3),
+        ),
+        boxShadow: isDark
+            ? null
+            : [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 6, offset: const Offset(0, 1))],
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => _startKnowledgePointPractice(point),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              // 序号
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Center(
+                  child: Text(
+                    '${index + 1}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              // 知识点名称和统计
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      point,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    // 统计信息行
+                    Row(
+                      children: [
+                        // 状态徽章
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: statusColor.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(statusIcon, size: 12, color: statusColor),
+                              const SizedBox(width: 3),
+                              Text(
+                                statusText,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: statusColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // 练习次数和正确率
+                        if (stats != null && stats.practiceCount > 0) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            '练习${stats.practiceCount}次',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: isDark ? Colors.white54 : Colors.black54,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '正确率${(stats.point.accuracy * 100).toInt()}%',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: stats.point.accuracy >= 0.6
+                                  ? Colors.green
+                                  : Colors.orange,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          if (stats.wrongCount > 0) ...[
+                            const SizedBox(width: 6),
+                            Text(
+                              '错${stats.wrongCount}题',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.red.shade400,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              // 练习按钮
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.play_arrow_rounded,
+                  color: color,
+                  size: 20,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 从练习页面返回后刷新知识点统计
+  Future<void> _refreshKnowledgeStats() async {
+    final kpStats = await _loadKnowledgeStats();
+    if (mounted) {
+      setState(() {
+        _kpStats = kpStats;
+      });
+    }
+  }
+
   void _startPractice() {
     final config = PracticeConfig(
       subject: widget.subject,
@@ -728,7 +891,7 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
           },
         ),
       ),
-    );
+    ).then((_) => _refreshKnowledgeStats());
   }
 
   void _startKnowledgePointPractice(String knowledgePoint) {
@@ -752,9 +915,12 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
           },
         ),
       ),
-    );
+    ).then((_) => _refreshKnowledgeStats());
   }
 }
+
+/// 知识点练习状态
+enum _KPStatus { unpracticed, practiced, needsReview, mastered }
 
 /// 题目数据封装
 class _QuestionData {

@@ -189,6 +189,18 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 const Divider(height: 1),
                 SwitchListTile(
+                  secondary: const Icon(Icons.check_circle_outline_rounded, color: Colors.green),
+                  title: const Text('答对不播报解析'),
+                  subtitle: const Text('回答正确时仅播报"回答正确"，跳过解析'),
+                  value: app.ttsSkipExplanationOnCorrect,
+                  onChanged: app.ttsAutoPlayExplanation
+                      ? (value) {
+                          context.read<AppProvider>().saveTtsSkipExplanationOnCorrect(value);
+                        }
+                      : null,
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
                   secondary: const Icon(Icons.playlist_play_rounded, color: Colors.indigo),
                   title: const Text('自动朗读题目'),
                   subtitle: const Text('进入题目时自动语音播报题目内容'),

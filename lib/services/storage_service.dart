@@ -206,6 +206,7 @@ class StorageService {
 
   static const String _ttsAutoPlayExplanationKey = 'ttsAutoPlayExplanation';
   static const String _ttsAutoReadQuestionKey = 'ttsAutoReadQuestion';
+  static const String _ttsSkipExplanationOnCorrectKey = 'ttsSkipExplanationOnCorrect';
   static const String _ttsSpeechRateKey = 'ttsSpeechRate';
   static const String _ttsPitchKey = 'ttsPitch';
   static const String _ttsVolumeKey = 'ttsVolume';
@@ -228,6 +229,16 @@ class StorageService {
   static Future<void> saveTtsAutoReadQuestion(bool enabled) async {
     final prefs = await _instance;
     await prefs.setBool(_ttsAutoReadQuestionKey, enabled);
+  }
+
+  static Future<bool> loadTtsSkipExplanationOnCorrect() async {
+    final prefs = await _instance;
+    return prefs.getBool(_ttsSkipExplanationOnCorrectKey) ?? false;
+  }
+
+  static Future<void> saveTtsSkipExplanationOnCorrect(bool enabled) async {
+    final prefs = await _instance;
+    await prefs.setBool(_ttsSkipExplanationOnCorrectKey, enabled);
   }
 
   static Future<double> loadTtsSpeechRate() async {

@@ -155,9 +155,8 @@ class _PracticePageState extends State<PracticePage> {
       _isLoading = false;
     });
 
-    if (widget.config.timeLimitSeconds != null) {
-      _startTimer();
-    }
+    // 始终启动计时器，用于统计练习时长
+    _startTimer();
 
     // 进入练习后自动朗读第一题
     if (mounted && _questions.isNotEmpty) {
@@ -170,20 +169,27 @@ class _PracticePageState extends State<PracticePage> {
 
   void _startTimer() {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      final limit = widget.config.timeLimitSeconds!;
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       setState(() {
         _elapsedSeconds++;
       });
-      // 剩余时间不足 20% 时震动提醒（每 30 秒一次）
-      if (_elapsedSeconds >= limit * 0.8 && (_elapsedSeconds % 30 == 0)) {
-        final app = context.read<AppProvider>();
-        if (app.vibrationEnabled) {
-          HapticFeedback.lightImpact();
+      // 考试模式：检查时间限制
+      final limit = widget.config.timeLimitSeconds;
+      if (limit != null) {
+        // 剩余时间不足 20% 时震动提醒（每 30 秒一次）
+        if (_elapsedSeconds >= limit * 0.8 && (_elapsedSeconds % 30 == 0)) {
+          final app = context.read<AppProvider>();
+          if (app.vibrationEnabled) {
+            HapticFeedback.lightImpact();
+          }
         }
-      }
-      if (_elapsedSeconds >= limit) {
-        _timer?.cancel();
-        _autoSubmit();
+        if (_elapsedSeconds >= limit) {
+          _timer?.cancel();
+          _autoSubmit();
+        }
       }
     });
   }
@@ -299,12 +305,14 @@ class _PracticePageState extends State<PracticePage> {
 
     // 自动播报解析
     if (app.ttsAutoPlayExplanation && mounted) {
-      _speakExplanation(correct);
+      // 答对且设置了"答对不播报解析"时，仅播报结果
+      final skipExplanation = correct && app.ttsSkipExplanationOnCorrect;
+      _speakExplanation(correct, skipExplanation: skipExplanation);
     }
   }
 
   /// 播报答题结果与解析
-  Future<void> _speakExplanation(bool isCorrect) async {
+  Future<void> _speakExplanation(bool isCorrect, {bool skipExplanation = false}) async {
     // 先停止当前朗读
     if (_isSpeaking) {
       await TtsService.stop();
@@ -325,8 +333,8 @@ class _PracticePageState extends State<PracticePage> {
       buffer.write('。');
     }
 
-    // 播报解析
-    if (question.explanation.isNotEmpty) {
+    // 播报解析（skipExplanation 为 true 时跳过）
+    if (!skipExplanation && question.explanation.isNotEmpty) {
       buffer.write('解析：');
       buffer.write(question.explanation);
     }
