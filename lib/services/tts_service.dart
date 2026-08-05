@@ -90,7 +90,9 @@ class TtsService {
     }
 
     try {
-      await _flutterTts.setSharedInstance(true);
+      if (!kIsWeb && Platform.isIOS) {
+        await _flutterTts.setSharedInstance(true);
+      }
 
       if (Platform.isAndroid) {
         final defaultEngine = await _flutterTts.getDefaultEngine;
@@ -111,6 +113,9 @@ class TtsService {
 
       // 尝试设置语言（完全非阻塞）
       await _trySetLanguage();
+      if (Platform.isAndroid) {
+        await _trySetPreferredVoice();
+      }
 
       // 设置语音参数
       await _flutterTts.setSpeechRate(0.5);
@@ -230,6 +235,38 @@ class TtsService {
       debugPrint('TTS: 所有语言设置均失败，但仍标记为可用（引擎可能内部支持中文）');
     } catch (e) {
       debugPrint('TTS: _trySetLanguage 异常: $e（不阻止朗读）');
+    }
+  }
+
+  /// 尝试选择首选语音，用于修复小米/MIUI上语言引擎无法正确选择的问题
+  static Future<void> _trySetPreferredVoice() async {
+    try {
+      final voices = await _flutterTts.getVoices;
+      debugPrint('TTS: 可用语音: $voices');
+      if (voices is! List<dynamic> || voices.isEmpty) {
+        return;
+      }
+
+      // 尝试选择首个中文语音
+      for (final voice in voices) {
+        if (voice == null) continue;
+        final map = voice as Map<String, dynamic>;
+        final locale = (map['locale'] ?? map['name'] ?? '').toString().toLowerCase();
+        if (locale.contains('zh') || locale.contains('cn')) {
+          try {
+            final result = await _flutterTts.setVoice(map);
+            debugPrint('TTS: setVoice($map) => $result');
+            if (result == 1) {
+              debugPrint('TTS: 选择中文语音成功: $map');
+              return;
+            }
+          } catch (e) {
+            debugPrint('TTS: 设置语音失败: $e');
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('TTS: _trySetPreferredVoice 异常: $e');
     }
   }
 
