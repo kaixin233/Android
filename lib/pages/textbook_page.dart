@@ -398,23 +398,46 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
       await TtsService.stop();
     }
 
+    if (!mounted) return;
+
     // 先初始化 TTS
-    final ready = await TtsService.initialize();
+    bool ready;
+    try {
+      ready = await TtsService.initialize();
+    } catch (e) {
+      debugPrint('TTS initialize 异常: $e');
+      ready = false;
+    }
+
+    if (!mounted) return;
+
     if (!ready) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('语音播报不可用，请检查系统语音引擎设置')),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('语音播报不可用，请检查系统语音引擎设置')),
+      );
       return;
     }
 
-    final app = context.read<AppProvider>();
+    // 读取语音参数
+    double speechRate = 0.5;
+    double speechPitch = 1.0;
+    double speechVolume = 1.0;
+    try {
+      final app = context.read<AppProvider>();
+      speechRate = app.ttsSpeechRate;
+      speechPitch = app.ttsPitch;
+      speechVolume = app.ttsVolume;
+    } catch (e) {
+      debugPrint('读取语音参数失败，使用默认值: $e');
+    }
+
     await TtsService.applySpeechParams(
-      rate: app.ttsSpeechRate,
-      pitch: app.ttsPitch,
-      volume: app.ttsVolume,
+      rate: speechRate,
+      pitch: speechPitch,
+      volume: speechVolume,
     );
+
+    if (!mounted) return;
 
     setState(() {
       _isPlayingKnowledge = true;
@@ -443,41 +466,69 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     }
   }
 
+  /// 防止重复调用 _playAllKnowledge
+  bool _isStartingPlayback = false;
+
   /// 顺序播放所有考点内容
   Future<void> _playAllKnowledge() async {
-    if (_knowledgeSections.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('暂无考点内容可播放')),
-        );
-      }
-      return;
-    }
-
-    // 如果正在播放，则停止
-    if (_isPlayingKnowledge) {
-      await _stopKnowledgePlayback();
-      return;
-    }
+    // 防止重复点击
+    if (_isStartingPlayback) return;
+    _isStartingPlayback = true;
 
     try {
-      // 先初始化 TTS
-      final ready = await TtsService.initialize();
-      if (!ready) {
+      if (_knowledgeSections.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('语音播报不可用，请检查系统语音引擎设置')),
+            const SnackBar(content: Text('暂无考点内容可播放')),
           );
         }
         return;
       }
 
-      final app = context.read<AppProvider>();
+      // 如果正在播放，则停止
+      if (_isPlayingKnowledge) {
+        await _stopKnowledgePlayback();
+        return;
+      }
+
+      // 先初始化 TTS
+      bool ready;
+      try {
+        ready = await TtsService.initialize();
+      } catch (e, st) {
+        debugPrint('TTS initialize 异常: $e\n$st');
+        ready = false;
+      }
+
+      if (!mounted) return;
+
+      if (!ready) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('语音播报不可用，请检查系统语音引擎设置')),
+        );
+        return;
+      }
+
+      // 读取语音参数（在 mounted 检查之后）
+      double speechRate = 0.5;
+      double speechPitch = 1.0;
+      double speechVolume = 1.0;
+      try {
+        final app = context.read<AppProvider>();
+        speechRate = app.ttsSpeechRate;
+        speechPitch = app.ttsPitch;
+        speechVolume = app.ttsVolume;
+      } catch (e) {
+        debugPrint('读取语音参数失败，使用默认值: $e');
+      }
+
       await TtsService.applySpeechParams(
-        rate: app.ttsSpeechRate,
-        pitch: app.ttsPitch,
-        volume: app.ttsVolume,
+        rate: speechRate,
+        pitch: speechPitch,
+        volume: speechVolume,
       );
+
+      if (!mounted) return;
 
       setState(() {
         _isPlayingKnowledge = true;
@@ -496,6 +547,8 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
           SnackBar(content: Text('播放启动失败: $e')),
         );
       }
+    } finally {
+      _isStartingPlayback = false;
     }
   }
 
@@ -515,6 +568,8 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     // 检查是否已被停止
     if (!_isPlayingKnowledge) return;
 
+    if (!mounted) return;
+
     setState(() {
       _playingSectionIndex = index;
     });
@@ -522,10 +577,10 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     final text = _knowledgeSections[index].toSpeechText();
 
     TtsService.speak(text, onComplete: () {
-      if (!_isPlayingKnowledge) return; // 已被停止
+      if (!_isPlayingKnowledge || !mounted) return; // 已被停止
       // 延迟一小段时间再播放下一节，避免 stop() 触发竞态
       Future.delayed(const Duration(milliseconds: 200), () {
-        if (_isPlayingKnowledge) {
+        if (_isPlayingKnowledge && mounted) {
           _playNextInSequence(index + 1);
         }
       });
@@ -539,6 +594,14 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('语音播报失败，请重试')),
         );
+      }
+    }).catchError((e) {
+      debugPrint('_playNextInSequence speak error: $e');
+      if (mounted) {
+        setState(() {
+          _isPlayingKnowledge = false;
+          _playingSectionIndex = -1;
+        });
       }
     });
   }
@@ -1455,23 +1518,46 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
       await TtsService.stop();
     }
 
+    if (!mounted) return;
+
     // 先初始化 TTS
-    final ready = await TtsService.initialize();
+    bool ready;
+    try {
+      ready = await TtsService.initialize();
+    } catch (e) {
+      debugPrint('TTS initialize 异常: $e');
+      ready = false;
+    }
+
+    if (!mounted) return;
+
     if (!ready) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('语音播报不可用，请检查系统语音引擎设置')),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('语音播报不可用，请检查系统语音引擎设置')),
+      );
       return;
     }
 
-    final app = context.read<AppProvider>();
+    // 读取语音参数
+    double speechRate = 0.5;
+    double speechPitch = 1.0;
+    double speechVolume = 1.0;
+    try {
+      final app = context.read<AppProvider>();
+      speechRate = app.ttsSpeechRate;
+      speechPitch = app.ttsPitch;
+      speechVolume = app.ttsVolume;
+    } catch (e) {
+      debugPrint('读取语音参数失败，使用默认值: $e');
+    }
+
     await TtsService.applySpeechParams(
-      rate: app.ttsSpeechRate,
-      pitch: app.ttsPitch,
-      volume: app.ttsVolume,
+      rate: speechRate,
+      pitch: speechPitch,
+      volume: speechVolume,
     );
+
+    if (!mounted) return;
 
     setState(() {
       _isPlayingKnowledge = true;
@@ -1499,39 +1585,67 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
     }
   }
 
-  Future<void> _playAllKnowledge() async {
-    if (_sections.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('暂无考点内容可播放')),
-        );
-      }
-      return;
-    }
+  /// 防止重复调用 _playAllKnowledge
+  bool _isStartingPlayback = false;
 
-    if (_isPlayingKnowledge) {
-      await _stopKnowledgePlayback();
-      return;
-    }
+  Future<void> _playAllKnowledge() async {
+    // 防止重复点击
+    if (_isStartingPlayback) return;
+    _isStartingPlayback = true;
 
     try {
-      // 先初始化 TTS
-      final ready = await TtsService.initialize();
-      if (!ready) {
+      if (_sections.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('语音播报不可用，请检查系统语音引擎设置')),
+            const SnackBar(content: Text('暂无考点内容可播放')),
           );
         }
         return;
       }
 
-      final app = context.read<AppProvider>();
+      if (_isPlayingKnowledge) {
+        await _stopKnowledgePlayback();
+        return;
+      }
+
+      // 先初始化 TTS
+      bool ready;
+      try {
+        ready = await TtsService.initialize();
+      } catch (e, st) {
+        debugPrint('TTS initialize 异常: $e\n$st');
+        ready = false;
+      }
+
+      if (!mounted) return;
+
+      if (!ready) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('语音播报不可用，请检查系统语音引擎设置')),
+        );
+        return;
+      }
+
+      // 读取语音参数（在 mounted 检查之后）
+      double speechRate = 0.5;
+      double speechPitch = 1.0;
+      double speechVolume = 1.0;
+      try {
+        final app = context.read<AppProvider>();
+        speechRate = app.ttsSpeechRate;
+        speechPitch = app.ttsPitch;
+        speechVolume = app.ttsVolume;
+      } catch (e) {
+        debugPrint('读取语音参数失败，使用默认值: $e');
+      }
+
       await TtsService.applySpeechParams(
-        rate: app.ttsSpeechRate,
-        pitch: app.ttsPitch,
-        volume: app.ttsVolume,
+        rate: speechRate,
+        pitch: speechPitch,
+        volume: speechVolume,
       );
+
+      if (!mounted) return;
 
       setState(() {
         _isPlayingKnowledge = true;
@@ -1550,6 +1664,8 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
           SnackBar(content: Text('播放启动失败: $e')),
         );
       }
+    } finally {
+      _isStartingPlayback = false;
     }
   }
 
@@ -1566,16 +1682,18 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
 
     if (!_isPlayingKnowledge) return;
 
+    if (!mounted) return;
+
     setState(() {
       _playingSectionIndex = index;
     });
 
     final text = _sections[index].toSpeechText();
     TtsService.speak(text, onComplete: () {
-      if (!_isPlayingKnowledge) return;
+      if (!_isPlayingKnowledge || !mounted) return;
       // 延迟一小段时间再播放下一节，避免 stop() 触发竞态
       Future.delayed(const Duration(milliseconds: 200), () {
-        if (_isPlayingKnowledge) {
+        if (_isPlayingKnowledge && mounted) {
           _playNextInSequence(index + 1);
         }
       });
@@ -1588,6 +1706,14 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('语音播报失败，请重试')),
         );
+      }
+    }).catchError((e) {
+      debugPrint('_playNextInSequence speak error: $e');
+      if (mounted) {
+        setState(() {
+          _isPlayingKnowledge = false;
+          _playingSectionIndex = -1;
+        });
       }
     });
   }
