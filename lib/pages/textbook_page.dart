@@ -1529,7 +1529,6 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
 
     if (!mounted) return;
 
-    // 应用用户保存的语音参数（TTS 初始化由 speak() 内部处理，含重试逻辑）
     try {
       final app = context.read<AppProvider>();
       await TtsService.applySpeechParams(
@@ -1543,13 +1542,29 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
 
     if (!mounted) return;
 
+    if (!await _ensureTtsReady()) return;
+
     setState(() {
       _isPlayingKnowledge = true;
       _playingSectionIndex = index;
     });
 
-    final text = _sections[index].toSpeechText();
-    final success = await TtsService.speak(text, waitForCompletion: true);
+    final raw = _sections[index].toSpeechText();
+    final chunks = _cleanAndChunk(raw);
+    var overallSuccess = true;
+
+    for (var i = 0; i < chunks.length; i++) {
+      if (!_isPlayingKnowledge || !mounted) {
+        overallSuccess = false;
+        break;
+      }
+      final success = await TtsService.speak(chunks[i], waitForCompletion: true);
+      if (!success) {
+        overallSuccess = false;
+        break;
+      }
+      await Future.delayed(const Duration(milliseconds: 180));
+    }
 
     if (mounted) {
       setState(() {
@@ -1558,7 +1573,7 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
       });
     }
 
-    if (!success && mounted) {
+    if (!overallSuccess && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('语音播报失败，请重试')),
       );
@@ -1569,7 +1584,6 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
   bool _isStartingPlayback = false;
 
   Future<void> _playAllKnowledge() async {
-    // 防止重复点击
     if (_isStartingPlayback) return;
     _isStartingPlayback = true;
 
@@ -1588,7 +1602,6 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
         return;
       }
 
-      // 应用用户保存的语音参数（TTS 初始化由 speak() 内部处理，含重试逻辑）
       try {
         final app = context.read<AppProvider>();
         await TtsService.applySpeechParams(
@@ -1602,6 +1615,16 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
 
       if (!mounted) return;
 
+      if (!await _ensureTtsReady()) {
+        if (mounted) {
+          setState(() {
+            _isPlayingKnowledge = false;
+            _playingSectionIndex = -1;
+          });
+        }
+        return;
+      }
+
       setState(() {
         _isPlayingKnowledge = true;
         _playingSectionIndex = 0;
@@ -1614,24 +1637,38 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
           _playingSectionIndex = i;
         });
 
-        final text = _sections[i].toSpeechText();
-        final success = await TtsService.speak(text, waitForCompletion: true);
-        if (!success || !_isPlayingKnowledge || !mounted) break;
-        await Future.delayed(const Duration(milliseconds: 200));
+        final raw = _sections[i].toSpeechText();
+        final chunks = _cleanAndChunk(raw);
+        var ok = true;
+        for (var j = 0; j < chunks.length; j++) {
+          if (!_isPlayingKnowledge || !mounted) {
+            ok = false;
+            break;
+          }
+          final success = await TtsService.speak(chunks[j], waitForCompletion: true);
+          if (!success) {
+            ok = false;
+            break;
+          }
+          await Future.delayed(const Duration(milliseconds: 160));
+        }
+        if (!ok || !_isPlayingKnowledge || !mounted) break;
       }
     } catch (e, stackTrace) {
       debugPrint('_playAllKnowledge 异常: $e');
       debugPrintStack(stackTrace: stackTrace);
       if (mounted) {
-        setState(() {
-          _isPlayingKnowledge = false;
-          _playingSectionIndex = -1;
-        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('播放启动失败: $e')),
         );
       }
     } finally {
+      if (mounted) {
+        setState(() {
+          _isPlayingKnowledge = false;
+          _playingSectionIndex = -1;
+        });
+      }
       _isStartingPlayback = false;
     }
   }

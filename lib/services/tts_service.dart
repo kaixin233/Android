@@ -53,7 +53,13 @@ class TtsService {
   /// 初始化 TTS 引擎
   static Future<bool> initialize() {
     if (_isAvailable) return Future.value(true);
-    _initFuture ??= _doInitialize();
+    if (_initFuture != null) return _initFuture!;
+    _initFuture = _doInitialize().then((success) {
+      if (!success) {
+        _initFuture = null;
+      }
+      return success;
+    });
     return _initFuture!;
   }
 
