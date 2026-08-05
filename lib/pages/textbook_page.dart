@@ -1476,6 +1476,8 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
   // TTS 播放状态
   bool _isPlayingKnowledge = false;
   int _playingSectionIndex = -1;
+  int _currentChunkIndex = 0;
+  int _currentChunkCount = 0;
 
   @override
   void initState() {
@@ -1544,19 +1546,27 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
 
     if (!await _ensureTtsReady()) return;
 
+    final raw = _sections[index].toSpeechText();
+    final chunks = _cleanAndChunk(raw);
+
     setState(() {
       _isPlayingKnowledge = true;
       _playingSectionIndex = index;
+      _currentChunkCount = chunks.length;
+      _currentChunkIndex = 0;
     });
 
-    final raw = _sections[index].toSpeechText();
-    final chunks = _cleanAndChunk(raw);
     var overallSuccess = true;
 
     for (var i = 0; i < chunks.length; i++) {
       if (!_isPlayingKnowledge || !mounted) {
         overallSuccess = false;
         break;
+      }
+      if (mounted) {
+        setState(() {
+          _currentChunkIndex = i;
+        });
       }
       final success = await TtsService.speak(chunks[i], waitForCompletion: true);
       if (!success) {
@@ -1570,6 +1580,8 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
       setState(() {
         _isPlayingKnowledge = false;
         _playingSectionIndex = -1;
+        _currentChunkIndex = 0;
+        _currentChunkCount = 0;
       });
     }
 
@@ -1633,17 +1645,25 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
       for (var i = 0; i < _sections.length; i++) {
         if (!_isPlayingKnowledge || !mounted) break;
 
-        setState(() {
-          _playingSectionIndex = i;
-        });
-
         final raw = _sections[i].toSpeechText();
         final chunks = _cleanAndChunk(raw);
+
+        setState(() {
+          _playingSectionIndex = i;
+          _currentChunkCount = chunks.length;
+          _currentChunkIndex = 0;
+        });
+
         var ok = true;
         for (var j = 0; j < chunks.length; j++) {
           if (!_isPlayingKnowledge || !mounted) {
             ok = false;
             break;
+          }
+          if (mounted) {
+            setState(() {
+              _currentChunkIndex = j;
+            });
           }
           final success = await TtsService.speak(chunks[j], waitForCompletion: true);
           if (!success) {
@@ -1690,8 +1710,65 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
       setState(() {
         _isPlayingKnowledge = false;
         _playingSectionIndex = -1;
+        _currentChunkIndex = 0;
+        _currentChunkCount = 0;
       });
     }
+  }
+
+  Future<bool> _ensureTtsReady() async {
+    final ready = await TtsService.initialize();
+    if (!ready && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('语音引擎初始化失败，请检查 TTS 设置')),
+      );
+    }
+    return ready;
+  }
+
+  List<String> _cleanAndChunk(String raw) {
+    var text = raw.replaceAll(RegExp(r'<[^>]*>', multiLine: true), ' ');
+    text = text.replaceAll('&nbsp;', ' ');
+    text = text.replaceAll('&lt;', '<');
+    text = text.replaceAll('&gt;', '>');
+    text = text.replaceAll('&amp;', '&');
+    text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    if (text.isEmpty) return [];
+
+    final sentenceSep = RegExp(r'(?<=[。！？!?;；.])\s*');
+    final parts = text
+        .split(sentenceSep)
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+
+    const int targetLength = 220;
+    final chunks = <String>[];
+    var buffer = StringBuffer();
+
+    for (final part in parts) {
+      if (buffer.isEmpty) {
+        buffer.write(part);
+      } else if ((buffer.length + part.length) <= targetLength) {
+        buffer.write(' ');
+        buffer.write(part);
+      } else {
+        chunks.add(buffer.toString());
+        buffer = StringBuffer(part);
+      }
+    }
+    if (buffer.isNotEmpty) {
+      chunks.add(buffer.toString());
+    }
+
+    if (chunks.isEmpty) {
+      for (var i = 0; i < text.length; i += targetLength) {
+        chunks.add(text.substring(i, (i + targetLength).clamp(0, text.length)));
+      }
+    }
+
+    return chunks;
   }
 
   @override
@@ -1789,11 +1866,42 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
                   ),
                 ),
                 if (_isPlayingKnowledge)
-                  Text(
-                    playingLabel,
-                    style: TextStyle(fontSize: 12, color: color),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          playingLabel,
+                          style: TextStyle(fontSize: 12, color: color),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        if (_currentChunkCount > 0)
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '第 ${_playingSectionIndex + 1} / ${_sections.length} 节 · 当前段 ${_currentChunkIndex + 1} / $_currentChunkCount',
+                                style: TextStyle(fontSize: 11, color: color.withOpacity(0.8)),
+                              ),
+                              const SizedBox(height: 6),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(6),
+                                child: LinearProgressIndicator(
+                                  value: _currentChunkCount > 0
+                                      ? (_currentChunkIndex + 1) / _currentChunkCount
+                                      : 0,
+                                  minHeight: 6,
+                                  backgroundColor: color.withOpacity(0.14),
+                                  valueColor: AlwaysStoppedAnimation<Color>(color),
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
                   ),
               ],
             ),
