@@ -10,6 +10,7 @@ import '../services/question_loader.dart';
 import '../services/question_service.dart';
 import '../services/storage_service.dart';
 import '../services/knowledge_service.dart';
+import '../services/tts_service.dart';
 import 'practice_page.dart';
 
 /// 大纲与考点页面 - 显示教材章节大纲和题库分类
@@ -359,6 +360,9 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
   late TabController _tabController;
   // 知识点练习状态：key = 知识点名称, value = 统计数据
   Map<String, KnowledgePointStats> _kpStats = {};
+  // TTS 播放状态
+  bool _isPlayingKnowledge = false;
+  int _playingSectionIndex = -1; // -1 = 未播放
 
   @override
   void initState() {
@@ -369,8 +373,113 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
 
   @override
   void dispose() {
+    if (_isPlayingKnowledge) {
+      TtsService.stop();
+    }
     _tabController.dispose();
     super.dispose();
+  }
+
+  // ========== TTS 语音播报 ==========
+
+  /// 播放指定小节的考点内容
+  Future<void> _playSection(int index) async {
+    if (index < 0 || index >= _knowledgeSections.length) return;
+
+    // 如果当前正在播放同一个小节，则停止
+    if (_playingSectionIndex == index && _isPlayingKnowledge) {
+      await _stopKnowledgePlayback();
+      return;
+    }
+
+    // 停止之前的播放
+    if (_isPlayingKnowledge) {
+      await TtsService.stop();
+    }
+
+    final app = context.read<AppProvider>();
+    await TtsService.applySpeechParams(
+      rate: app.ttsSpeechRate,
+      pitch: app.ttsPitch,
+      volume: app.ttsVolume,
+    );
+
+    setState(() {
+      _isPlayingKnowledge = true;
+      _playingSectionIndex = index;
+    });
+
+    final text = _knowledgeSections[index].toSpeechText();
+    await TtsService.speak(text, onComplete: () {
+      if (mounted) {
+        setState(() {
+          _isPlayingKnowledge = false;
+          _playingSectionIndex = -1;
+        });
+      }
+    });
+  }
+
+  /// 顺序播放所有考点内容
+  Future<void> _playAllKnowledge() async {
+    if (_knowledgeSections.isEmpty) return;
+
+    // 如果正在播放，则停止
+    if (_isPlayingKnowledge) {
+      await _stopKnowledgePlayback();
+      return;
+    }
+
+    final app = context.read<AppProvider>();
+    await TtsService.applySpeechParams(
+      rate: app.ttsSpeechRate,
+      pitch: app.ttsPitch,
+      volume: app.ttsVolume,
+    );
+
+    setState(() {
+      _isPlayingKnowledge = true;
+    });
+
+    await _playNextInSequence(0);
+  }
+
+  /// 递归顺序播放
+  Future<void> _playNextInSequence(int index) async {
+    if (index >= _knowledgeSections.length) {
+      // 全部播放完毕
+      if (mounted) {
+        setState(() {
+          _isPlayingKnowledge = false;
+          _playingSectionIndex = -1;
+        });
+      }
+      return;
+    }
+
+    // 检查是否已被停止
+    if (!_isPlayingKnowledge) return;
+
+    setState(() {
+      _playingSectionIndex = index;
+    });
+
+    final text = _knowledgeSections[index].toSpeechText();
+    await TtsService.speak(text, onComplete: () {
+      if (!_isPlayingKnowledge) return; // 已被停止
+      _playNextInSequence(index + 1);
+    });
+  }
+
+  /// 停止播放
+  Future<void> _stopKnowledgePlayback() async {
+    await TtsService.stop();
+    if (mounted) {
+      setState(() {
+        _isPlayingKnowledge = false;
+        _playingSectionIndex = -1;
+      });
+    }
   }
 
   Future<void> _loadData() async {
@@ -493,13 +602,121 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
       return _buildEmptyState('暂无考点知识内容', icon: Icons.menu_book_outlined);
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _knowledgeSections.length,
-      itemBuilder: (context, index) {
-        final section = _knowledgeSections[index];
-        return _KnowledgeSectionCard(section: section, color: color);
-      },
+    return Stack(
+      children: [
+        ListView.builder(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+          itemCount: _knowledgeSections.length,
+          itemBuilder: (context, index) {
+            final section = _knowledgeSections[index];
+            final isThisPlaying = _isPlayingKnowledge && _playingSectionIndex == index;
+            return _KnowledgeSectionCard(
+              section: section,
+              color: color,
+              isPlaying: isThisPlaying,
+              onPlayTap: () => _playSection(index),
+            );
+          },
+        ),
+        // 底部播放控制栏
+        Positioned(
+          left: 16,
+          right: 16,
+          bottom: 16,
+          child: _buildPlaybackBar(theme, color),
+        ),
+      ],
+    );
+  }
+
+  /// 底部播放控制栏
+  Widget _buildPlaybackBar(ThemeData theme, Color color) {
+    final isDark = theme.brightness == Brightness.dark;
+    final playingLabel = _playingSectionIndex >= 0 && _playingSectionIndex < _knowledgeSections.length
+        ? _knowledgeSections[_playingSectionIndex].title
+        : '考点知识';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: isDark ? theme.colorScheme.surface : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.12),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          // 播放/停止按钮
+          GestureDetector(
+            onTap: _playAllKnowledge,
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: _isPlayingKnowledge ? Colors.red : color,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                _isPlayingKnowledge ? Icons.stop_rounded : Icons.playlist_play_rounded,
+                color: Colors.white,
+                size: 24,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          // 播放状态文字
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _isPlayingKnowledge ? '正在播放' : '点击播放全部',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+                if (_isPlayingKnowledge)
+                  Text(
+                    playingLabel,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: color,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
+          ),
+          // 停止按钮（仅播放时显示）
+          if (_isPlayingKnowledge)
+            GestureDetector(
+              onTap: _stopKnowledgePlayback,
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.close_rounded,
+                  color: isDark ? Colors.white70 : Colors.black54,
+                  size: 20,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -937,10 +1154,17 @@ class _QuestionData {
 
 /// 考点知识段落渲染组件
 class _KnowledgeSectionCard extends StatelessWidget {
-  const _KnowledgeSectionCard({required this.section, required this.color});
+  const _KnowledgeSectionCard({
+    required this.section,
+    required this.color,
+    this.isPlaying = false,
+    this.onPlayTap,
+  });
 
   final KnowledgeSection section;
   final Color color;
+  final bool isPlaying;
+  final VoidCallback? onPlayTap;
 
   @override
   Widget build(BuildContext context) {
@@ -952,7 +1176,10 @@ class _KnowledgeSectionCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: isDark ? theme.colorScheme.surfaceVariant.withOpacity(0.3) : Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.15)),
+        border: Border.all(
+          color: isPlaying ? color : color.withOpacity(0.15),
+          width: isPlaying ? 2 : 1,
+        ),
         boxShadow: isDark
             ? null
             : [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 2))],
@@ -964,7 +1191,7 @@ class _KnowledgeSectionCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.08),
+              color: isPlaying ? color.withOpacity(0.15) : color.withOpacity(0.08),
               borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
             ),
             child: Row(
@@ -989,6 +1216,24 @@ class _KnowledgeSectionCard extends StatelessWidget {
                     ),
                   ),
                 ),
+                // 播放按钮
+                if (onPlayTap != null)
+                  GestureDetector(
+                    onTap: onPlayTap,
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: isPlaying ? color : color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        isPlaying ? Icons.stop_rounded : Icons.volume_up_rounded,
+                        color: isPlaying ? Colors.white : color,
+                        size: 20,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -1085,11 +1330,22 @@ class ChapterKnowledgePage extends StatefulWidget {
 class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
   bool _isLoading = true;
   List<KnowledgeSection> _sections = [];
+  // TTS 播放状态
+  bool _isPlayingKnowledge = false;
+  int _playingSectionIndex = -1;
 
   @override
   void initState() {
     super.initState();
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    if (_isPlayingKnowledge) {
+      TtsService.stop();
+    }
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -1111,8 +1367,102 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
     }
   }
 
+  // ========== TTS 语音播报 ==========
+
+  Future<void> _playSection(int index) async {
+    if (index < 0 || index >= _sections.length) return;
+
+    if (_playingSectionIndex == index && _isPlayingKnowledge) {
+      await _stopKnowledgePlayback();
+      return;
+    }
+
+    if (_isPlayingKnowledge) {
+      await TtsService.stop();
+    }
+
+    final app = context.read<AppProvider>();
+    await TtsService.applySpeechParams(
+      rate: app.ttsSpeechRate,
+      pitch: app.ttsPitch,
+      volume: app.ttsVolume,
+    );
+
+    setState(() {
+      _isPlayingKnowledge = true;
+      _playingSectionIndex = index;
+    });
+
+    final text = _sections[index].toSpeechText();
+    await TtsService.speak(text, onComplete: () {
+      if (mounted) {
+        setState(() {
+          _isPlayingKnowledge = false;
+          _playingSectionIndex = -1;
+        });
+      }
+    });
+  }
+
+  Future<void> _playAllKnowledge() async {
+    if (_sections.isEmpty) return;
+
+    if (_isPlayingKnowledge) {
+      await _stopKnowledgePlayback();
+      return;
+    }
+
+    final app = context.read<AppProvider>();
+    await TtsService.applySpeechParams(
+      rate: app.ttsSpeechRate,
+      pitch: app.ttsPitch,
+      volume: app.ttsVolume,
+    );
+
+    setState(() {
+      _isPlayingKnowledge = true;
+    });
+
+    _playNextInSequence(0);
+  }
+
+  void _playNextInSequence(int index) {
+    if (index >= _sections.length) {
+      if (mounted) {
+        setState(() {
+          _isPlayingKnowledge = false;
+          _playingSectionIndex = -1;
+        });
+      }
+      return;
+    }
+
+    if (!_isPlayingKnowledge) return;
+
+    setState(() {
+      _playingSectionIndex = index;
+    });
+
+    final text = _sections[index].toSpeechText();
+    TtsService.speak(text, onComplete: () {
+      if (!_isPlayingKnowledge) return;
+      _playNextInSequence(index + 1);
+    });
+  }
+
+  Future<void> _stopKnowledgePlayback() async {
+    await TtsService.stop();
+    if (mounted) {
+      setState(() {
+        _isPlayingKnowledge = false;
+        _playingSectionIndex = -1;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final color = Color(widget.bookColor);
 
     return Scaffold(
@@ -1124,12 +1474,115 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
           ? const Center(child: CircularProgressIndicator())
           : _sections.isEmpty
               ? _buildEmptyState()
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _sections.length,
-                  itemBuilder: (context, index) =>
-                      _KnowledgeSectionCard(section: _sections[index], color: color),
+              : Stack(
+                  children: [
+                    ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+                      itemCount: _sections.length,
+                      itemBuilder: (context, index) {
+                        final isThisPlaying =
+                            _isPlayingKnowledge && _playingSectionIndex == index;
+                        return _KnowledgeSectionCard(
+                          section: _sections[index],
+                          color: color,
+                          isPlaying: isThisPlaying,
+                          onPlayTap: () => _playSection(index),
+                        );
+                      },
+                    ),
+                    Positioned(
+                      left: 16,
+                      right: 16,
+                      bottom: 16,
+                      child: _buildPlaybackBar(theme, color),
+                    ),
+                  ],
                 ),
+    );
+  }
+
+  /// 底部播放控制栏
+  Widget _buildPlaybackBar(ThemeData theme, Color color) {
+    final isDark = theme.brightness == Brightness.dark;
+    final playingLabel = _playingSectionIndex >= 0 && _playingSectionIndex < _sections.length
+        ? _sections[_playingSectionIndex].title
+        : '考点知识';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: isDark ? theme.colorScheme.surface : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.12),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: _playAllKnowledge,
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: _isPlayingKnowledge ? Colors.red : color,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                _isPlayingKnowledge ? Icons.stop_rounded : Icons.playlist_play_rounded,
+                color: Colors.white,
+                size: 24,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _isPlayingKnowledge ? '正在播放' : '点击播放全部',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+                if (_isPlayingKnowledge)
+                  Text(
+                    playingLabel,
+                    style: TextStyle(fontSize: 12, color: color),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
+          ),
+          if (_isPlayingKnowledge)
+            GestureDetector(
+              onTap: _stopKnowledgePlayback,
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.close_rounded,
+                  color: isDark ? Colors.white70 : Colors.black54,
+                  size: 20,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 

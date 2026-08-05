@@ -28,6 +28,22 @@ class KnowledgeSection {
     required this.title,
     required this.paragraphs,
   });
+
+  /// 将考点内容转换为适合语音播报的纯文本
+  String toSpeechText() {
+    final buffer = StringBuffer();
+    buffer.write(title);
+    buffer.write('。');
+    for (final p in paragraphs) {
+      if (p.text.trim().isEmpty) continue;
+      buffer.write(p.text);
+      // 段落之间加句号停顿
+      if (!p.text.endsWith(RegExp(r'[。.！!？?]'))) {
+        buffer.write('。');
+      }
+    }
+    return buffer.toString();
+  }
 }
 
 /// 考点知识服务 - 从 HTML 文件中解析章节考点内容
