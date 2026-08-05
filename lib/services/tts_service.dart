@@ -250,14 +250,15 @@ class TtsService {
       // 尝试选择首个中文语音
       for (final voice in voices) {
         if (voice == null) continue;
-        final map = voice as Map<String, dynamic>;
-        final locale = (map['locale'] ?? map['name'] ?? '').toString().toLowerCase();
+        final rawMap = voice as Map<dynamic, dynamic>;
+        final locale = (rawMap['locale'] ?? rawMap['name'] ?? '').toString().toLowerCase();
         if (locale.contains('zh') || locale.contains('cn')) {
+          final voiceMap = rawMap.map((key, value) => MapEntry(key.toString(), value.toString()));
           try {
-            final result = await _flutterTts.setVoice(map);
-            debugPrint('TTS: setVoice($map) => $result');
+            final result = await _flutterTts.setVoice(voiceMap);
+            debugPrint('TTS: setVoice($voiceMap) => $result');
             if (result == 1) {
-              debugPrint('TTS: 选择中文语音成功: $map');
+              debugPrint('TTS: 选择中文语音成功: $voiceMap');
               return;
             }
           } catch (e) {
