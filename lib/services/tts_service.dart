@@ -37,6 +37,10 @@ class TtsService {
   /// 标记回调是否已注册，避免重复注册
   static bool _handlersRegistered = false;
 
+  /// 过渡标记：speak() 内部调用 stop() 时设为 true，
+  /// 让完成/错误处理器忽略 stop() 触发的回调，避免新回调被提前消费
+  static bool _isStoppingForRestart = false;
+
   static const MethodChannel _nativeChannel =
       MethodChannel('com.example.android_app/tts_helper');
 
@@ -61,6 +65,11 @@ class TtsService {
       _flutterTts.setCompletionHandler(() {
         debugPrint('TTS: onDone 触发');
         _isSpeaking = false;
+        // 忽略 stop() 触发的完成事件，防止新回调被提前消费
+        if (_isStoppingForRestart) {
+          debugPrint('TTS: 忽略 stop() 触发的完成回调');
+          return;
+        }
         _onComplete?.call();
         _onComplete = null;
       });
@@ -68,6 +77,11 @@ class TtsService {
       _flutterTts.setErrorHandler((message) {
         debugPrint('TTS: onError 触发: $message');
         _isSpeaking = false;
+        // 忽略 stop() 触发的错误事件
+        if (_isStoppingForRestart) {
+          debugPrint('TTS: 忽略 stop() 触发的错误回调');
+          return;
+        }
         _onComplete?.call();
         _onComplete = null;
       });
@@ -323,8 +337,10 @@ class TtsService {
   static Future<bool> speak(String text, {VoidCallback? onComplete}) async {
     final speechText = preprocessText(text);
     if (speechText.isEmpty) {
+      // 空文本不算失败，直接回调继续下一节
+      debugPrint('TTS: 文本为空，跳过朗读');
       onComplete?.call();
-      return false;
+      return true;
     }
 
     // 递增代际计数器，使旧的 stop() 异步回调不再干扰本次朗读
@@ -362,16 +378,35 @@ class TtsService {
       }
 
       try {
-        // 先停止之前的朗读
+        // 1. 先清空回调，防止 stop() 触发的完成事件调用新回调
+        _onComplete = null;
+
+        // 2. 设置过渡标记，让完成/错误处理器忽略 stop() 触发的回调
+        _isStoppingForRestart = true;
+
+        // 3. 停止之前的朗读
         try {
           await _flutterTts.stop();
         } catch (_) {}
 
-        // 设置完成回调（回调处理器在 _doInitialize 中已注册）
+        // 4. 让事件循环处理 stop() 可能触发的完成/错误事件
+        //    这些事件会被处理器中的 _isStoppingForRestart 检查拦截
+        await Future.delayed(const Duration(milliseconds: 50));
+
+        // 5. 清除过渡标记
+        _isStoppingForRestart = false;
+
+        // 6. 设置新的完成回调（此时 stop() 的回调已被安全忽略）
         _onComplete = onComplete;
 
-        // 调用 speak()
-        final result = await _flutterTts.speak(speechText);
+        // 7. 调用 speak()，添加超时防止挂起
+        final result = await _flutterTts.speak(speechText).timeout(
+          const Duration(seconds: 3),
+          onTimeout: () {
+            debugPrint('TTS: speak() 超时（3秒无响应）');
+            return 0;
+          },
+        );
         debugPrint('TTS: speak() 返回 $result');
 
         if (result == 1) {
@@ -387,6 +422,8 @@ class TtsService {
       } catch (e, stackTrace) {
         debugPrint('TTS speak异常: $e');
         debugPrintStack(stackTrace: stackTrace);
+        // 确保过渡标记被清除
+        _isStoppingForRestart = false;
       }
     }
 
@@ -399,18 +436,18 @@ class TtsService {
 
   /// 停止朗读
   static Future<void> stop() async {
-    // 记录当前代际，防止异步完成后清空新 speak() 设置的回调
-    final gen = _speakGeneration;
+    // 先清空回调，防止 stop() 触发的完成事件调用旧回调
+    _onComplete = null;
+    _isStoppingForRestart = true;
     try {
       await _flutterTts.stop();
     } catch (e) {
       debugPrint('TTS stop failed: $e');
     }
-    // 仅当代际未变化时才清空，避免覆盖新 speak() 的回调
-    if (gen == _speakGeneration) {
-      _isSpeaking = false;
-      _onComplete = null;
-    }
+    // 让事件循环处理 stop() 可能触发的完成事件
+    await Future.delayed(const Duration(milliseconds: 50));
+    _isStoppingForRestart = false;
+    _isSpeaking = false;
   }
 
   /// 暂停朗读
