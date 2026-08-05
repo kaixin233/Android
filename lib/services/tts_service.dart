@@ -37,6 +37,8 @@ class TtsService {
 
   /// 标记回调是否已注册，避免重复注册
   static bool _handlersRegistered = false;
+  // 串行化 speak 请求，避免并发导致播放顺序混乱
+  static Future<void> _lastSpeak = Future.value();
 
   /// 过渡标记：speak() 内部调用 stop() 时设为 true，
   /// 让完成/错误处理器忽略 stop() 触发的回调，避免新回调被提前消费
@@ -102,9 +104,8 @@ class TtsService {
         if (defaultEngine == null || defaultEngine.toString().isEmpty) {
           final engineBound = await _tryBindEngine();
           if (!engineBound) {
-            debugPrint('TTS: 无法绑定 TTS 引擎');
-            _isAvailable = false;
-            return false;
+            debugPrint('TTS: 无法绑定推荐引擎，继续初始化并尝试用系统默认配置');
+            // 不将初始化直接视为失败，继续尝试后续设置以提高容错性
           }
         }
 
@@ -386,126 +387,131 @@ class TtsService {
     final gen = _speakGeneration + 1;
     _speakGeneration = gen;
 
-    // 最多重试 2 次
-    for (int attempt = 0; attempt < 2; attempt++) {
-      if (attempt > 0) {
-        debugPrint('TTS: 重试朗读 (第 ${attempt + 1} 次)');
-        // 只重置 initFuture，不重置 _isAvailable
-        _initFuture = null;
-        await Future.delayed(const Duration(milliseconds: 300));
-        // 等待期间若有新的 speak() 被调用则放弃
-        if (_speakGeneration != gen) {
-          debugPrint('TTS: 检测到新的朗读请求，放弃重试');
-          return false;
-        }
-      }
-
-      // 确保引擎已初始化
-      bool ready = false;
-      try {
-        ready = await initialize().timeout(
-          const Duration(seconds: 5),
-          onTimeout: () => false,
-        );
-      } catch (e) {
-        debugPrint('TTS: 初始化异常: $e');
-      }
-
-      if (!ready) {
-        debugPrint('TTS: 初始化失败 (第 ${attempt + 1} 次)');
-        continue;
-      }
-
-      try {
-        // 1. 先清空回调，防止 stop() 触发的完成事件调用新回调
-        _onComplete = null;
-
-        // 2. 设置过渡标记，让完成/错误处理器忽略 stop() 触发的回调
-        _isStoppingForRestart = true;
-
-        // 3. 停止之前的朗读
-        try {
-          await _flutterTts.stop();
-        } catch (_) {}
-
-        // 4. 让事件循环处理 stop() 可能触发的完成/错误事件
-        //    这些事件会被处理器中的 _isStoppingForRestart 检查拦截
-        await Future.delayed(const Duration(milliseconds: 50));
-
-        // 5. 清除过渡标记
-        _isStoppingForRestart = false;
-
-        // 6. 设置新的完成回调（此时 stop() 的回调已被安全忽略）
-        Completer<bool>? completionCompleter;
-        bool completed = false;
-        if (waitForCompletion) {
-          completionCompleter = Completer<bool>();
-          _currentCompletionCompleter = completionCompleter;
-          _onComplete = () {
-            if (completed) return;
-            completed = true;
-            onComplete?.call();
-            if (!completionCompleter!.isCompleted) {
-              completionCompleter.complete(true);
-            }
-            _currentCompletionCompleter = null;
-          };
-        } else {
-          _onComplete = onComplete;
-        }
-
-        // 7. 调用 speak()，添加超时防止挂起
-        final result = await _flutterTts.speak(speechText).timeout(
-          const Duration(seconds: 3),
-          onTimeout: () {
-            debugPrint('TTS: speak() 超时（3秒无响应）');
-            return 0;
-          },
-        );
-        debugPrint('TTS: speak() 返回 $result');
-
-        if (result == 1) {
-          // speak() 返回 1 = 引擎已接受朗读请求
-          _isSpeaking = true;
-          debugPrint('TTS: 朗读已提交，引擎将播放');
-
-          if (!waitForCompletion) {
-            return true;
+    // 使用串行化链，确保多个 speak 请求按发起顺序执行
+    final response = Completer<bool>();
+    _lastSpeak = _lastSpeak.then((_) async {
+      // 最多重试 2 次
+      for (int attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) {
+          debugPrint('TTS: 重试朗读 (第 ${attempt + 1} 次)');
+          _initFuture = null;
+          await Future.delayed(const Duration(milliseconds: 300));
+          if (_speakGeneration != gen) {
+            debugPrint('TTS: 检测到新的朗读请求/取消，放弃本次重试');
+            response.complete(false);
+            return;
           }
+        }
 
-          // 如果正常回调未触发，则在语音预计播放结束后自动继续
-          final fallbackDuration = _estimateSpeechDuration(speechText);
-          Future.delayed(fallbackDuration, () {
-            if (!completed && _speakGeneration == gen) {
-              debugPrint('TTS: speak() 完成回调超时，触发回退完成');
+        // 确保引擎已初始化（可以等待更久以避免启动时失败）
+        bool ready = false;
+        try {
+          ready = await initialize().timeout(
+            const Duration(seconds: 8),
+            onTimeout: () => false,
+          );
+        } catch (e) {
+          debugPrint('TTS: 初始化异常: $e');
+        }
+
+        if (!ready) {
+          debugPrint('TTS: 初始化失败 (第 ${attempt + 1} 次)');
+          continue;
+        }
+
+        try {
+          // 1. 先清空回调，防止 stop() 触发的完成事件调用新回调
+          _onComplete = null;
+
+          // 2. 设置过渡标记，让完成/错误处理器忽略 stop() 触发的回调
+          _isStoppingForRestart = true;
+
+          // 3. 停止之前的朗读
+          try {
+            await _flutterTts.stop();
+          } catch (_) {}
+
+          // 4. 让事件循环处理 stop() 可能触发的完成/错误事件
+          await Future.delayed(const Duration(milliseconds: 50));
+
+          // 5. 清除过渡标记
+          _isStoppingForRestart = false;
+
+          // 6. 设置新的完成回调（此时 stop() 的回调已被安全忽略）
+          Completer<bool>? completionCompleter;
+          bool completed = false;
+          if (waitForCompletion) {
+            completionCompleter = Completer<bool>();
+            _currentCompletionCompleter = completionCompleter;
+            _onComplete = () {
+              if (completed) return;
               completed = true;
               onComplete?.call();
               if (!completionCompleter!.isCompleted) {
                 completionCompleter.complete(true);
               }
               _currentCompletionCompleter = null;
+            };
+          } else {
+            _onComplete = onComplete;
+          }
+
+          // 7. 调用 speak()，添加超时防止挂起
+          final result = await _flutterTts.speak(speechText).timeout(
+            const Duration(seconds: 4),
+            onTimeout: () {
+              debugPrint('TTS: speak() 超时（4秒无响应）');
+              return 0;
+            },
+          );
+          debugPrint('TTS: speak() 返回 $result');
+
+          if (result == 1) {
+            _isSpeaking = true;
+            debugPrint('TTS: 朗读已提交，引擎将播放');
+
+            if (!waitForCompletion) {
+              response.complete(true);
+              return;
             }
-          });
 
-          return completionCompleter!.future;
+            // 如果正常回调未触发，则在语音预计播放结束后自动继续
+            final fallbackDuration = _estimateSpeechDuration(speechText);
+            Future.delayed(fallbackDuration, () {
+              if (!completed && _speakGeneration == gen) {
+                debugPrint('TTS: speak() 完成回调超时，触发回退完成');
+                completed = true;
+                onComplete?.call();
+                if (!completionCompleter!.isCompleted) {
+                  completionCompleter.complete(true);
+                }
+                _currentCompletionCompleter = null;
+              }
+            });
+
+            final val = await completionCompleter!.future;
+            response.complete(val);
+            return;
+          }
+
+          debugPrint('TTS: speak 返回失败，准备重试');
+        } catch (e, stackTrace) {
+          debugPrint('TTS speak异常: $e');
+          debugPrintStack(stackTrace: stackTrace);
+          _isStoppingForRestart = false;
         }
-
-        // speak() 返回 0，可能引擎未就绪，重试
-        debugPrint('TTS: speak 返回失败，准备重试');
-      } catch (e, stackTrace) {
-        debugPrint('TTS speak异常: $e');
-        debugPrintStack(stackTrace: stackTrace);
-        // 确保过渡标记被清除
-        _isStoppingForRestart = false;
       }
-    }
 
-    debugPrint('TTS: 所有重试均失败');
-    _isSpeaking = false;
-    _onComplete = null;
-    _currentCompletionCompleter = null;
-    onComplete?.call();
-    return false;
+      debugPrint('TTS: 所有重试均失败');
+      _isSpeaking = false;
+      _onComplete = null;
+      _currentCompletionCompleter = null;
+      onComplete?.call();
+      response.complete(false);
+    });
+
+    // 等待队列执行完成并返回结果
+    return response.future;
   }
 
   static Duration _estimateSpeechDuration(String text) {
