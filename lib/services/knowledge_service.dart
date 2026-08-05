@@ -38,7 +38,7 @@ class KnowledgeSection {
       if (p.text.trim().isEmpty) continue;
       buffer.write(p.text);
       // 段落之间加句号停顿
-      if (!p.text.endsWith(RegExp(r'[。.！!？?]'))) {
+      if (!RegExp(r'[。.！!？?]$').hasMatch(p.text)) {
         buffer.write('。');
       }
     }
