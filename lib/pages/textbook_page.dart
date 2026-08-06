@@ -572,13 +572,20 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
   }
 
   Future<bool> _ensureTtsReady() async {
-    final ready = await TtsService.initialize();
-    if (!ready && mounted) {
+    // 冷启动时 TTS 引擎首次初始化常失败（引擎未就绪 / 绑定耗时），
+    // 这里重试几次，避免「首次进入考点页播放无效、需先在练习页播一次」的问题。
+    for (int attempt = 0; attempt < 3; attempt++) {
+      final ready = await TtsService.initialize();
+      if (ready) return true;
+      if (!mounted) return false;
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('语音引擎初始化失败，请检查 TTS 设置')),
       );
     }
-    return ready;
+    return false;
   }
 
   /// 将原始文本/HTML清洗为纯文本，并按语音友好的句子或长度分块返回
@@ -1753,13 +1760,20 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
   }
 
   Future<bool> _ensureTtsReady() async {
-    final ready = await TtsService.initialize();
-    if (!ready && mounted) {
+    // 冷启动时 TTS 引擎首次初始化常失败（引擎未就绪 / 绑定耗时），
+    // 这里重试几次，避免「首次进入考点页播放无效、需先在练习页播一次」的问题。
+    for (int attempt = 0; attempt < 3; attempt++) {
+      final ready = await TtsService.initialize();
+      if (ready) return true;
+      if (!mounted) return false;
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('语音引擎初始化失败，请检查 TTS 设置')),
       );
     }
-    return ready;
+    return false;
   }
 
   List<String> _cleanAndChunk(String raw) {

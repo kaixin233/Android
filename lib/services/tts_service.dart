@@ -426,22 +426,22 @@ class TtsService {
         }
 
         try {
-          // 1. 先清空回调，防止 stop() 触发的完成事件调用新回调
+          // 1. 先清空回调，防止上一句的完成事件调用新回调
           _onComplete = null;
 
-          // 2. 设置过渡标记，让完成/错误处理器忽略 stop() 触发的回调
-          _isStoppingForRestart = true;
-
-          // 3. 停止之前的朗读
-          try {
-            await _flutterTts.stop();
-          } catch (_) {}
-
-          // 4. 让事件循环处理 stop() 可能触发的完成/错误事件
-          await Future.delayed(const Duration(milliseconds: 50));
-
-          // 5. 清除过渡标记
-          _isStoppingForRestart = false;
+          // 2. 仅当确实在朗读时才打断上一句。顺序播放（waitForCompletion）时
+          //    上一句已经读完，不应再 stop()，否则会截断尾音 / 引发引擎竞争，
+          //    导致「播放顺序混乱」。用户主动停止或切换段落由页面层先 stop()。
+          if (_isSpeaking) {
+            // 设置过渡标记，让完成/错误处理器忽略 stop() 触发的回调
+            _isStoppingForRestart = true;
+            try {
+              await _flutterTts.stop();
+            } catch (_) {}
+            // 让事件循环处理 stop() 可能触发的完成/错误事件
+            await Future.delayed(const Duration(milliseconds: 50));
+            _isStoppingForRestart = false;
+          }
 
           // 6. 设置新的完成回调（此时 stop() 的回调已被安全忽略）
           Completer<bool>? completionCompleter;
@@ -487,6 +487,8 @@ class TtsService {
               if (!completed && _speakGeneration == gen) {
                 debugPrint('TTS: speak() 完成回调超时，触发回退完成');
                 completed = true;
+                // 复位状态，避免顺序播放下一句误判「仍在朗读」而多余 stop()
+                _isSpeaking = false;
                 onComplete?.call();
                 if (!completionCompleter!.isCompleted) {
                   completionCompleter.complete(true);
@@ -521,10 +523,19 @@ class TtsService {
   }
 
   static Duration _estimateSpeechDuration(String text) {
-    final cleanText = text.replaceAll(RegExp(r'\s+'), ' ');
-    final wordCount = cleanText.split(' ').length;
-    final baseMillis = wordCount * 280;
-    return Duration(milliseconds: baseMillis.clamp(3000, 30000));
+    // 中文按字符数估算：中文没有空格，若按拉丁分词会恒为 1 个单词→3秒，
+    // 导致长段落被提前切走、下一段提前插入，表现为「播放顺序混乱」。
+    final chars = text.replaceAll(RegExp(r'\s+'), '').length;
+    // 英文 / 数字单词单独估算（与中文混排时）
+    final latinPart = text.replaceAll(RegExp(r'[\u4e00-\u9fff]'), ' ');
+    final latinWords = latinPart
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .length;
+    final millis = chars * 260 + latinWords * 400;
+    // 上限放宽到 60 秒，避免长段落被提前切走；下限 2 秒
+    return Duration(milliseconds: millis.clamp(2000, 60000));
   }
 
   /// 停止朗读
