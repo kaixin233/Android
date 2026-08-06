@@ -54,13 +54,41 @@ class TtsService {
   static Future<bool> initialize() {
     if (_isAvailable) return Future.value(true);
     if (_initFuture != null) return _initFuture!;
-    _initFuture = _doInitialize().then((success) {
+    _initFuture = _initializeWithRetry().then((success) {
       if (!success) {
         _initFuture = null;
       }
       return success;
     });
     return _initFuture!;
+  }
+
+  /// 带重试的初始化：冷启动时引擎绑定较慢，单次 initialize() 常失败，
+  /// 这里在内部重试多次（每次带超时 + 间隔），避免调用方一次失败就放弃——
+  /// 修复「考点页首次播放无效、需先去练习页播一次才能用」的问题
+  /// （练习页逐段 speak 自带重试，会把引擎预热；集中到这里后所有入口都受益）。
+  static Future<bool> _initializeWithRetry() async {
+    const maxAttempts = 4;
+    for (int attempt = 0; attempt < maxAttempts; attempt++) {
+      bool ok = false;
+      try {
+        ok = await _doInitialize().timeout(
+          const Duration(seconds: 5),
+          onTimeout: () {
+            debugPrint('TTS: 初始化超时（5秒，第 ${attempt + 1} 次）');
+            return false;
+          },
+        );
+      } catch (e) {
+        debugPrint('TTS: 初始化异常（第 ${attempt + 1} 次）: $e');
+        ok = false;
+      }
+      if (ok) return true;
+      if (attempt < maxAttempts - 1) {
+        await Future.delayed(const Duration(milliseconds: 600));
+      }
+    }
+    return false;
   }
 
   static Future<bool> _doInitialize() async {
