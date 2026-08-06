@@ -1,0 +1,47 @@
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:android_app/services/knowledge_service.dart';
+import 'package:android_app/models/question.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('三个科目均能解析出考点小节', () async {
+    for (final s in QuestionSubject.values) {
+      final all = await KnowledgeService.getSections(s);
+      print('${s.name}: 共 ${all.length} 个小节');
+      expect(all, isNotEmpty, reason: '${s.name} 不应为空');
+    }
+  });
+
+  test('管理科目 第1章 应匹配到小节', () async {
+    final sections = await KnowledgeService.getSectionsBySubsection(
+      subject: QuestionSubject.management,
+      chapterNumber: '1',
+    );
+    print('management 第1章: ${sections.length} 个小节 -> '
+        '${sections.map((e) => e.number).join(", ")}');
+    expect(sections, isNotEmpty);
+  });
+
+  test('管理科目 小节 1.1 精确匹配', () async {
+    final sections = await KnowledgeService.getSectionsBySubsection(
+      subject: QuestionSubject.management,
+      chapterNumber: '1',
+      subsectionNumber: '1.1',
+    );
+    print('management 1.1: ${sections.length} -> '
+        '${sections.isNotEmpty ? sections.first.title : "无"}');
+    expect(sections, isNotEmpty);
+  });
+
+  test('市政科目 第18章 应匹配到小节', () async {
+    final sections = await KnowledgeService.getSectionsBySubsection(
+      subject: QuestionSubject.practice,
+      chapterNumber: '18',
+    );
+    print('practice 第18章: ${sections.length} 个小节');
+    expect(sections, isNotEmpty);
+  });
+}

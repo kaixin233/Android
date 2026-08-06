@@ -144,7 +144,7 @@ class KnowledgeService {
         current = KnowledgeSection(
           number: number,
           title: titleText,
-          paragraphs: const [],
+          paragraphs: <KnowledgeParagraph>[],
         );
         sections.add(current);
         continue;
