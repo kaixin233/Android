@@ -10,6 +10,7 @@ import '../models/history_item.dart';
 import '../providers/app_provider.dart';
 import '../services/question_service.dart';
 import '../services/storage_service.dart';
+import '../services/tts_service.dart';
 import '../utils/animations.dart';
 
 /// 练习页面配置
@@ -86,6 +87,8 @@ class _PracticePageState extends State<PracticePage> {
   bool _isLoading = true;
   bool _submitted = false;
   bool _isCorrect = false;
+  bool _isSpeaking = false;
+  bool _isSpeakingExplanation = false;
   int _elapsedSeconds = 0;
   Timer? _timer;
   final Set<String> _wrongKeys = {};
@@ -101,7 +104,81 @@ class _PracticePageState extends State<PracticePage> {
   void dispose() {
     _timer?.cancel();
     _fillBlankController.dispose();
+    TtsService.stop();
     super.dispose();
+  }
+
+  Future<void> _toggleSpeakQuestion() async {
+    if (_isSpeaking) {
+      await _stopSpeaking();
+      return;
+    }
+
+    if (_questions.isEmpty) return;
+    final question = _questions[_currentIndex];
+    final text = _buildQuestionSpeechText(question);
+    if (text.trim().isEmpty) return;
+
+    setState(() {
+      _isSpeaking = true;
+      _isSpeakingExplanation = false;
+    });
+
+    await TtsService.speak(text, onComplete: () {
+      if (mounted) {
+        setState(() {
+          _isSpeaking = false;
+          _isSpeakingExplanation = false;
+        });
+      }
+    });
+  }
+
+  Future<void> _toggleSpeakExplanation() async {
+    if (_isSpeaking && _isSpeakingExplanation) {
+      await _stopSpeaking();
+      return;
+    }
+
+    if (_isSpeaking) {
+      await _stopSpeaking();
+    }
+
+    if (_questions.isEmpty) return;
+    final question = _questions[_currentIndex];
+    if (question.explanation.trim().isEmpty) return;
+
+    setState(() {
+      _isSpeaking = true;
+      _isSpeakingExplanation = true;
+    });
+
+    await TtsService.speak(question.explanation, onComplete: () {
+      if (mounted) {
+        setState(() {
+          _isSpeaking = false;
+          _isSpeakingExplanation = false;
+        });
+      }
+    });
+  }
+
+  Future<void> _stopSpeaking() async {
+    await TtsService.stop();
+    if (mounted) {
+      setState(() {
+        _isSpeaking = false;
+        _isSpeakingExplanation = false;
+      });
+    }
+  }
+
+  String _buildQuestionSpeechText(Question question) {
+    final parts = <String>[question.prompt];
+    for (var i = 0; i < question.options.length; i++) {
+      parts.add('选项${i + 1}，${question.options[i]}');
+    }
+    return parts.join('。');
   }
 
   Future<void> _loadQuestions() async {
@@ -590,6 +667,11 @@ class _PracticePageState extends State<PracticePage> {
       appBar: AppBar(
         title: Text(_getPracticeTitle()),
         actions: [
+          IconButton(
+            icon: Icon(_isSpeaking ? Icons.stop_circle_rounded : Icons.volume_up_rounded),
+            tooltip: _isSpeaking ? '停止朗读' : '朗读题目',
+            onPressed: _toggleSpeakQuestion,
+          ),
           if (widget.config.timeLimitSeconds != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1032,6 +1114,16 @@ class _PracticePageState extends State<PracticePage> {
                 ),
               ),
               const Spacer(),
+              if (question.explanation.trim().isNotEmpty)
+                IconButton(
+                  icon: Icon(
+                    _isSpeakingExplanation ? Icons.stop_circle_rounded : Icons.volume_up_rounded,
+                    size: 20,
+                    color: _isCorrect ? Colors.green : Colors.orange,
+                  ),
+                  tooltip: _isSpeakingExplanation ? '停止朗读' : '朗读解析',
+                  onPressed: _toggleSpeakExplanation,
+                ),
             ],
           ),
           const SizedBox(height: 8),
