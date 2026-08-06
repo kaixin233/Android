@@ -7,7 +7,6 @@ import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
 import '../models/history_item.dart';
 import '../services/storage_service.dart';
-import '../services/tts_service.dart';
 import 'knowledge_assessment_page.dart';
 import 'note_page.dart';
 
@@ -22,53 +21,8 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  bool _isTestingVoice = false;
-
-  /// 试听语音效果
-  Future<void> _testVoice() async {
-    if (_isTestingVoice) {
-      await TtsService.stop();
-      setState(() => _isTestingVoice = false);
-      return;
-    }
-
-    setState(() => _isTestingVoice = true);
-
-    // 应用当前设置的语音参数
-    final app = context.read<AppProvider>();
-    await TtsService.applySpeechParams(
-      rate: app.ttsSpeechRate,
-      pitch: app.ttsPitch,
-      volume: app.ttsVolume,
-    );
-
-    // 试听文本：包含括号等需要预处理的场景
-    const sampleText = '这是一段语音试听。当题目中出现括号时，会朗读为：什么。'
-        '例如：施工项目管理中，什么是首要任务。'
-        '解析：施工项目管理的首要任务是安全管理。';
-
-    final success = await TtsService.speak(
-      sampleText,
-      onComplete: () {
-        if (mounted) setState(() => _isTestingVoice = false);
-      },
-    );
-
-    if (!success && mounted) {
-      setState(() => _isTestingVoice = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('语音播报不可用，请检查系统语音引擎设置')),
-        );
-      }
-    }
-  }
-
   @override
   void dispose() {
-    if (_isTestingVoice) {
-      TtsService.stop();
-    }
     super.dispose();
   }
 
@@ -178,135 +132,9 @@ class _ProfilePageState extends State<ProfilePage> {
                   padding: const EdgeInsets.all(16),
                   child: Text('语音播报', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                 ),
-                SwitchListTile(
-                  secondary: const Icon(Icons.record_voice_over_rounded, color: Colors.teal),
-                  title: const Text('自动播报解析'),
-                  subtitle: const Text('答题后自动朗读正确答案和解析'),
-                  value: app.ttsAutoPlayExplanation,
-                  onChanged: (value) {
-                    context.read<AppProvider>().saveTtsAutoPlayExplanation(value);
-                  },
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.check_circle_outline_rounded, color: Colors.green),
-                  title: const Text('答对不播报解析'),
-                  subtitle: const Text('回答正确时仅播报"回答正确"，跳过解析'),
-                  value: app.ttsSkipExplanationOnCorrect,
-                  onChanged: app.ttsAutoPlayExplanation
-                      ? (value) {
-                          context.read<AppProvider>().saveTtsSkipExplanationOnCorrect(value);
-                        }
-                      : null,
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.playlist_play_rounded, color: Colors.indigo),
-                  title: const Text('自动朗读题目'),
-                  subtitle: const Text('进入题目时自动语音播报题目内容'),
-                  value: app.ttsAutoReadQuestion,
-                  onChanged: (value) {
-                    context.read<AppProvider>().saveTtsAutoReadQuestion(value);
-                  },
-                ),
-                const Divider(height: 1),
-                // 语速调节
-                ListTile(
-                  leading: const Icon(Icons.speed_rounded, color: Colors.blue),
-                  title: const Text('语速'),
-                  subtitle: Slider(
-                    value: app.ttsSpeechRate,
-                    min: 0.0,
-                    max: 1.0,
-                    divisions: 10,
-                    label: app.ttsSpeechRate < 0.3
-                        ? '慢速'
-                        : app.ttsSpeechRate > 0.7
-                            ? '快速'
-                            : '正常',
-                    onChanged: (value) {
-                      context.read<AppProvider>().saveTtsSpeechRate(value);
-                    },
-                  ),
-                  trailing: Text(
-                    app.ttsSpeechRate.toStringAsFixed(1),
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                  ),
-                ),
-                const Divider(height: 1),
-                // 音调调节
-                ListTile(
-                  leading: const Icon(Icons.graphic_eq_rounded, color: Colors.purple),
-                  title: const Text('音调'),
-                  subtitle: Slider(
-                    value: app.ttsPitch,
-                    min: 0.5,
-                    max: 2.0,
-                    divisions: 15,
-                    label: app.ttsPitch < 0.8
-                        ? '低沉'
-                        : app.ttsPitch > 1.2
-                            ? '高亢'
-                            : '正常',
-                    onChanged: (value) {
-                      context.read<AppProvider>().saveTtsPitch(value);
-                    },
-                  ),
-                  trailing: Text(
-                    app.ttsPitch.toStringAsFixed(1),
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                  ),
-                ),
-                const Divider(height: 1),
-                // 音量调节
-                ListTile(
-                  leading: const Icon(Icons.volume_up_rounded, color: Colors.orange),
-                  title: const Text('音量'),
-                  subtitle: Slider(
-                    value: app.ttsVolume,
-                    min: 0.0,
-                    max: 1.0,
-                    divisions: 10,
-                    label: '${(app.ttsVolume * 100).toInt()}%',
-                    onChanged: (value) {
-                      context.read<AppProvider>().saveTtsVolume(value);
-                    },
-                  ),
-                  trailing: Text(
-                    '${(app.ttsVolume * 100).toInt()}%',
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                  ),
-                ),
-                const Divider(height: 1),
-                // 试听语音按钮
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.tonalIcon(
-                      onPressed: _testVoice,
-                      icon: Icon(_isTestingVoice
-                          ? Icons.stop_circle_rounded
-                          : Icons.play_circle_rounded),
-                      label: Text(_isTestingVoice ? '停止试听' : '试听语音效果'),
-                    ),
-                  ),
-                ),
-                const Divider(height: 1),
-                // TTS 系统设置入口
-                ListTile(
-                  leading: const Icon(Icons.settings_voice_rounded, color: Colors.grey),
-                  title: const Text('系统语音引擎设置'),
-                  subtitle: const Text('打开系统 TTS 设置页面'),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () async {
-                    final success = await TtsService.openTtsSettings();
-                    if (!success && context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('无法打开系统语音设置')),
-                      );
-                    }
-                  },
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: Text('已移除知识考点语音播报，当前仅保留基础设置入口。'),
                 ),
               ],
             ),

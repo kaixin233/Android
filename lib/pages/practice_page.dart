@@ -10,7 +10,6 @@ import '../models/history_item.dart';
 import '../providers/app_provider.dart';
 import '../services/question_service.dart';
 import '../services/storage_service.dart';
-import '../services/tts_service.dart';
 import '../utils/animations.dart';
 
 /// 练习页面配置
@@ -91,22 +90,17 @@ class _PracticePageState extends State<PracticePage> {
   Timer? _timer;
   final Set<String> _wrongKeys = {};
   final Map<String, _AnswerRecord> _questionResults = {};
-  bool _isSpeaking = false;
-  bool _isSpeakingExplanation = false;
 
   @override
   void initState() {
     super.initState();
     _loadQuestions();
-    // 预热 TTS 引擎，避免首次点击朗读时出现明显延迟
-    TtsService.initialize();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
     _fillBlankController.dispose();
-    TtsService.stop();
     super.dispose();
   }
 
@@ -158,13 +152,6 @@ class _PracticePageState extends State<PracticePage> {
     // 始终启动计时器，用于统计练习时长
     _startTimer();
 
-    // 进入练习后自动朗读第一题
-    if (mounted && _questions.isNotEmpty) {
-      final app = context.read<AppProvider>();
-      if (app.ttsAutoReadQuestion) {
-        _speakQuestion();
-      }
-    }
   }
 
   void _startTimer() {
@@ -303,49 +290,6 @@ class _PracticePageState extends State<PracticePage> {
       }
     }
 
-    // 自动播报解析
-    if (app.ttsAutoPlayExplanation && mounted) {
-      // 答对且设置了"答对不播报解析"时，仅播报结果
-      final skipExplanation = correct && app.ttsSkipExplanationOnCorrect;
-      _speakExplanation(correct, skipExplanation: skipExplanation);
-    }
-  }
-
-  /// 播报答题结果与解析
-  Future<void> _speakExplanation(bool isCorrect, {bool skipExplanation = false}) async {
-    // 先停止当前朗读
-    if (_isSpeaking) {
-      await TtsService.stop();
-      if (mounted) setState(() => _isSpeaking = false);
-    }
-
-    final question = _questions[_currentIndex];
-    final buffer = StringBuffer();
-
-    // 答题结果提示
-    if (isCorrect) {
-      buffer.write('回答正确。');
-    } else {
-      buffer.write('回答错误。');
-      // 错误时播报正确答案
-      buffer.write('正确答案是：');
-      buffer.write(_getCorrectAnswerText(question));
-      buffer.write('。');
-    }
-
-    // 播报解析（skipExplanation 为 true 时跳过）
-    if (!skipExplanation && question.explanation.isNotEmpty) {
-      buffer.write('解析：');
-      buffer.write(question.explanation);
-    }
-
-    if (mounted) setState(() => _isSpeakingExplanation = true);
-    await TtsService.speak(
-      buffer.toString(),
-      onComplete: () {
-        if (mounted) setState(() => _isSpeakingExplanation = false);
-      },
-    );
   }
 
   void _nextQuestion() {
@@ -353,42 +297,18 @@ class _PracticePageState extends State<PracticePage> {
       _finishPractice();
       return;
     }
-    _stopSpeakingIfNeeded();
     setState(() {
       _currentIndex++;
       _restoreQuestionState();
     });
-    // 自动朗读下一题
-    if (mounted) {
-      final app = context.read<AppProvider>();
-      if (app.ttsAutoReadQuestion && !_submitted) {
-        _speakQuestion();
-      }
-    }
   }
 
   void _previousQuestion() {
     if (_currentIndex == 0) return;
-    _stopSpeakingIfNeeded();
     setState(() {
       _currentIndex--;
       _restoreQuestionState();
     });
-    // 自动朗读上一题
-    if (mounted) {
-      final app = context.read<AppProvider>();
-      if (app.ttsAutoReadQuestion && !_submitted) {
-        _speakQuestion();
-      }
-    }
-  }
-
-  void _stopSpeakingIfNeeded() {
-    if (_isSpeaking || _isSpeakingExplanation) {
-      TtsService.stop();
-      _isSpeaking = false;
-      _isSpeakingExplanation = false;
-    }
   }
 
   /// 恢复当前题目的已答状态
@@ -414,7 +334,6 @@ class _PracticePageState extends State<PracticePage> {
 
   Future<void> _finishPractice() async {
     _timer?.cancel();
-    _stopSpeakingIfNeeded();
     final total = _questions.length;
     final result = HistoryItem(
       title: _getPracticeTitle(),
@@ -626,276 +545,6 @@ class _PracticePageState extends State<PracticePage> {
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
-  /// 朗读当前题目和选项
-  ///
-  /// 分两阶段播报：先朗读题目，停顿后再朗读选项，
-  /// 避免题目和选项混在一起无法分辨。
-  Future<void> _speakQuestion() async {
-    if (_questions.isEmpty || _currentIndex >= _questions.length) return;
-    // 如果正在播报解析，先停止
-    if (_isSpeakingExplanation) {
-      await TtsService.stop();
-    }
-    setState(() {
-      _isSpeaking = true;
-      _isSpeakingExplanation = false;
-    });
-
-    final question = _questions[_currentIndex];
-    final hasOptions = question.options.isNotEmpty;
-
-    // 阶段1：只朗读题目
-    final promptText = question.prompt;
-    final success = await TtsService.speak(
-      promptText,
-      onComplete: () {
-        // 题目朗读完成后，如果有选项，等待后继续朗读选项
-        if (hasOptions && mounted) {
-          _speakOptions();
-        } else if (mounted) {
-          setState(() => _isSpeaking = false);
-        }
-      },
-    );
-
-    // 朗读启动失败时，重置状态并引导用户
-    if (!success && mounted) {
-      setState(() => _isSpeaking = false);
-      _showTtsErrorDialog();
-    }
-  }
-
-  /// 朗读选项（题目朗读完成后的第二阶段）
-  Future<void> _speakOptions() async {
-    if (!mounted || _questions.isEmpty || _currentIndex >= _questions.length) return;
-    final question = _questions[_currentIndex];
-    if (question.options.isEmpty) return;
-
-    // 题目与选项之间停顿，让用户消化题目内容
-    await Future.delayed(const Duration(milliseconds: 1500));
-    // 停顿期间用户可能按了停止按钮或切换了题目
-    if (!mounted || !_isSpeaking) return;
-
-    final buffer = StringBuffer();
-    buffer.write('选项如下：');
-    for (var i = 0; i < question.options.length; i++) {
-      final label = String.fromCharCode('A'.codeUnitAt(0) + i);
-      buffer.write('$label，${question.options[i]}。');
-    }
-
-    final success = await TtsService.speak(
-      buffer.toString(),
-      onComplete: () {
-        if (mounted) setState(() => _isSpeaking = false);
-      },
-    );
-
-    if (!success && mounted) {
-      setState(() => _isSpeaking = false);
-    }
-  }
-
-  /// 显示 TTS 错误引导对话框（增强版，含诊断信息和操作按钮）
-  void _showTtsErrorDialog() {
-    String? diagInfo;
-    bool isDiagnosing = false;
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.volume_off, color: Colors.orange),
-              SizedBox(width: 8),
-              Expanded(child: Text('语音播报不可用')),
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  '语音引擎未能正常启动朗读。'
-                  '小米设备请使用系统自带的「系统语音引擎」'
-                  '（包名 com.xiaomi.mibrain.speech）。',
-                  style: TextStyle(fontSize: 14),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  '快捷操作：',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    FilledButton.icon(
-                      icon: const Icon(Icons.settings, size: 18),
-                      label: const Text('TTS设置', style: TextStyle(fontSize: 13)),
-                      onPressed: () async {
-                        await TtsService.openTtsSettings();
-                      },
-                    ),
-                    FilledButton.icon(
-                      icon: const Icon(Icons.download, size: 18),
-                      label: const Text('安装语音', style: TextStyle(fontSize: 13)),
-                      onPressed: () async {
-                        await TtsService.installTtsData();
-                      },
-                    ),
-                    OutlinedButton.icon(
-                      icon: isDiagnosing
-                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                          : const Icon(Icons.refresh, size: 18),
-                      label: const Text('诊断', style: TextStyle(fontSize: 13)),
-                      onPressed: isDiagnosing
-                          ? null
-                          : () async {
-                              setDialogState(() => isDiagnosing = true);
-                              final info = await TtsService.getDiagnostics();
-                              setDialogState(() {
-                                diagInfo = _formatDiagnostics(info);
-                                isDiagnosing = false;
-                              });
-                            },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  '手动设置步骤：',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  '1. 点击上方「TTS设置」按钮\n'
-                  '2. 确认语音引擎为「系统语音引擎」\n'
-                  '   （小米自带，无需额外安装）\n'
-                  '3. 如仍不可用，点击「安装语音」下载数据\n'
-                  '4. 返回 App 点击「重试」',
-                  style: TextStyle(fontSize: 12, height: 1.6),
-                ),
-                if (diagInfo != null) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: SelectableText(
-                      diagInfo!,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontFamily: 'monospace',
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('关闭'),
-            ),
-            FilledButton(
-              onPressed: () {
-                Navigator.of(ctx).pop();
-                // 重置 TTS 状态后重试
-                TtsService.reset().then((_) {
-                  if (mounted) _speakQuestion();
-                });
-              },
-              child: const Text('重试'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 格式化诊断信息为可读文本
-  String _formatDiagnostics(Map<String, dynamic> info) {
-    final buffer = StringBuffer();
-    buffer.writeln('=== TTS 诊断信息 ===');
-
-    buffer.writeln('引擎可用: ${info['isAvailable']}');
-    buffer.writeln('正在朗读: ${info['isSpeaking']}');
-
-    if (info['defaultEngine'] != null) {
-      buffer.writeln('默认引擎: ${info['defaultEngine']}');
-    }
-
-    if (info['engines'] != null) {
-      buffer.writeln('已安装引擎: ${info['engines']}');
-    }
-
-    if (info['languages'] != null) {
-      buffer.writeln('可用语言: ${info['languages']}');
-    }
-
-    if (info['nativeEngines'] != null) {
-      final native = info['nativeEngines'] as Map;
-      buffer.writeln('原生引擎数: ${native['engineCount']}');
-      if (native['engines'] != null) {
-        buffer.writeln('原生引擎列表:');
-        for (final e in native['engines'] as List) {
-          buffer.writeln('  - ${e['packageName']} (${e['label']})');
-        }
-      }
-    }
-
-    if (info['voiceData'] != null) {
-      final vd = info['voiceData'] as Map;
-      buffer.writeln('--- 语音数据检查 ---');
-      buffer.writeln('初始化: ${vd['initStatus']}');
-      if (vd['defaultEngine'] != null) {
-        buffer.writeln('引擎: ${vd['defaultEngine']}');
-      }
-      if (vd['chineseStatusText'] != null) {
-        buffer.writeln('中文状态: ${vd['chineseStatusText']}');
-      }
-      if (vd['isChineseAvailable'] != null) {
-        buffer.writeln('中文可用: ${vd['isChineseAvailable']}');
-      }
-      if (vd['needInstallData'] != null) {
-        buffer.writeln('需安装数据: ${vd['needInstallData']}');
-      }
-      if (vd['chineseVoices'] != null) {
-        final voices = vd['chineseVoices'] as List;
-        buffer.writeln('中文语音数: ${voices.length}');
-        for (final v in voices) {
-          buffer.writeln('  - ${v['name']} (${v['locale']})');
-        }
-      }
-      if (vd['error'] != null) {
-        buffer.writeln('错误: ${vd['error']}');
-      }
-    }
-
-    if (info['error'] != null) {
-      buffer.writeln('错误: ${info['error']}');
-    }
-
-    return buffer.toString();
-  }
-
-  /// 停止所有朗读
-  Future<void> _stopSpeaking() async {
-    await TtsService.stop();
-    if (mounted) {
-      setState(() {
-        _isSpeaking = false;
-        _isSpeakingExplanation = false;
-      });
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -941,18 +590,6 @@ class _PracticePageState extends State<PracticePage> {
       appBar: AppBar(
         title: Text(_getPracticeTitle()),
         actions: [
-          // 语音播报按钮（朗读题目或停止解析播报）
-          IconButton(
-            icon: Icon(
-              (_isSpeaking || _isSpeakingExplanation)
-                  ? Icons.stop_circle_rounded
-                  : Icons.volume_up_rounded,
-            ),
-            tooltip: (_isSpeaking || _isSpeakingExplanation) ? '停止朗读' : '朗读题目',
-            onPressed: (_isSpeaking || _isSpeakingExplanation)
-                ? _stopSpeaking
-                : _speakQuestion,
-          ),
           if (widget.config.timeLimitSeconds != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1395,25 +1032,6 @@ class _PracticePageState extends State<PracticePage> {
                 ),
               ),
               const Spacer(),
-              // 朗读解析按钮
-              if (question.explanation.isNotEmpty)
-                IconButton(
-                  icon: Icon(
-                    _isSpeakingExplanation
-                        ? Icons.stop_circle_rounded
-                        : Icons.volume_up_rounded,
-                    size: 20,
-                    color: _isCorrect ? Colors.green : Colors.orange,
-                  ),
-                  tooltip: _isSpeakingExplanation ? '停止朗读' : '朗读解析',
-                  onPressed: () {
-                    if (_isSpeakingExplanation) {
-                      _stopSpeakingIfNeeded();
-                    } else {
-                      _speakExplanation(_isCorrect);
-                    }
-                  },
-                ),
             ],
           ),
           const SizedBox(height: 8),
