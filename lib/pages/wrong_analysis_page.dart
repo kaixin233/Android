@@ -64,7 +64,7 @@ class _WrongAnalysisPageState extends State<WrongAnalysisPage> {
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Row(
             children: [
-              Container(
+              SizedBox(
                 width: 80,
                 child: Text(entry.key.label, style: theme.textTheme.bodyMedium),
               ),
@@ -73,7 +73,7 @@ class _WrongAnalysisPageState extends State<WrongAnalysisPage> {
                   height: 24,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    color: theme.colorScheme.surfaceVariant,
+                    color: theme.colorScheme.surfaceContainerHighest,
                   ),
                   child: Container(
                     height: 24,
@@ -113,7 +113,7 @@ class _WrongAnalysisPageState extends State<WrongAnalysisPage> {
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Row(
             children: [
-              Container(
+              SizedBox(
                 width: 80,
                 child: Text(entry.key.label, style: theme.textTheme.bodyMedium),
               ),
@@ -122,7 +122,7 @@ class _WrongAnalysisPageState extends State<WrongAnalysisPage> {
                   height: 24,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    color: theme.colorScheme.surfaceVariant,
+                    color: theme.colorScheme.surfaceContainerHighest,
                   ),
                   child: Container(
                     height: 24,
@@ -162,7 +162,7 @@ class _WrongAnalysisPageState extends State<WrongAnalysisPage> {
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Row(
             children: [
-              Container(
+              SizedBox(
                 width: 80,
                 child: Text(entry.key, style: theme.textTheme.bodyMedium),
               ),
@@ -171,7 +171,7 @@ class _WrongAnalysisPageState extends State<WrongAnalysisPage> {
                   height: 24,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    color: theme.colorScheme.surfaceVariant,
+                    color: theme.colorScheme.surfaceContainerHighest,
                   ),
                   child: Container(
                     height: 24,
@@ -332,7 +332,7 @@ class _WrongAnalysisPageState extends State<WrongAnalysisPage> {
                             context,
                             MaterialPageRoute(
                               builder: (_) => PracticePage(
-                              config: PracticeConfig(mode: PracticeMode.wrong),
+                              config: const PracticeConfig(mode: PracticeMode.wrong),
                               onCompleted: (_) async {
                                 await _loadData();
                               },

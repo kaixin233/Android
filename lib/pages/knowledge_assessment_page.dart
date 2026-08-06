@@ -55,8 +55,6 @@ class _KnowledgeAssessmentPageState extends State<KnowledgeAssessmentPage> {
       return const Center(child: Text('暂无知识点数据'));
     }
 
-    final maxMastery = _stats.fold(0.0, (max, s) => s.point.masteryLevel > max ? s.point.masteryLevel : max);
-    
     return SizedBox(
       height: 300,
       child: CustomPaint(
@@ -133,7 +131,7 @@ class _KnowledgeAssessmentPageState extends State<KnowledgeAssessmentPage> {
                                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                                             decoration: BoxDecoration(
                                               borderRadius: BorderRadius.circular(20),
-                                              color: _getMasteryColor(stat.point.masteryLevel).withOpacity(0.1),
+                                              color: _getMasteryColor(stat.point.masteryLevel).withValues(alpha: 0.1),
                                             ),
                                             child: Text(
                                               _getMasteryLevel(stat.point.masteryLevel),
@@ -184,7 +182,7 @@ class _KnowledgeAssessmentPageState extends State<KnowledgeAssessmentPage> {
                                 context,
                                 MaterialPageRoute(
                                   builder: (_) => PracticePage(
-                              config: PracticeConfig(mode: PracticeMode.practice),
+                              config: const PracticeConfig(mode: PracticeMode.practice),
                               onCompleted: (_) async => _loadData(),
                             ),
                                 ),
@@ -270,7 +268,7 @@ class RadarChartPainter extends CustomPainter {
     canvas.drawPath(dataPath, dataPaint);
 
     final dataFillPaint = Paint()
-      ..color = theme.colorScheme.primary.withOpacity(0.2)
+      ..color = theme.colorScheme.primary.withValues(alpha: 0.2)
       ..style = PaintingStyle.fill;
     canvas.drawPath(dataPath, dataFillPaint);
 

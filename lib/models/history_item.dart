@@ -29,7 +29,7 @@ class HistoryItem {
   String get durationText {
     final m = durationSeconds ~/ 60;
     final s = durationSeconds % 60;
-    return '${m}分${s.toString().padLeft(2, '0')}秒';
+    return '$m分${s.toString().padLeft(2, '0')}秒';
   }
 
   Map<String, dynamic> toJson() {

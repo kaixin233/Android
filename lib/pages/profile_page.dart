@@ -490,7 +490,9 @@ class _ProfilePageState extends State<ProfilePage> {
 
       // 刷新 AppProvider 状态，确保 UI 与存储同步
       if (mounted) {
-        await context.read<AppProvider>().refresh();
+        final provider = context.read<AppProvider>();
+        await provider.refresh();
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('数据导入成功')),
         );

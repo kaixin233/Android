@@ -615,7 +615,7 @@ class _PracticePageState extends State<PracticePage> {
   String _formatDuration(int seconds) {
     final m = seconds ~/ 60;
     final s = seconds % 60;
-    return '${m}分${s.toString().padLeft(2, '0')}秒';
+    return '$m分${s.toString().padLeft(2, '0')}秒';
   }
 
   String _formatRemainingTime() {
@@ -1017,7 +1017,7 @@ class _PracticePageState extends State<PracticePage> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: question.subject.color.withOpacity(0.1),
+                      color: question.subject.color.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
@@ -1119,7 +1119,7 @@ class _PracticePageState extends State<PracticePage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
@@ -1330,14 +1330,14 @@ class _PracticePageState extends State<PracticePage> {
     Color? fgColor;
     if (submitted) {
       if (isCorrect) {
-        bgColor = color.withOpacity(0.1);
+        bgColor = color.withValues(alpha: 0.1);
         fgColor = color;
       } else if (isSelected) {
         bgColor = Colors.grey.shade200;
         fgColor = Colors.grey;
       }
     } else if (isSelected) {
-      bgColor = color.withOpacity(0.1);
+      bgColor = color.withValues(alpha: 0.1);
       fgColor = color;
     }
     return FilledButton.tonal(

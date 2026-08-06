@@ -120,7 +120,7 @@ class _NotePageState extends State<NotePage> {
                             child: FilterChip(
                               label: Text(category.label),
                               selected: _selectedCategory == category,
-                              selectedColor: category.color.withOpacity(0.2),
+                              selectedColor: category.color.withValues(alpha: 0.2),
                               onSelected: (_) => setState(() => _selectedCategory = _selectedCategory == category ? null : category),
                             ),
                           )),
@@ -274,6 +274,7 @@ class _NoteEditPageState extends State<NoteEditPage> {
     );
 
     await StorageService.saveNote(note);
+    if (!mounted) return;
     Navigator.pop(context);
   }
 
@@ -307,7 +308,7 @@ class _NoteEditPageState extends State<NoteEditPage> {
                     child: ChoiceChip(
                       label: Text(category.label),
                       selected: _category == category,
-                      selectedColor: category.color.withOpacity(0.2),
+                      selectedColor: category.color.withValues(alpha: 0.2),
                       onSelected: (_) => setState(() => _category = category),
                     ),
                   )),

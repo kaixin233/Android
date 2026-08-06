@@ -1,4 +1,3 @@
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:android_app/services/knowledge_service.dart';
@@ -10,7 +9,6 @@ void main() {
   test('三个科目均能解析出考点小节', () async {
     for (final s in QuestionSubject.values) {
       final all = await KnowledgeService.getSections(s);
-      print('${s.name}: 共 ${all.length} 个小节');
       expect(all, isNotEmpty, reason: '${s.name} 不应为空');
     }
   });
@@ -20,8 +18,6 @@ void main() {
       subject: QuestionSubject.management,
       chapterNumber: '1',
     );
-    print('management 第1章: ${sections.length} 个小节 -> '
-        '${sections.map((e) => e.number).join(", ")}');
     expect(sections, isNotEmpty);
   });
 
@@ -31,8 +27,6 @@ void main() {
       chapterNumber: '1',
       subsectionNumber: '1.1',
     );
-    print('management 1.1: ${sections.length} -> '
-        '${sections.isNotEmpty ? sections.first.title : "无"}');
     expect(sections, isNotEmpty);
   });
 
@@ -41,7 +35,6 @@ void main() {
       subject: QuestionSubject.practice,
       chapterNumber: '18',
     );
-    print('practice 第18章: ${sections.length} 个小节');
     expect(sections, isNotEmpty);
   });
 }

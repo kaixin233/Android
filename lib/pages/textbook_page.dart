@@ -54,7 +54,7 @@ class _TextbookPageState extends State<TextbookPage> {
                   borderSide: BorderSide.none,
                 ),
                 filled: true,
-                fillColor: theme.colorScheme.surfaceVariant.withOpacity(0.6),
+                fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
               ),
             ),
           ),
@@ -153,7 +153,7 @@ class _TextbookPageState extends State<TextbookPage> {
                   child: LinearProgressIndicator(
                     value: progress,
                     minHeight: 8,
-                    backgroundColor: Colors.white.withOpacity(0.3),
+                    backgroundColor: Colors.white.withValues(alpha: 0.3),
                     valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
                   ),
                 ),
@@ -186,7 +186,7 @@ class _TextbookPageState extends State<TextbookPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.15),
+          color: Colors.white.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Column(
@@ -197,7 +197,7 @@ class _TextbookPageState extends State<TextbookPage> {
               '$count',
               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
             ),
-            Text(label, style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 11)),
+            Text(label, style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 11)),
           ],
         ),
       ),
@@ -243,7 +243,7 @@ class _TextbookCard extends StatelessWidget {
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: color.withOpacity(0.3)),
+          side: BorderSide(color: color.withValues(alpha: 0.3)),
         ),
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
@@ -318,7 +318,7 @@ class _TextbookCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
@@ -796,12 +796,12 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.12),
+            color: Colors.black.withValues(alpha: 0.12),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
         ],
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
@@ -858,7 +858,7 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: Colors.grey.withOpacity(0.15),
+                  color: Colors.grey.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
@@ -883,7 +883,7 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [color, color.withOpacity(0.7)],
+              colors: [color, color.withValues(alpha: 0.7)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -894,7 +894,7 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
             children: [
               Row(
                 children: [
-                  Icon(Icons.bookmark_rounded, color: Colors.white, size: 28),
+                  const Icon(Icons.bookmark_rounded, color: Colors.white, size: 28),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -954,9 +954,9 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.orange.withOpacity(0.1),
+              color: Colors.orange.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.orange.withOpacity(0.3)),
+              border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
             ),
             child: Row(
               children: [
@@ -1021,7 +1021,7 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.2),
+        color: Colors.white.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
@@ -1093,14 +1093,14 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: isDark ? theme.colorScheme.surfaceVariant.withOpacity(0.3) : Colors.white,
+        color: isDark ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3) : Colors.white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: statusColor.withOpacity(status == _KPStatus.unpracticed ? 0.15 : 0.3),
+          color: statusColor.withValues(alpha: status == _KPStatus.unpracticed ? 0.15 : 0.3),
         ),
         boxShadow: isDark
             ? null
-            : [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 6, offset: const Offset(0, 1))],
+            : [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 6, offset: const Offset(0, 1))],
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
@@ -1114,7 +1114,7 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
+                  color: color.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Center(
@@ -1152,7 +1152,7 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
-                            color: statusColor.withOpacity(0.12),
+                            color: statusColor.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Row(
@@ -1214,7 +1214,7 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
+                  color: color.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(
@@ -1327,15 +1327,15 @@ class _KnowledgeSectionCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: isDark ? theme.colorScheme.surfaceVariant.withOpacity(0.3) : Colors.white,
+        color: isDark ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3) : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isPlaying ? color : color.withOpacity(0.15),
+          color: isPlaying ? color : color.withValues(alpha: 0.15),
           width: isPlaying ? 2 : 1,
         ),
         boxShadow: isDark
             ? null
-            : [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 2))],
+            : [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1344,7 +1344,7 @@ class _KnowledgeSectionCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
             decoration: BoxDecoration(
-              color: isPlaying ? color.withOpacity(0.15) : color.withOpacity(0.08),
+              color: isPlaying ? color.withValues(alpha: 0.15) : color.withValues(alpha: 0.08),
               borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
             ),
             child: Row(
@@ -1353,7 +1353,7 @@ class _KnowledgeSectionCard extends StatelessWidget {
                   width: 32,
                   height: 32,
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.15),
+                    color: color.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(Icons.book_rounded, color: color, size: 18),
@@ -1377,7 +1377,7 @@ class _KnowledgeSectionCard extends StatelessWidget {
                       width: 36,
                       height: 36,
                       decoration: BoxDecoration(
-                        color: isPlaying ? color : color.withOpacity(0.1),
+                        color: isPlaying ? color : color.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Icon(
@@ -1461,7 +1461,7 @@ class _KnowledgeSectionCard extends StatelessWidget {
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: isDark ? Colors.teal.shade200 : color.withOpacity(0.8),
+                color: isDark ? Colors.teal.shade200 : color.withValues(alpha: 0.8),
               ),
             ),
           );
@@ -1739,16 +1739,6 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
     }
   }
 
-  void _playNextInSequence(int index) {
-    // 已弃用：使用 waitForCompletion 的顺序播放逻辑替代此递归实现。
-    if (mounted) {
-      setState(() {
-        _isPlayingKnowledge = false;
-        _playingSectionIndex = -1;
-      });
-    }
-  }
-
   Future<void> _stopKnowledgePlayback() async {
     _isPlayingKnowledge = false;
     await TtsService.stop();
@@ -1882,12 +1872,12 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.12),
+            color: Colors.black.withValues(alpha: 0.12),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
         ],
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
@@ -1940,7 +1930,7 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
                             children: [
                               Text(
                                 '第 ${_playingSectionIndex + 1} / ${_sections.length} 节 · 当前段 ${_currentChunkIndex + 1} / $_currentChunkCount',
-                                style: TextStyle(fontSize: 11, color: color.withOpacity(0.8)),
+                                style: TextStyle(fontSize: 11, color: color.withValues(alpha: 0.8)),
                               ),
                               const SizedBox(height: 6),
                               ClipRRect(
@@ -1950,7 +1940,7 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
                                       ? (_currentChunkIndex + 1) / _currentChunkCount
                                       : 0,
                                   minHeight: 6,
-                                  backgroundColor: color.withOpacity(0.14),
+                                  backgroundColor: color.withValues(alpha: 0.14),
                                   valueColor: AlwaysStoppedAnimation<Color>(color),
                                 ),
                               ),
@@ -1969,7 +1959,7 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: Colors.grey.withOpacity(0.15),
+                  color: Colors.grey.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
@@ -2011,8 +2001,8 @@ class TextbookDetailPage extends StatefulWidget {
 
 class _TextbookDetailPageState extends State<TextbookDetailPage> {
   List<bool> _expandedChapters = [];
-  Map<String, bool> _completedChapters = {};
-  Map<String, int> _chapterQuestionCounts = {};
+  final Map<String, bool> _completedChapters = {};
+  final Map<String, int> _chapterQuestionCounts = {};
   String _searchQuery = '';
   late TextEditingController _searchController;
 
@@ -2130,7 +2120,7 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
                   borderSide: BorderSide.none,
                 ),
                 filled: true,
-                fillColor: theme.colorScheme.surfaceVariant.withOpacity(0.6),
+                fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
               ),
             ),
           ),
@@ -2146,7 +2136,7 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
               gradient: LinearGradient(
                 colors: [
                   color,
-                  color.withOpacity(0.7),
+                  color.withValues(alpha: 0.7),
                 ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
@@ -2261,7 +2251,7 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.2),
+        color: Colors.white.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
@@ -2464,7 +2454,7 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: color.withOpacity(enabled ? 0.3 : 0.1)),
+        side: BorderSide(color: color.withValues(alpha: enabled ? 0.3 : 0.1)),
       ),
       child: InkWell(
         onTap: enabled ? onTap : null,
@@ -2477,7 +2467,7 @@ class _TextbookDetailPageState extends State<TextbookDetailPage> {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(enabled ? 0.15 : 0.05),
+                  color: color.withValues(alpha: enabled ? 0.15 : 0.05),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(icon, color: enabled ? color : Colors.grey, size: 20),
@@ -2581,7 +2571,7 @@ class _ChapterExpansionTile extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: color.withOpacity(0.1),
+                        color: color.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
@@ -2593,7 +2583,7 @@ class _ChapterExpansionTile extends StatelessWidget {
                   if (onKnowledgeTap != null)
                     IconButton(
                       onPressed: onKnowledgeTap,
-                      icon: Icon(Icons.menu_book_rounded, color: color.withOpacity(0.7)),
+                      icon: Icon(Icons.menu_book_rounded, color: color.withValues(alpha: 0.7)),
                       tooltip: '查看考点',
                       visualDensity: VisualDensity.compact,
                     ),
@@ -2620,7 +2610,7 @@ class _ChapterExpansionTile extends StatelessWidget {
                       children: [
                         Text(
                           subsection.number,
-                          style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500),
+                          style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.w500),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -2632,7 +2622,7 @@ class _ChapterExpansionTile extends StatelessWidget {
                         Icon(
                           Icons.chevron_right_rounded,
                           size: 18,
-                          color: color.withOpacity(0.4),
+                          color: color.withValues(alpha: 0.4),
                         ),
                       ],
                     ),
@@ -2667,7 +2657,7 @@ class _QuestionBankCard extends StatelessWidget {
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: color.withOpacity(0.2)),
+          side: BorderSide(color: color.withValues(alpha: 0.2)),
         ),
         child: InkWell(
           onTap: onTap,
@@ -2680,7 +2670,7 @@ class _QuestionBankCard extends StatelessWidget {
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
+                    color: color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(
@@ -2701,7 +2691,7 @@ class _QuestionBankCard extends StatelessWidget {
                       if (category.description.isNotEmpty)
                         Text(
                           category.description,
-                          style: TextStyle(color: Colors.grey, fontSize: 13),
+                          style: const TextStyle(color: Colors.grey, fontSize: 13),
                         ),
                     ],
                   ),
@@ -2710,7 +2700,7 @@ class _QuestionBankCard extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: color.withOpacity(0.1),
+                      color: color.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(

@@ -60,7 +60,7 @@ class StatsPage extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.insights_rounded, size: 80, color: theme.colorScheme.primary.withOpacity(0.5)),
+          Icon(Icons.insights_rounded, size: 80, color: theme.colorScheme.primary.withValues(alpha: 0.5)),
           const SizedBox(height: 16),
           Text('暂无学习数据',
               style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey)),
@@ -114,7 +114,7 @@ class StatsPage extends StatelessWidget {
       child: Column(
         children: [
           CircleAvatar(
-            backgroundColor: color.withOpacity(0.1),
+            backgroundColor: color.withValues(alpha: 0.1),
             child: Icon(icon, color: color),
           ),
           const SizedBox(height: 8),
@@ -136,7 +136,7 @@ class StatsPage extends StatelessWidget {
       final accuracy = recent[i].accuracy * 100;
       spots.add(FlSpot(i.toDouble(), accuracy));
     }
-    final maxY = 100.0;
+    const maxY = 100.0;
 
     return Card(
       child: Padding(
@@ -175,7 +175,7 @@ class StatsPage extends StatelessWidget {
                       barWidth: 3,
                       belowBarData: BarAreaData(
                         show: true,
-                        color: theme.colorScheme.primary.withOpacity(0.2),
+                        color: theme.colorScheme.primary.withValues(alpha: 0.2),
                       ),
                       dotData: const FlDotData(show: true),
                     ),
@@ -247,7 +247,7 @@ class StatsPage extends StatelessWidget {
       }
     }
 
-    final subjects = QuestionSubject.values;
+    const subjects = QuestionSubject.values;
     final colors = <QuestionSubject, Color>{
       QuestionSubject.law: Colors.blue,
       QuestionSubject.management: Colors.orange,
@@ -288,7 +288,7 @@ class StatsPage extends StatelessWidget {
                     const SizedBox(height: 4),
                     LinearProgressIndicator(
                       value: accuracy,
-                      backgroundColor: colors[subject]!.withOpacity(0.1),
+                      backgroundColor: colors[subject]!.withValues(alpha: 0.1),
                       valueColor: AlwaysStoppedAnimation<Color>(colors[subject]!),
                       borderRadius: BorderRadius.circular(8),
                       minHeight: 8,
@@ -309,7 +309,7 @@ class StatsPage extends StatelessWidget {
       modeCount[h.mode] = (modeCount[h.mode] ?? 0) + 1;
     }
     final bars = <BarChartGroupData>[];
-    final modes = PracticeMode.values;
+    const modes = PracticeMode.values;
     final colors = [Colors.blue, Colors.orange, Colors.red];
     for (var i = 0; i < modes.length; i++) {
       bars.add(BarChartGroupData(
@@ -389,7 +389,7 @@ class StatsPage extends StatelessWidget {
             toY: (hourCount[hours[i]] ?? 0).toDouble(),
             color: hourCount[hours[i]] != null && hourCount[hours[i]]! > 0
                 ? theme.colorScheme.primary
-                : theme.colorScheme.primary.withOpacity(0.2),
+                : theme.colorScheme.primary.withValues(alpha: 0.2),
             width: 8,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
           ),
@@ -421,7 +421,7 @@ class StatsPage extends StatelessWidget {
                         interval: 4,
                         getTitlesWidget: (value, meta) {
                           final idx = value.toInt();
-                          return Text('${idx}:00', style: const TextStyle(fontSize: 10));
+                          return Text('$idx:00', style: const TextStyle(fontSize: 10));
                         },
                       ),
                     ),
@@ -488,13 +488,13 @@ class StatsPage extends StatelessWidget {
   }
 
   String _formatDuration(int seconds) {
-    if (seconds < 60) return '${seconds}秒';
+    if (seconds < 60) return '$seconds秒';
     final m = seconds ~/ 60;
     final s = seconds % 60;
-    if (m < 60) return '${m}分${s}秒';
+    if (m < 60) return '$m分$s秒';
     final h = m ~/ 60;
     final rm = m % 60;
-    return '${h}小时${rm}分';
+    return '$h小时$rm分';
   }
 
   String _formatDate(DateTime dt) {
