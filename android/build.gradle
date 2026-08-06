@@ -3,6 +3,15 @@ allprojects {
         google()
         mavenCentral()
     }
+    // 项目使用 AGP 8.6.0，部分新版 AndroidX（core 1.17.0 / browser 1.9.0）要求 AGP 8.9.1+，
+    // 会被 AAR metadata 检查拦截。此处将版本钉到与 AGP 8.6.0 兼容的版本，避免升级 Gradle/AGP。
+    configurations.all {
+        resolutionStrategy {
+            force 'androidx.core:core:1.13.1'
+            force 'androidx.core:core-ktx:1.13.1'
+            force 'androidx.browser:browser:1.8.0'
+        }
+    }
 }
 
 rootProject.buildDir = "../build"
