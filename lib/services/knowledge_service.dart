@@ -9,11 +9,16 @@ class KnowledgeParagraph {
   final bool isSubheading;
   final bool isBold;
 
+  /// 本地图片资源路径（相对于 assets/knowledge/，例如 "images/xxx.jpg"）。
+  /// 仅当该段落是一张图片时非空；图片段落的 [text] 为空，不参与语音播报。
+  final String? imagePath;
+
   const KnowledgeParagraph({
     required this.text,
     this.isHeading = false,
     this.isSubheading = false,
     this.isBold = false,
+    this.imagePath,
   });
 }
 
@@ -35,6 +40,8 @@ class KnowledgeSection {
     buffer.write(title);
     buffer.write('。');
     for (final p in paragraphs) {
+      // 图片段落无文本，跳过
+      if (p.imagePath != null) continue;
       if (p.text.trim().isEmpty) continue;
       buffer.write(p.text);
       // 段落之间加句号停顿
@@ -46,28 +53,31 @@ class KnowledgeSection {
   }
 }
 
-/// 考点知识服务 - 从 HTML 文件中解析章节考点内容
+/// 考点知识服务 - 从 Markdown 文件中解析章节考点内容
 ///
-/// HTML 文件结构：
-/// <div class="chapter">
-///   <div class="chapter-title">第X章 标题</div>
-///   <div class="section">
-///     <div class="section-title">X.X 小节标题</div>
-///     <div class="section-content">...HTML内容...</div>
-///   </div>
-/// </div>
+/// Markdown 文件结构（由 二级建造师题库/*.html 转换并整理得到）：
+///   # 科目名称
+///   ## 目录
+///   - 第1章 ...          （目录列表，解析时跳过）
+///   ## 第X章 标题
+///   ### X.X 小节标题
+///   #### X.X.X 子标题
+///   **1. 加粗要点**
+///   正文段落...
+///   ![图注](images/xxx.jpg)
+///   *图注说明*
 class KnowledgeService {
   KnowledgeService._();
 
   static final Map<String, List<KnowledgeSection>> _cache = {};
-  static final Map<String, String> _rawHtmlCache = {};
+  static final Map<String, String> _rawMdCache = {};
 
   /// 获取指定科目的所有章节考点
   static Future<List<KnowledgeSection>> getSections(QuestionSubject subject) async {
     if (_cache.containsKey(subject.name)) return _cache[subject.name]!;
 
-    final html = await _loadHtml(subject);
-    final sections = _parseHtml(html);
+    final md = await _loadMarkdown(subject);
+    final sections = _parseMarkdown(md);
     _cache[subject.name] = sections;
     return sections;
   }
@@ -91,179 +101,113 @@ class KnowledgeService {
         .toList();
   }
 
-  /// 加载 HTML 文件
-  static Future<String> _loadHtml(QuestionSubject subject) async {
-    if (_rawHtmlCache.containsKey(subject.name)) {
-      return _rawHtmlCache[subject.name]!;
+  /// 加载 Markdown 文件
+  static Future<String> _loadMarkdown(QuestionSubject subject) async {
+    if (_rawMdCache.containsKey(subject.name)) {
+      return _rawMdCache[subject.name]!;
     }
-    final html = await rootBundle.loadString('assets/knowledge/${subject.name}.html');
-    _rawHtmlCache[subject.name] = html;
-    return html;
+    final md = await rootBundle.loadString('assets/knowledge/${subject.name}.md');
+    _rawMdCache[subject.name] = md;
+    return md;
   }
 
-  /// 解析 HTML，提取所有 section
-  static List<KnowledgeSection> _parseHtml(String html) {
+  /// 解析 Markdown，提取所有小节（### 标题）
+  static List<KnowledgeSection> _parseMarkdown(String md) {
     final sections = <KnowledgeSection>[];
+    KnowledgeSection? current;
+    var inToc = false;
 
-    // 匹配 <div class="section">...</div> 块
-    // section-title 和 section-content 在同一个 section div 内
-    final sectionRegex = RegExp(
-      r'<div class="section-title[^"]*">([^<]+)</div>\s*<div class="section-content">(.*?)</div>\s*(?=<div class="section|</div>\s*</div>\s*<div class="chapter|</div>\s*$)',
-      dotAll: true,
-    );
+    final imgRegex = RegExp(r'^\!\[(.*?)\]\(([^)]*)\)');
 
-    for (final match in sectionRegex.allMatches(html)) {
-      final titleText = match.group(1)!.trim();
-      final contentHtml = match.group(2)!;
+    for (final raw in md.split('\n')) {
+      final trimmed = raw.trim();
 
-      // 从标题中提取小节号（如 "10.1 建设工程争议和解、调解制度" → "10.1"）
-      final numberMatch = RegExp(r'^([\d.]+)').firstMatch(titleText);
-      final number = numberMatch?.group(1) ?? '';
+      // 章节标题（## 第X章）与目录标题（## 目录）：标记为结构，不生成段落
+      if (trimmed.startsWith('## ')) {
+        if (trimmed == '## 目录') {
+          inToc = true;
+        } else {
+          inToc = false;
+        }
+        continue;
+      }
 
-      final paragraphs = _parseContent(contentHtml);
-      sections.add(KnowledgeSection(
-        number: number,
-        title: titleText,
-        paragraphs: paragraphs,
-      ));
+      // 顶层科目标题（# 科目名称）
+      if (trimmed.startsWith('# ')) continue;
+
+      // 小节标题（### X.X 小节标题）：新起一个 KnowledgeSection
+      if (trimmed.startsWith('### ')) {
+        inToc = false;
+        final titleText = trimmed.substring(4).trim();
+        final numberMatch = RegExp(r'^([\d.]+)').firstMatch(titleText);
+        final number = numberMatch?.group(1) ?? '';
+        current = KnowledgeSection(
+          number: number,
+          title: titleText,
+          paragraphs: const [],
+        );
+        sections.add(current);
+        continue;
+      }
+
+      // 目录列表项跳过
+      if (inToc) continue;
+      if (trimmed.isEmpty) continue;
+      if (trimmed.startsWith('- ')) continue;
+      if (current == null) continue;
+
+      // 图片
+      final imgMatch = imgRegex.firstMatch(trimmed);
+      if (imgMatch != null) {
+        final path = imgMatch.group(2)!.trim();
+        current.paragraphs.add(KnowledgeParagraph(
+          text: '',
+          imagePath: path,
+        ));
+        continue;
+      }
+
+      // 子标题（#### X.X.X）
+      if (trimmed.startsWith('#### ')) {
+        current.paragraphs.add(KnowledgeParagraph(
+          text: trimmed.substring(5).trim(),
+          isSubheading: true,
+        ));
+        continue;
+      }
+
+      // 加粗要点（整行 **...**）
+      if (trimmed.length >= 4 &&
+          trimmed.startsWith('**') &&
+          trimmed.endsWith('**')) {
+        current.paragraphs.add(KnowledgeParagraph(
+          text: trimmed.substring(2, trimmed.length - 2).trim(),
+          isBold: true,
+        ));
+        continue;
+      }
+
+      // 斜体图注（整行 *...*，非加粗）
+      if (trimmed.length >= 2 &&
+          trimmed.startsWith('*') &&
+          trimmed.endsWith('*') &&
+          !trimmed.startsWith('**')) {
+        current.paragraphs.add(KnowledgeParagraph(
+          text: trimmed.substring(1, trimmed.length - 1).trim(),
+        ));
+        continue;
+      }
+
+      // 普通段落
+      current.paragraphs.add(KnowledgeParagraph(text: trimmed));
     }
 
     return sections;
   }
 
-  /// 将 section-content 的 HTML 转换为段落列表
-  static List<KnowledgeParagraph> _parseContent(String html) {
-    // 清理 HTML entities
-    var content = html
-        .replaceAll('&emsp;', '    ')
-        .replaceAll('&nbsp;', ' ')
-        .replaceAll('&lt;', '<')
-        .replaceAll('&gt;', '>')
-        .replaceAll('&amp;', '&')
-        .replaceAll('&quot;', '"');
-
-    final paragraphs = <KnowledgeParagraph>[];
-
-    // 按 <h2>, <h4>, <p>, <br/> 分段
-    // 先将 <h2> 和 <h4> 标记为特殊段落
-    final blockRegex = RegExp(
-      r'<h2[^>]*>(.*?)</h2>|<h4[^>]*>(.*?)</h4>|<p[^>]*>(.*?)</p>|<li[^>]*>(.*?)</li>',
-      dotAll: true,
-    );
-
-    // 先提取块级元素
-    int lastEnd = 0;
-    final blocks = <Map<String, dynamic>>[];
-
-    for (final match in blockRegex.allMatches(content)) {
-      // 捕获块之前的文本
-      if (match.start > lastEnd) {
-        final between = content.substring(lastEnd, match.start);
-        final cleaned = _stripTags(between).trim();
-        if (cleaned.isNotEmpty) {
-          blocks.add({'text': cleaned, 'type': 'normal'});
-        }
-      }
-
-      if (match.group(1) != null) {
-        blocks.add({'text': _stripTags(match.group(1)!).trim(), 'type': 'h2'});
-      } else if (match.group(2) != null) {
-        blocks.add({'text': _stripTags(match.group(2)!).trim(), 'type': 'h4'});
-      } else if (match.group(3) != null) {
-        final text = _stripTags(match.group(3)!).trim();
-        if (text.isNotEmpty) {
-          // 检查是否包含 <strong> 标签
-          final hasStrong = match.group(3)!.contains('<strong>');
-          blocks.add({'text': text, 'type': hasStrong ? 'bold' : 'normal'});
-        }
-      } else if (match.group(4) != null) {
-        final text = _stripTags(match.group(4)!).trim();
-        if (text.isNotEmpty) {
-          blocks.add({'text': '• $text', 'type': 'normal'});
-        }
-      }
-
-      lastEnd = match.end;
-    }
-
-    // 捕获最后的文本
-    if (lastEnd < content.length) {
-      final remaining = content.substring(lastEnd);
-      final cleaned = _stripTags(remaining).trim();
-      if (cleaned.isNotEmpty) {
-        blocks.add({'text': cleaned, 'type': 'normal'});
-      }
-    }
-
-    // 如果没有提取到任何块，尝试直接清理
-    if (blocks.isEmpty) {
-      final cleaned = _stripTags(content).trim();
-      if (cleaned.isNotEmpty) {
-        // 按 <br/> 分割后的换行分割
-        for (final line in cleaned.split('\n')) {
-          final trimmed = line.trim();
-          if (trimmed.isNotEmpty) {
-            paragraphs.add(KnowledgeParagraph(text: trimmed));
-          }
-        }
-      }
-      return paragraphs;
-    }
-
-    // 转换块为段落
-    for (final block in blocks) {
-      final text = block['text'] as String;
-      final type = block['type'] as String;
-
-      // 处理块内的换行（来自 <br/>）
-      for (final line in text.split('\n')) {
-        final trimmed = line.trim();
-        if (trimmed.isEmpty) continue;
-
-        switch (type) {
-          case 'h2':
-            paragraphs.add(KnowledgeParagraph(
-              text: trimmed,
-              isHeading: true,
-            ));
-            break;
-          case 'h4':
-            paragraphs.add(KnowledgeParagraph(
-              text: trimmed,
-              isSubheading: true,
-            ));
-            break;
-          case 'bold':
-            paragraphs.add(KnowledgeParagraph(
-              text: trimmed,
-              isBold: true,
-            ));
-            break;
-          default:
-            paragraphs.add(KnowledgeParagraph(text: trimmed));
-        }
-      }
-    }
-
-    return paragraphs;
-  }
-
-  /// 移除 HTML 标签，保留文本内容
-  static String _stripTags(String html) {
-    return html
-        .replaceAll(RegExp(r'<br\s*/?>'), '\n')
-        .replaceAll(RegExp(r'</p>'), '\n')
-        .replaceAll(RegExp(r'</li>'), '\n')
-        .replaceAll(RegExp(r'</tr>'), '\n')
-        .replaceAll(RegExp(r'</td>'), '\t')
-        .replaceAll(RegExp(r'<[^>]+>'), '')
-        .replaceAll(RegExp(r'\n{3,}'), '\n\n')
-        .trim();
-  }
-
   /// 清除缓存
   static void clearCache() {
     _cache.clear();
-    _rawHtmlCache.clear();
+    _rawMdCache.clear();
   }
 }

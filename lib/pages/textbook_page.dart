@@ -1394,6 +1394,42 @@ class _KnowledgeSectionCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: section.paragraphs.map((p) {
+        // 图片段落
+        if (p.imagePath != null) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.asset(
+                'assets/knowledge/${p.imagePath}',
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.black26 : Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.broken_image_outlined,
+                          color: isDark ? Colors.white54 : Colors.grey),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '图片缺失：${p.imagePath}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? Colors.white54 : Colors.grey,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
         if (p.isHeading) {
           return Padding(
             padding: const EdgeInsets.only(top: 12, bottom: 6),
