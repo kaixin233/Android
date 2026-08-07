@@ -284,25 +284,40 @@ const String kBridgeScript = r'''
     }
     post({ id: id, type: 'log', text: 'filled' });
 
-    // 定位发送按钮：在输入框所在容器内自底向上找启用且有“发送/箭头”语义的 button
+    // 定位发送按钮：DeepSeek 真实界面用 div.ds-button（内含 .ds-button__background），
+    // 不是标准 <button>，因此必须按 class 找。
     function findSend() {
-      var parent = ta.parentElement;
-      for (var depth = 0; depth < 8 && parent; depth++) {
-        var btns = parent.querySelectorAll('button');
-        for (var i = 0; i < btns.length; i++) {
-          var b = btns[i];
-          if (b.disabled) continue;
+      // 首选：发送按钮内含 .ds-button__background，向上找到 .ds-button 容器并点击。
+      // 注意：填满文本后 React 可能尚未把“禁用”class 去掉，所以这里不按 disabled 过滤，
+      // 直接点；div 不是原生 button，点击一定触发，且点击时 React 已刷新状态。
+      var bg = document.querySelector('.ds-button__background');
+      if (bg) {
+        var el = bg;
+        for (var d = 0; d < 6 && el; d++) {
+          if (el.classList && el.classList.contains('ds-button')) return el;
+          el = el.parentElement;
+        }
+        // 找不到 ds-button 容器就直接点 background 的父级
+        if (bg.parentElement) return bg.parentElement;
+      }
+      // 兜底 1：在输入框附近找带“发送/箭头”语义的 button 或 div.ds-button
+      var scope = ta.parentElement;
+      for (var s = 0; s < 8 && scope; s++) {
+        var cands = scope.querySelectorAll('button, div.ds-button');
+        for (var i = 0; i < cands.length; i++) {
+          var b = cands[i];
+          if (b.disabled || (b.classList && b.classList.contains('ds-button--disabled'))) continue;
           var html = (b.innerHTML || '').toLowerCase();
           var label = (b.getAttribute('aria-label') || b.textContent || '').toLowerCase();
           if (label.indexOf('发送') !== -1 || label.indexOf('send') !== -1) return b;
           if (html.indexOf('svg') !== -1 && (html.indexOf('arrow') !== -1 || html.indexOf('up') !== -1 || html.indexOf('paper-plane') !== -1 || html.indexOf('send') !== -1)) return b;
         }
-        parent = parent.parentElement;
+        scope = scope.parentElement;
       }
-      // 兜底：页面内任意“发送”语义按钮
-      var all = document.querySelectorAll('button');
+      // 兜底 2：页面内任意“发送”语义元素
+      var all = document.querySelectorAll('button, div.ds-button');
       for (var j = 0; j < all.length; j++) {
-        if (all[j].disabled) continue;
+        if (all[j].disabled || (all[j].classList && all[j].classList.contains('ds-button--disabled'))) continue;
         var l = (all[j].getAttribute('aria-label') || all[j].textContent || '').toLowerCase();
         if (l.indexOf('发送') !== -1 || l.indexOf('send') !== -1) return all[j];
       }
@@ -324,7 +339,7 @@ const String kBridgeScript = r'''
     function scrape() {
       // 优先：找到最后一个“复制”按钮，上溯到消息容器取文本
       var copyBtns = [];
-      var bs = document.querySelectorAll('button');
+      var bs = document.querySelectorAll('button, div.ds-button');
       for (var k = 0; k < bs.length; k++) {
         var t = (bs[k].getAttribute('aria-label') || bs[k].textContent || '').toLowerCase();
         if (t.indexOf('复制') !== -1 || t.indexOf('copy') !== -1) copyBtns.push(bs[k]);
