@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../services/ai_service.dart';
+import 'deepseek_web_page.dart';
 
 /// AI 助手设置页 - 配置 DeepSeek API Key 与模型
 class AiSettingsPage extends StatefulWidget {
@@ -282,9 +282,14 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                   subtitle:
                       const Text('前往 DeepSeek 开放平台注册并创建 Key（需充值额度）'),
                   trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () => launchUrl(
-                    Uri.parse('https://platform.deepseek.com/api_keys'),
-                    mode: LaunchMode.externalApplication,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const DeepseekWebPage(
+                        initialUrl: 'https://platform.deepseek.com/api_keys',
+                        pageTitle: 'DeepSeek 开放平台',
+                      ),
+                    ),
                   ),
                 ),
                 const Divider(height: 1),
@@ -294,9 +299,11 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                   title: const Text('DeepSeek 网页端'),
                   subtitle: const Text('未配置 Key 时，可复制问题后在此粘贴提问'),
                   trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () => launchUrl(
-                    Uri.parse(AiService.webUrl),
-                    mode: LaunchMode.externalApplication,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const DeepseekWebPage(),
+                    ),
                   ),
                 ),
               ],

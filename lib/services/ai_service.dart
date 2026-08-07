@@ -2,9 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 /// AI 接口调用异常，[message] 为可直接展示给用户的友好文案
 class AiApiException implements Exception {
@@ -30,8 +28,8 @@ class AiChatMessage {
 /// DeepSeek AI 服务
 ///
 /// 主链路：DeepSeek 官方 API（OpenAI 兼容，https://api.deepseek.com）。
-/// 降级链路：未配置 API Key 时，复制提问内容并打开 DeepSeek 网页端，
-/// 由用户手动粘贴提问（见 [fallbackToWeb]）。
+/// 降级链路：未配置 API Key 时，由 UI 层打开 App 内置的 DeepSeek 网页端
+///（见 pages/deepseek_web_page.dart），用户登录后粘贴已复制的提问内容。
 class AiService {
   AiService._();
 
@@ -45,7 +43,6 @@ class AiService {
   ];
 
   static const String _endpoint = 'https://api.deepseek.com/chat/completions';
-  static const String webUrl = 'https://chat.deepseek.com/';
 
   static SharedPreferences? _prefs;
 
@@ -176,15 +173,5 @@ class AiService {
         } catch (_) {}
         return '请求失败（HTTP $statusCode）${detail.isNotEmpty ? '：$detail' : ''}';
     }
-  }
-
-  // ========== 网页端降级 ==========
-
-  /// 未配置 API Key 时的降级方案：
-  /// 将提问内容复制到剪贴板并打开 DeepSeek 网页端，用户登录后粘贴即可提问。
-  static Future<void> fallbackToWeb(String promptText) async {
-    await Clipboard.setData(ClipboardData(text: promptText));
-    final uri = Uri.parse(webUrl);
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 }

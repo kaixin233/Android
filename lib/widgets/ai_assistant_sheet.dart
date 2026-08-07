@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../models/ai_qa_record.dart';
 import '../pages/ai_qa_history_page.dart';
 import '../pages/ai_settings_page.dart';
+import '../pages/deepseek_web_page.dart';
 import '../services/ai_qa_storage_service.dart';
 import '../services/ai_service.dart';
 
@@ -285,11 +286,14 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
           TextButton(
             onPressed: () async {
               Navigator.pop(ctx);
-              await AiService.fallbackToWeb(
-                  '【学习内容】${widget.contextText}\n\n【我的问题】$question');
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('问题已复制，请在 DeepSeek 网页端粘贴发送')),
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => DeepseekWebPage(
+                    promptText:
+                        '【学习内容】${widget.contextText}\n\n【我的问题】$question',
+                  ),
+                ),
               );
             },
             child: const Text('复制并打开网页端'),
