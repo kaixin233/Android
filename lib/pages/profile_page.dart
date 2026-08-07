@@ -10,6 +10,8 @@ import '../services/storage_service.dart';
 import '../services/tts_service.dart';
 import 'knowledge_assessment_page.dart';
 import 'note_page.dart';
+import 'ai_settings_page.dart';
+import 'ai_qa_history_page.dart';
 
 /// 我的页面 - 个人中心，包含设置、数据导出等
 class ProfilePage extends StatefulWidget {
@@ -333,6 +335,20 @@ class _ProfilePageState extends State<ProfilePage> {
                   title: const Text('知识点评估'),
                   subtitle: const Text('查看知识点掌握程度'),
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const KnowledgeAssessmentPage())),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.auto_awesome_rounded, color: Colors.deepPurple),
+                  title: const Text('AI 助手设置'),
+                  subtitle: const Text('配置 DeepSeek API Key，选中即问'),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AiSettingsPage())),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.forum_rounded, color: Colors.indigo),
+                  title: const Text('AI 问答记录'),
+                  subtitle: const Text('查看各条目的历史问答'),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AiQaHistoryPage())),
                 ),
               ],
             ),

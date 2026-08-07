@@ -12,6 +12,8 @@ import '../services/question_service.dart';
 import '../services/storage_service.dart';
 import '../services/tts_service.dart';
 import '../utils/animations.dart';
+import '../widgets/ai_assistant_sheet.dart';
+import '../widgets/ask_ai_selection_area.dart';
 
 /// 练习页面配置
 class PracticeConfig {
@@ -941,6 +943,12 @@ class _PracticePageState extends State<PracticePage> {
       appBar: AppBar(
         title: Text(_getPracticeTitle()),
         actions: [
+          // AI 学习助手（以当前题目为上下文提问）
+          IconButton(
+            icon: const Icon(Icons.auto_awesome_rounded),
+            tooltip: '问 AI',
+            onPressed: () => _askAiAboutQuestion(question),
+          ),
           // 语音播报按钮（朗读题目或停止解析播报）
           IconButton(
             icon: Icon(
@@ -1048,9 +1056,13 @@ class _PracticePageState extends State<PracticePage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        question.prompt,
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                      _buildSelectableWithAskAi(
+                        Text(
+                          question.prompt,
+                          style: const TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.w700),
+                        ),
+                        question,
                       ),
                       const SizedBox(height: 20),
                       _buildAnswerArea(question, theme),
@@ -1427,19 +1439,69 @@ class _PracticePageState extends State<PracticePage> {
           if (question.explanation.isNotEmpty) ...[
             const Text('解析：', style: TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
-            Text(
-              question.explanation,
-              style: TextStyle(
-                color: theme.brightness == Brightness.dark
-                    ? Colors.white70
-                    : Colors.black87,
-                height: 1.5,
+            _buildSelectableWithAskAi(
+              Text(
+                question.explanation,
+                style: TextStyle(
+                  color: theme.brightness == Brightness.dark
+                      ? Colors.white70
+                      : Colors.black87,
+                  height: 1.5,
+                ),
               ),
+              question,
             ),
           ],
         ],
       ),
     );
+  }
+
+  /// 将一段内容包裹为可选中文本，并在选择菜单中追加"问 AI"入口
+  Widget _buildSelectableWithAskAi(Widget child, Question question) {
+    return AskAiSelectionArea(
+      onAskAi: (text) => _askAiAboutQuestion(question, selectedText: text),
+      child: child,
+    );
+  }
+
+  /// 以当前题目为上下文向 AI 提问（[selectedText] 为用户选中的片段）
+  void _askAiAboutQuestion(Question question, {String? selectedText}) {
+    final whole = _buildQuestionContext(question);
+    final hasSelection = selectedText != null && selectedText.isNotEmpty;
+    final title = question.prompt.length > 30
+        ? '${question.prompt.substring(0, 30)}…'
+        : question.prompt;
+    AiAssistantSheet.show(
+      context,
+      itemId: 'q:${question.uniqueKey}',
+      itemType: 'question',
+      itemTitle: title,
+      contextText: hasSelection
+          ? '【选中片段】\n$selectedText\n\n【完整题目】\n$whole'
+          : whole,
+    );
+  }
+
+  /// 组装题目上下文文本（题干 + 选项 + 提交后的答案与解析）
+  String _buildQuestionContext(Question question) {
+    final buffer = StringBuffer()
+      ..writeln('【题型】${question.type.label}')
+      ..writeln('【题目】${question.prompt}');
+    if (question.options.isNotEmpty) {
+      for (var i = 0; i < question.options.length; i++) {
+        buffer.writeln('${String.fromCharCode(65 + i)}. ${question.options[i]}');
+      }
+    }
+    if (_submitted) {
+      buffer.writeln('【正确答案】${_getCorrectAnswerText(question)}');
+      if (question.explanation.isNotEmpty) {
+        buffer.writeln('【解析】${question.explanation}');
+      }
+    } else {
+      buffer.writeln('（学员尚未作答，请勿直接给出答案，以启发式讲解为主）');
+    }
+    return buffer.toString();
   }
 
   String _getCorrectAnswerText(Question question) {

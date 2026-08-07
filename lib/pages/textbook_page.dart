@@ -11,6 +11,8 @@ import '../services/question_service.dart';
 import '../services/storage_service.dart';
 import '../services/knowledge_service.dart';
 import '../services/tts_service.dart';
+import '../widgets/ai_assistant_sheet.dart';
+import '../widgets/ask_ai_selection_area.dart';
 import 'practice_page.dart';
 
 /// 大纲与考点页面 - 显示教材章节大纲和题库分类
@@ -768,6 +770,8 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
               color: color,
               isPlaying: isThisPlaying,
               onPlayTap: () => _playSection(index),
+              onAskAi: (text) => _askAiAboutSection(section, selectedText: text),
+              onAskAiWhole: () => _askAiAboutSection(section),
             );
           },
         ),
@@ -779,6 +783,26 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
           child: _buildPlaybackBar(theme, color),
         ),
       ],
+    );
+  }
+
+  /// 以考点小节为上下文向 AI 提问（[selectedText] 为用户选中的片段）
+  void _askAiAboutSection(KnowledgeSection section, {String? selectedText}) {
+    final wholeText = section.paragraphs
+        .where((p) => p.imagePath == null)
+        .map((p) => p.text)
+        .where((t) => t.trim().isNotEmpty)
+        .join('\n');
+    final hasSelection = selectedText != null && selectedText.isNotEmpty;
+    AiAssistantSheet.show(
+      context,
+      itemId:
+          'know:${widget.subject.name}:${widget.chapterNumber}:${section.number}',
+      itemType: 'knowledge',
+      itemTitle: section.title,
+      contextText: hasSelection
+          ? '【选中片段】\n$selectedText\n\n【所属小节「${section.title}」完整内容】\n$wholeText'
+          : wholeText,
     );
   }
 
@@ -1312,12 +1336,20 @@ class _KnowledgeSectionCard extends StatelessWidget {
     required this.color,
     this.isPlaying = false,
     this.onPlayTap,
+    this.onAskAi,
+    this.onAskAiWhole,
   });
 
   final KnowledgeSection section;
   final Color color;
   final bool isPlaying;
   final VoidCallback? onPlayTap;
+
+  /// 选中部分段落后点击"问 AI"的回调，参数为选中文本
+  final ValueChanged<String>? onAskAi;
+
+  /// 以整个小节内容为上下文向 AI 提问的回调
+  final VoidCallback? onAskAiWhole;
 
   @override
   Widget build(BuildContext context) {
@@ -1369,6 +1401,26 @@ class _KnowledgeSectionCard extends StatelessWidget {
                     ),
                   ),
                 ),
+                // AI 提问按钮（以整节内容为上下文）
+                if (onAskAiWhole != null) ...[
+                  GestureDetector(
+                    onTap: onAskAiWhole,
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        Icons.auto_awesome_rounded,
+                        color: color,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 // 播放按钮
                 if (onPlayTap != null)
                   GestureDetector(
@@ -1390,10 +1442,15 @@ class _KnowledgeSectionCard extends StatelessWidget {
               ],
             ),
           ),
-          // 段落内容
+          // 段落内容（支持选中文本后"问 AI"）
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-            child: _buildParagraphs(theme, isDark),
+            child: onAskAi == null
+                ? _buildParagraphs(theme, isDark)
+                : AskAiSelectionArea(
+                    onAskAi: onAskAi!,
+                    child: _buildParagraphs(theme, isDark),
+                  ),
           ),
         ],
       ),
@@ -1517,6 +1574,26 @@ class ChapterKnowledgePage extends StatefulWidget {
 }
 
 class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
+  /// 以考点小节为上下文向 AI 提问（[selectedText] 为用户选中的片段）
+  void _askAiAboutSection(KnowledgeSection section, {String? selectedText}) {
+    final wholeText = section.paragraphs
+        .where((p) => p.imagePath == null)
+        .map((p) => p.text)
+        .where((t) => t.trim().isNotEmpty)
+        .join('\n');
+    final hasSelection = selectedText != null && selectedText.isNotEmpty;
+    AiAssistantSheet.show(
+      context,
+      itemId:
+          'know:${widget.subject.name}:${widget.chapterNumber}:${section.number}',
+      itemType: 'knowledge',
+      itemTitle: section.title,
+      contextText: hasSelection
+          ? '【选中片段】\n$selectedText\n\n【所属小节「${section.title}」完整内容】\n$wholeText'
+          : wholeText,
+    );
+  }
+
   bool _isLoading = true;
   List<KnowledgeSection> _sections = [];
   // TTS 播放状态
@@ -1844,6 +1921,11 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
                           color: color,
                           isPlaying: isThisPlaying,
                           onPlayTap: () => _playSection(index),
+                          onAskAi: (text) =>
+                              _askAiAboutSection(_sections[index],
+                                  selectedText: text),
+                          onAskAiWhole: () =>
+                              _askAiAboutSection(_sections[index]),
                         );
                       },
                     ),
