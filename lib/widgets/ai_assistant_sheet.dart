@@ -259,7 +259,7 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
         title: const Text('尚未配置 AI 提供方'),
         content: const Text(
           '请先在「AI 助手设置」中填写以下任一方式，即可在 App 内直接提问并自动保存回答：\n\n'
-          '• 网页端 Token（免费，优先）：从 chat.deepseek.com 的 Cookie 复制 userToken\n'
+          '• 网页端 Token（免费，优先）：从 chat.deepseek.com 的 Local Storage 复制 userToken\n'
           '• 官方 API Key（备用）：前往 DeepSeek 开放平台创建',
         ),
         actionsAlignment: MainAxisAlignment.end,

@@ -212,7 +212,7 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                   Text(
                     '推荐：点上方按钮在 App 内打开 chat.deepseek.com 登录，本机自动'
                     '读取并保存 userToken，无需手动复制、避免凭证外泄。如自动获取'
-                    '失败，也可从电脑浏览器开发者工具 → Application → Cookies 复制'
+                    '失败，也可从电脑浏览器开发者工具 → Application → Local Storage 复制'
                     'userToken 手动粘贴到下方。',
                     style: theme.textTheme.bodySmall
                         ?.copyWith(color: theme.colorScheme.outline),

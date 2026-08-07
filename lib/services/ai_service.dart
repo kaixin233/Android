@@ -29,7 +29,7 @@ class AiChatMessage {
 /// DeepSeek AI 服务
 ///
 /// 主链路：DeepSeek 网页端接口（chat.deepseek.com）。
-///   凭登录后的 `userToken`（浏览器 Cookie 值）直接调用网页端后端，
+///   凭登录后的 `userToken`（浏览器 localStorage 值）直接调用网页端后端，
 ///   无需跳转网页、免费使用。支持两种模式：
 ///     - 直连：POST /api/v0/chat_session/create 建会话 →
 ///             POST /api/v0/chat/completion（SSE 流式）发消息。
@@ -88,7 +88,7 @@ class AiService {
     await prefs.remove(_apiKeyPrefsKey);
   }
 
-  /// 网页端登录 Token（chat.deepseek.com 的 userToken Cookie 值）
+  /// 网页端登录 Token（chat.deepseek.com 的 userToken，存于 localStorage）
   static Future<String> getWebToken() async {
     final prefs = await _instance;
     return prefs.getString(_webTokenPrefsKey)?.trim() ?? '';
