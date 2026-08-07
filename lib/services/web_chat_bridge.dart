@@ -22,8 +22,8 @@ class WebChatBridge {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setUserAgent(
-        'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) '
-        'Chrome/124.0.0.0 Mobile Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/124.0.0.0 Safari/537.36',
       )
       ..addJavaScriptChannel(
         'DsBridge',
@@ -81,9 +81,10 @@ class WebChatBridge {
         (function() {
           try {
             var ta = document.querySelector('textarea');
+            var ed = document.querySelector('[contenteditable="true"],[contenteditable=""]');
             var token = null;
             try { token = localStorage.getItem('userToken'); } catch (e) {}
-            return !!(ta || (token && token.length > 10));
+            return !!(ta || ed || (token && token.length > 10));
           } catch (e) { return false; }
         })()
       ''');
@@ -269,75 +270,54 @@ const String kBridgeScript = r'''
     }
 
     var ta = document.querySelector('textarea');
-    if (!ta) { fail('未找到输入框（textarea），请确认已在网页端登录'); return; }
+    var editable = null;
+    if (!ta) {
+      editable = document.querySelector('[contenteditable="true"],[contenteditable=""]');
+    }
+    var inputEl = ta || editable;
+    if (!inputEl) { fail('未找到输入框（textarea/contenteditable），请确认已在网页端登录'); return; }
 
-    // 用 React 原生 setter 填值并派发 input 事件
-    try {
-      var proto = Object.getPrototypeOf(ta);
-      var setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
-      setter.call(ta, prompt);
-      ta.dispatchEvent(new Event('input', { bubbles: true }));
-      ta.dispatchEvent(new Event('change', { bubbles: true }));
-    } catch (e) {
-      ta.value = prompt;
-      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    // 用 React 原生方式填值并派发 input 事件
+    if (ta) {
+      try {
+        var proto = Object.getPrototypeOf(ta);
+        var setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+        setter.call(ta, prompt);
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        ta.dispatchEvent(new Event('change', { bubbles: true }));
+      } catch (e) {
+        ta.value = prompt;
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    } else {
+      try {
+        editable.focus();
+        editable.innerText = prompt;
+        editable.dispatchEvent(new Event('input', { bubbles: true }));
+        editable.dispatchEvent(new Event('input', { bubbles: true }));
+      } catch (e) {
+        editable.textContent = prompt;
+        editable.dispatchEvent(new Event('input', { bubbles: true }));
+      }
     }
     post({ id: id, type: 'log', text: 'filled' });
 
-    // 定位发送按钮：DeepSeek 真实界面用 div.ds-button（内含 .ds-button__background），
-    // 不是标准 <button>，因此必须按 class 找。
-    function findSend() {
-      // 首选：发送按钮内含 .ds-button__background，向上找到 .ds-button 容器并点击。
-      // 注意：填满文本后 React 可能尚未把“禁用”class 去掉，所以这里不按 disabled 过滤，
-      // 直接点；div 不是原生 button，点击一定触发，且点击时 React 已刷新状态。
-      var bg = document.querySelector('.ds-button__background');
-      if (bg) {
-        var el = bg;
-        for (var d = 0; d < 6 && el; d++) {
-          if (el.classList && el.classList.contains('ds-button')) return el;
-          el = el.parentElement;
-        }
-        // 找不到 ds-button 容器就直接点 background 的父级
-        if (bg.parentElement) return bg.parentElement;
-      }
-      // 兜底 1：在输入框附近找带“发送/箭头”语义的 button 或 div.ds-button
-      var scope = ta.parentElement;
-      for (var s = 0; s < 8 && scope; s++) {
-        var cands = scope.querySelectorAll('button, div.ds-button');
-        for (var i = 0; i < cands.length; i++) {
-          var b = cands[i];
-          if (b.disabled || (b.classList && b.classList.contains('ds-button--disabled'))) continue;
-          var html = (b.innerHTML || '').toLowerCase();
-          var label = (b.getAttribute('aria-label') || b.textContent || '').toLowerCase();
-          if (label.indexOf('发送') !== -1 || label.indexOf('send') !== -1) return b;
-          if (html.indexOf('svg') !== -1 && (html.indexOf('arrow') !== -1 || html.indexOf('up') !== -1 || html.indexOf('paper-plane') !== -1 || html.indexOf('send') !== -1)) return b;
-        }
-        scope = scope.parentElement;
-      }
-      // 兜底 2：页面内任意“发送”语义元素
-      var all = document.querySelectorAll('button, div.ds-button');
-      for (var j = 0; j < all.length; j++) {
-        if (all[j].disabled || (all[j].classList && all[j].classList.contains('ds-button--disabled'))) continue;
-        var l = (all[j].getAttribute('aria-label') || all[j].textContent || '').toLowerCase();
-        if (l.indexOf('发送') !== -1 || l.indexOf('send') !== -1) return all[j];
-      }
-      return null;
-    }
-
-    // 关键修复：
-    // 1) 填满文本后 React 是异步刷新状态，必须等一拍再点，否则 React 仍以为输入框为空而不发送；
-    // 2) DeepSeek 的发送是 div.ds-button（非 <button>），且 onClick 可能挂在按钮任意一层，
-    //    因此“点击该元素及其所有后代”，用事件冒泡覆盖到底，确保发送被触发。
+    // 桌面模式 + Enter 发送（不再点击 div 按钮）：
+    // 1) 填满文本后 React 异步刷新状态，延后 300ms 等刷新完；
+    // 2) 桌面端 DeepSeek 用 Enter 键发送（Shift+Enter 换行），直接对输入框派发 Enter
+    //    键盘事件，比点击按钮更稳，且不依赖按钮的 DOM 层级。
     setTimeout(function () {
-      var sendBtn = findSend();
-      if (!sendBtn) { fail('未找到发送按钮'); return; }
-      var nodes = [sendBtn];
-      var kids = sendBtn.querySelectorAll('*');
-      for (var n = 0; n < kids.length; n++) nodes.push(kids[n]);
-      for (var m = 0; m < nodes.length; m++) {
-        try { nodes[m].click(); } catch (e) {}
+      try { inputEl.focus(); } catch (e) {}
+      try {
+        var ev = new KeyboardEvent('keydown', {
+          key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+          bubbles: true, cancelable: true
+        });
+        inputEl.dispatchEvent(ev);
+      } catch (e) {
+        try { inputEl.dispatchEvent(new Event('keydown', { key: 'Enter', bubbles: true })); } catch (e2) {}
       }
-      post({ id: id, type: 'log', text: 'clicked' });
+      post({ id: id, type: 'log', text: 'enter-sent' });
     }, 300);
 
     // 轮询等待回答稳定
