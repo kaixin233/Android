@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/ai_service.dart';
+import 'deepseek_login_page.dart';
 
 /// AI 助手设置页
 ///
@@ -68,6 +69,20 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('已保存')),
     );
+  }
+
+  Future<void> _loginInApp() async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const DeepSeekLoginPage()),
+    );
+    if (result == true && mounted) {
+      final token = await AiService.getWebToken();
+      if (!mounted) return;
+      setState(() => _tokenController.text = token);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已自动获取并保存网页端 Token')),
+      );
+    }
   }
 
   Future<void> _clearToken() async {
@@ -188,10 +203,17 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                     ],
                   ),
                   const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: _loginInApp,
+                    icon: const Icon(Icons.login_rounded),
+                    label: const Text('在 App 内登录并自动获取 Token'),
+                  ),
+                  const SizedBox(height: 12),
                   Text(
-                    '从电脑浏览器登录 chat.deepseek.com，打开开发者工具 → '
-                    'Application → Cookies，复制 userToken 的值。App 会直接调用'
-                    '网页端接口对话，无需跳转网页、免费使用。',
+                    '推荐：点上方按钮在 App 内打开 chat.deepseek.com 登录，本机自动'
+                    '读取并保存 userToken，无需手动复制、避免凭证外泄。如自动获取'
+                    '失败，也可从电脑浏览器开发者工具 → Application → Cookies 复制'
+                    'userToken 手动粘贴到下方。',
                     style: theme.textTheme.bodySmall
                         ?.copyWith(color: theme.colorScheme.outline),
                   ),
