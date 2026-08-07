@@ -10,12 +10,12 @@ import '../services/question_loader.dart';
 import '../services/question_service.dart';
 import '../services/storage_service.dart';
 import '../services/knowledge_service.dart';
-import '../services/tts_service.dart';
-import '../widgets/ai_assistant_sheet.dart';
+import '../utils/ai_assistant_launcher.dart';
+import '../utils/knowledge_playback_mixin.dart';
 import '../widgets/ask_ai_selection_area.dart';
 import 'practice_page.dart';
 
-/// 大纲与考点页面 - 显示教材章节大纲和题库分类
+/// 大纲与考点页面 - 显示教材章节大纲与题库分类
 class TextbookPage extends StatefulWidget {
   const TextbookPage({super.key});
 
@@ -353,7 +353,8 @@ class SubsectionDetailPage extends StatefulWidget {
 }
 
 class _SubsectionDetailPageState extends State<SubsectionDetailPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin,
+        KnowledgePlaybackMixin<SubsectionDetailPage> {
   bool _isLoading = true;
   List<String> _questionKnowledgePoints = [];
   int _questionCount = 0;
@@ -362,9 +363,9 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
   late TabController _tabController;
   // 知识点练习状态：key = 知识点名称, value = 统计数据
   Map<String, KnowledgePointStats> _kpStats = {};
-  // TTS 播放状态
-  bool _isPlayingKnowledge = false;
-  int _playingSectionIndex = -1; // -1 = 未播放
+
+  @override
+  List<KnowledgeSection> get playbackSections => _knowledgeSections;
 
   @override
   void initState() {
@@ -372,271 +373,15 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     _tabController = TabController(length: 2, vsync: this);
     _loadData();
     // 预热 TTS 引擎，避免首次点击朗读时出现明显延迟
-    TtsService.initialize();
+    initKnowledgePlayback();
   }
 
   @override
   void dispose() {
-    if (_isPlayingKnowledge) {
-      TtsService.stop();
-    }
+    disposeKnowledgePlayback();
     _tabController.dispose();
     super.dispose();
   }
-
-  // ========== TTS 语音播报 ==========
-
-  /// 播放指定小节的考点内容
-  Future<void> _playSection(int index) async {
-    if (index < 0 || index >= _knowledgeSections.length) return;
-
-    // 如果当前正在播放同一个小节，则停止
-    if (_playingSectionIndex == index && _isPlayingKnowledge) {
-      await _stopKnowledgePlayback();
-      return;
-    }
-
-    // 停止之前的播放
-    if (_isPlayingKnowledge) {
-      _isPlayingKnowledge = false;
-      await TtsService.stop();
-    }
-
-    if (!mounted) return;
-    // 应用用户保存的语音参数（TTS 初始化由 speak() 内部处理，含重试逻辑）
-    try {
-      final app = context.read<AppProvider>();
-      await TtsService.applySpeechParams(
-        rate: app.ttsSpeechRate,
-        pitch: app.ttsPitch,
-        volume: app.ttsVolume,
-      );
-    } catch (e) {
-      debugPrint('读取/应用语音参数失败，使用默认值: $e');
-    }
-
-    if (!mounted) return;
-
-    if (!await _ensureTtsReady()) return;
-
-    setState(() {
-      _isPlayingKnowledge = true;
-      _playingSectionIndex = index;
-    });
-
-    final raw = _knowledgeSections[index].toSpeechText();
-    final chunks = _cleanAndChunk(raw);
-    var overallSuccess = true;
-
-    for (var i = 0; i < chunks.length; i++) {
-      if (!_isPlayingKnowledge || !mounted) {
-        overallSuccess = false;
-        break;
-      }
-
-      final chunk = chunks[i];
-      final success = await TtsService.speak(chunk, waitForCompletion: true);
-      if (!success) {
-        overallSuccess = false;
-        break;
-      }
-      // 小段间短暂停顿，避免句子连读
-      await Future.delayed(const Duration(milliseconds: 180));
-    }
-
-    if (mounted) {
-      setState(() {
-        _isPlayingKnowledge = false;
-        _playingSectionIndex = -1;
-      });
-    }
-
-    if (!overallSuccess && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('语音播报失败，请重试')),
-      );
-    }
-  }
-
-  /// 防止重复调用 _playAllKnowledge
-  bool _isStartingPlayback = false;
-
-  /// 顺序播放所有考点内容
-  Future<void> _playAllKnowledge() async {
-    // 防止重复点击
-    if (_isStartingPlayback) return;
-    _isStartingPlayback = true;
-
-    try {
-      if (_knowledgeSections.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('暂无考点内容可播放')),
-          );
-        }
-        return;
-      }
-
-      // 如果正在播放，则停止
-      if (_isPlayingKnowledge) {
-        await _stopKnowledgePlayback();
-        return;
-      }
-
-      // 应用用户保存的语音参数（TTS 初始化由 speak() 内部处理，含重试逻辑）
-      try {
-        final app = context.read<AppProvider>();
-        await TtsService.applySpeechParams(
-          rate: app.ttsSpeechRate,
-          pitch: app.ttsPitch,
-          volume: app.ttsVolume,
-        );
-      } catch (e) {
-        debugPrint('读取/应用语音参数失败，使用默认值: $e');
-      }
-
-      if (!mounted) return;
-
-      setState(() {
-        _isPlayingKnowledge = true;
-        _playingSectionIndex = 0;
-      });
-
-      if (!await _ensureTtsReady()) {
-        if (mounted) {
-          setState(() {
-            _isPlayingKnowledge = false;
-            _playingSectionIndex = -1;
-          });
-        }
-        return;
-      }
-
-      for (var i = 0; i < _knowledgeSections.length; i++) {
-        if (!_isPlayingKnowledge || !mounted) break;
-
-        setState(() {
-          _playingSectionIndex = i;
-        });
-
-        final raw = _knowledgeSections[i].toSpeechText();
-        final chunks = _cleanAndChunk(raw);
-        var ok = true;
-        for (var c = 0; c < chunks.length; c++) {
-          if (!_isPlayingKnowledge || !mounted) {
-            ok = false;
-            break;
-          }
-          final success = await TtsService.speak(chunks[c], waitForCompletion: true);
-          if (!success) {
-            ok = false;
-            break;
-          }
-          await Future.delayed(const Duration(milliseconds: 160));
-        }
-        if (!ok || !_isPlayingKnowledge || !mounted) break;
-      }
-
-      if (mounted) {
-        setState(() {
-          _isPlayingKnowledge = false;
-          _playingSectionIndex = -1;
-        });
-      }
-    } catch (e, stackTrace) {
-      debugPrint('_playAllKnowledge 异常: $e');
-      debugPrintStack(stackTrace: stackTrace);
-      if (mounted) {
-        setState(() {
-          _isPlayingKnowledge = false;
-          _playingSectionIndex = -1;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('播放启动失败: $e')),
-        );
-      }
-    } finally {
-      _isStartingPlayback = false;
-    }
-  }
-
-
-  /// 停止播放
-  Future<void> _stopKnowledgePlayback() async {
-    _isPlayingKnowledge = false;
-    await TtsService.stop();
-    if (mounted) {
-      setState(() {
-        _isPlayingKnowledge = false;
-        _playingSectionIndex = -1;
-      });
-    }
-  }
-
-  Future<bool> _ensureTtsReady() async {
-    // initialize() 现已内置重试+超时，单次调用通常足以让冷启动的引擎就绪；
-    // 这里再给一次机会，并加总超时防止 UI 长时间卡住。
-    for (int attempt = 0; attempt < 2; attempt++) {
-      final ready = await TtsService.initialize().timeout(
-        const Duration(seconds: 25),
-        onTimeout: () => false,
-      );
-      if (ready) return true;
-      if (!mounted) return false;
-      await Future.delayed(const Duration(milliseconds: 500));
-    }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('语音引擎初始化失败，请检查 TTS 设置')),
-      );
-    }
-    return false;
-  }
-
-  /// 将原始文本/HTML清洗为纯文本，并按语音友好的句子或长度分块返回
-  List<String> _cleanAndChunk(String raw) {
-    // 移除常见 HTML 标签与实体（简单处理，复杂 HTML 可用后端预处理）
-    var s = raw.replaceAll(RegExp(r'<[^>]*>', multiLine: true), ' ');
-    s = s.replaceAll('&nbsp;', ' ');
-    s = s.replaceAll('&lt;', '<');
-    s = s.replaceAll('&gt;', '>');
-    s = s.replaceAll('&amp;', '&');
-    s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
-
-    if (s.isEmpty) return [];
-
-    // 先按中文句号、问号、感叹号或英文标点拆分为句子
-    final sentenceSep = RegExp(r'(?<=[。！？!?;；.])\s*');
-    final parts = s.split(sentenceSep).map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-
-    // 合并句子以控制每块长度（目标 160-260 字符）
-    const int target = 220;
-    final List<String> chunks = [];
-    var buffer = StringBuffer();
-
-    for (var p in parts) {
-      if (buffer.isEmpty) {
-        buffer.write(p);
-      } else if ((buffer.length + p.length) <= target) {
-        buffer.write(' ');
-        buffer.write(p);
-      } else {
-        chunks.add(buffer.toString());
-        buffer = StringBuffer(p);
-      }
-    }
-    if (buffer.isNotEmpty) chunks.add(buffer.toString());
-
-    // 如果没有切出句子（比如整段无标点），再按长度切分
-    if (chunks.isEmpty) {
-      for (var i = 0; i < s.length; i += target) {
-        chunks.add(s.substring(i, (i + target).clamp(0, s.length)));
-      }
-    }
-
-    return chunks;
-  }
-
   Future<void> _loadData() async {
     // 并行加载题目数据、考点知识和知识点统计
     final results = await Future.wait([
@@ -764,12 +509,12 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
           itemCount: _knowledgeSections.length,
           itemBuilder: (context, index) {
             final section = _knowledgeSections[index];
-            final isThisPlaying = _isPlayingKnowledge && _playingSectionIndex == index;
+            final isThisPlaying = isPlayingKnowledge && playingSectionIndex == index;
             return _KnowledgeSectionCard(
               section: section,
               color: color,
               isPlaying: isThisPlaying,
-              onPlayTap: () => _playSection(index),
+              onPlayTap: () => playSection(index),
               onAskAi: (text) => _askAiAboutSection(section, selectedText: text),
               onAskAiWhole: () => _askAiAboutSection(section),
             );
@@ -780,7 +525,7 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
           left: 16,
           right: 16,
           bottom: 16,
-          child: _buildPlaybackBar(theme, color),
+          child: buildKnowledgePlaybackBar(theme, color),
         ),
       ],
     );
@@ -788,116 +533,14 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
 
   /// 以考点小节为上下文向 AI 提问（[selectedText] 为用户选中的片段）
   void _askAiAboutSection(KnowledgeSection section, {String? selectedText}) {
-    final wholeText = section.paragraphs
-        .where((p) => p.imagePath == null)
-        .map((p) => p.text)
-        .where((t) => t.trim().isNotEmpty)
-        .join('\n');
-    final hasSelection = selectedText != null && selectedText.isNotEmpty;
-    AiAssistantSheet.show(
+    AiAssistantLauncher.showForKnowledgeSection(
       context,
-      itemId:
-          'know:${widget.subject.name}:${widget.chapterNumber}:${section.number}',
-      itemType: 'knowledge',
-      itemTitle: section.title,
-      contextText: hasSelection
-          ? '【选中片段】\n$selectedText\n\n【所属小节「${section.title}」完整内容】\n$wholeText'
-          : wholeText,
+      subject: widget.subject,
+      chapterNumber: widget.chapterNumber,
+      section: section,
+      selectedText: selectedText,
     );
   }
-
-  /// 底部播放控制栏
-  Widget _buildPlaybackBar(ThemeData theme, Color color) {
-    final isDark = theme.brightness == Brightness.dark;
-    final playingLabel = _playingSectionIndex >= 0 && _playingSectionIndex < _knowledgeSections.length
-        ? _knowledgeSections[_playingSectionIndex].title
-        : '考点知识';
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: isDark ? theme.colorScheme.surface : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.12),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          // 播放/停止按钮
-          GestureDetector(
-            onTap: _playAllKnowledge,
-            child: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: _isPlayingKnowledge ? Colors.red : color,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                _isPlayingKnowledge ? Icons.stop_rounded : Icons.playlist_play_rounded,
-                color: Colors.white,
-                size: 24,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          // 播放状态文字
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _isPlayingKnowledge ? '正在播放' : '点击播放全部',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : Colors.black87,
-                  ),
-                ),
-                if (_isPlayingKnowledge)
-                  Text(
-                    playingLabel,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: color,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-              ],
-            ),
-          ),
-          // 停止按钮（仅播放时显示）
-          if (_isPlayingKnowledge)
-            GestureDetector(
-              onTap: _stopKnowledgePlayback,
-              child: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: Colors.grey.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  Icons.close_rounded,
-                  color: isDark ? Colors.white70 : Colors.black54,
-                  size: 20,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  /// 章节练习 Tab - 展示题目相关考点和练习入口
   Widget _buildPracticeTab(ThemeData theme, Color color) {
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -1573,48 +1216,36 @@ class ChapterKnowledgePage extends StatefulWidget {
   State<ChapterKnowledgePage> createState() => _ChapterKnowledgePageState();
 }
 
-class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
+class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
+    with KnowledgePlaybackMixin<ChapterKnowledgePage> {
   /// 以考点小节为上下文向 AI 提问（[selectedText] 为用户选中的片段）
   void _askAiAboutSection(KnowledgeSection section, {String? selectedText}) {
-    final wholeText = section.paragraphs
-        .where((p) => p.imagePath == null)
-        .map((p) => p.text)
-        .where((t) => t.trim().isNotEmpty)
-        .join('\n');
-    final hasSelection = selectedText != null && selectedText.isNotEmpty;
-    AiAssistantSheet.show(
+    AiAssistantLauncher.showForKnowledgeSection(
       context,
-      itemId:
-          'know:${widget.subject.name}:${widget.chapterNumber}:${section.number}',
-      itemType: 'knowledge',
-      itemTitle: section.title,
-      contextText: hasSelection
-          ? '【选中片段】\n$selectedText\n\n【所属小节「${section.title}」完整内容】\n$wholeText'
-          : wholeText,
+      subject: widget.subject,
+      chapterNumber: widget.chapterNumber,
+      section: section,
+      selectedText: selectedText,
     );
   }
 
   bool _isLoading = true;
   List<KnowledgeSection> _sections = [];
-  // TTS 播放状态
-  bool _isPlayingKnowledge = false;
-  int _playingSectionIndex = -1;
-  int _currentChunkIndex = 0;
-  int _currentChunkCount = 0;
+
+  @override
+  List<KnowledgeSection> get playbackSections => _sections;
 
   @override
   void initState() {
     super.initState();
     _loadData();
     // 预热 TTS 引擎，避免首次点击朗读时出现明显延迟
-    TtsService.initialize();
+    initKnowledgePlayback();
   }
 
   @override
   void dispose() {
-    if (_isPlayingKnowledge) {
-      TtsService.stop();
-    }
+    disposeKnowledgePlayback();
     super.dispose();
   }
 
@@ -1635,263 +1266,6 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
         setState(() => _isLoading = false);
       }
     }
-  }
-
-  // ========== TTS 语音播报 ==========
-
-  Future<void> _playSection(int index) async {
-    if (index < 0 || index >= _sections.length) return;
-
-    if (_playingSectionIndex == index && _isPlayingKnowledge) {
-      await _stopKnowledgePlayback();
-      return;
-    }
-
-    if (_isPlayingKnowledge) {
-      _isPlayingKnowledge = false;
-      await TtsService.stop();
-    }
-
-    if (!mounted) return;
-
-    try {
-      final app = context.read<AppProvider>();
-      await TtsService.applySpeechParams(
-        rate: app.ttsSpeechRate,
-        pitch: app.ttsPitch,
-        volume: app.ttsVolume,
-      );
-    } catch (e) {
-      debugPrint('读取/应用语音参数失败，使用默认值: $e');
-    }
-
-    if (!mounted) return;
-
-    if (!await _ensureTtsReady()) return;
-
-    final raw = _sections[index].toSpeechText();
-    final chunks = _cleanAndChunk(raw);
-
-    setState(() {
-      _isPlayingKnowledge = true;
-      _playingSectionIndex = index;
-      _currentChunkCount = chunks.length;
-      _currentChunkIndex = 0;
-    });
-
-    var overallSuccess = true;
-
-    for (var i = 0; i < chunks.length; i++) {
-      if (!_isPlayingKnowledge || !mounted) {
-        overallSuccess = false;
-        break;
-      }
-      if (mounted) {
-        setState(() {
-          _currentChunkIndex = i;
-        });
-      }
-      final success = await TtsService.speak(chunks[i], waitForCompletion: true);
-      if (!success) {
-        overallSuccess = false;
-        break;
-      }
-      await Future.delayed(const Duration(milliseconds: 180));
-    }
-
-    if (mounted) {
-      setState(() {
-        _isPlayingKnowledge = false;
-        _playingSectionIndex = -1;
-        _currentChunkIndex = 0;
-        _currentChunkCount = 0;
-      });
-    }
-
-    if (!overallSuccess && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('语音播报失败，请重试')),
-      );
-    }
-  }
-
-  /// 防止重复调用 _playAllKnowledge
-  bool _isStartingPlayback = false;
-
-  Future<void> _playAllKnowledge() async {
-    if (_isStartingPlayback) return;
-    _isStartingPlayback = true;
-
-    try {
-      if (_sections.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('暂无考点内容可播放')),
-          );
-        }
-        return;
-      }
-
-      if (_isPlayingKnowledge) {
-        await _stopKnowledgePlayback();
-        return;
-      }
-
-      try {
-        final app = context.read<AppProvider>();
-        await TtsService.applySpeechParams(
-          rate: app.ttsSpeechRate,
-          pitch: app.ttsPitch,
-          volume: app.ttsVolume,
-        );
-      } catch (e) {
-        debugPrint('读取/应用语音参数失败，使用默认值: $e');
-      }
-
-      if (!mounted) return;
-
-      if (!await _ensureTtsReady()) {
-        if (mounted) {
-          setState(() {
-            _isPlayingKnowledge = false;
-            _playingSectionIndex = -1;
-          });
-        }
-        return;
-      }
-
-      setState(() {
-        _isPlayingKnowledge = true;
-        _playingSectionIndex = 0;
-      });
-
-      for (var i = 0; i < _sections.length; i++) {
-        if (!_isPlayingKnowledge || !mounted) break;
-
-        final raw = _sections[i].toSpeechText();
-        final chunks = _cleanAndChunk(raw);
-
-        setState(() {
-          _playingSectionIndex = i;
-          _currentChunkCount = chunks.length;
-          _currentChunkIndex = 0;
-        });
-
-        var ok = true;
-        for (var j = 0; j < chunks.length; j++) {
-          if (!_isPlayingKnowledge || !mounted) {
-            ok = false;
-            break;
-          }
-          if (mounted) {
-            setState(() {
-              _currentChunkIndex = j;
-            });
-          }
-          final success = await TtsService.speak(chunks[j], waitForCompletion: true);
-          if (!success) {
-            ok = false;
-            break;
-          }
-          await Future.delayed(const Duration(milliseconds: 160));
-        }
-        if (!ok || !_isPlayingKnowledge || !mounted) break;
-      }
-    } catch (e, stackTrace) {
-      debugPrint('_playAllKnowledge 异常: $e');
-      debugPrintStack(stackTrace: stackTrace);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('播放启动失败: $e')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isPlayingKnowledge = false;
-          _playingSectionIndex = -1;
-        });
-      }
-      _isStartingPlayback = false;
-    }
-  }
-
-  Future<void> _stopKnowledgePlayback() async {
-    _isPlayingKnowledge = false;
-    await TtsService.stop();
-    if (mounted) {
-      setState(() {
-        _isPlayingKnowledge = false;
-        _playingSectionIndex = -1;
-        _currentChunkIndex = 0;
-        _currentChunkCount = 0;
-      });
-    }
-  }
-
-  Future<bool> _ensureTtsReady() async {
-    // initialize() 现已内置重试+超时，单次调用通常足以让冷启动的引擎就绪；
-    // 这里再给一次机会，并加总超时防止 UI 长时间卡住。
-    for (int attempt = 0; attempt < 2; attempt++) {
-      final ready = await TtsService.initialize().timeout(
-        const Duration(seconds: 25),
-        onTimeout: () => false,
-      );
-      if (ready) return true;
-      if (!mounted) return false;
-      await Future.delayed(const Duration(milliseconds: 500));
-    }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('语音引擎初始化失败，请检查 TTS 设置')),
-      );
-    }
-    return false;
-  }
-
-  List<String> _cleanAndChunk(String raw) {
-    var text = raw.replaceAll(RegExp(r'<[^>]*>', multiLine: true), ' ');
-    text = text.replaceAll('&nbsp;', ' ');
-    text = text.replaceAll('&lt;', '<');
-    text = text.replaceAll('&gt;', '>');
-    text = text.replaceAll('&amp;', '&');
-    text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
-
-    if (text.isEmpty) return [];
-
-    final sentenceSep = RegExp(r'(?<=[。！？!?;；.])\s*');
-    final parts = text
-        .split(sentenceSep)
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toList();
-
-    const int targetLength = 220;
-    final chunks = <String>[];
-    var buffer = StringBuffer();
-
-    for (final part in parts) {
-      if (buffer.isEmpty) {
-        buffer.write(part);
-      } else if ((buffer.length + part.length) <= targetLength) {
-        buffer.write(' ');
-        buffer.write(part);
-      } else {
-        chunks.add(buffer.toString());
-        buffer = StringBuffer(part);
-      }
-    }
-    if (buffer.isNotEmpty) {
-      chunks.add(buffer.toString());
-    }
-
-    if (chunks.isEmpty) {
-      for (var i = 0; i < text.length; i += targetLength) {
-        chunks.add(text.substring(i, (i + targetLength).clamp(0, text.length)));
-      }
-    }
-
-    return chunks;
   }
 
   @override
@@ -1915,12 +1289,12 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
                       itemCount: _sections.length,
                       itemBuilder: (context, index) {
                         final isThisPlaying =
-                            _isPlayingKnowledge && _playingSectionIndex == index;
+                            isPlayingKnowledge && playingSectionIndex == index;
                         return _KnowledgeSectionCard(
                           section: _sections[index],
                           color: color,
                           isPlaying: isThisPlaying,
-                          onPlayTap: () => _playSection(index),
+                          onPlayTap: () => playSection(index),
                           onAskAi: (text) =>
                               _askAiAboutSection(_sections[index],
                                   selectedText: text),
@@ -1933,129 +1307,15 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage> {
                       left: 16,
                       right: 16,
                       bottom: 16,
-                      child: _buildPlaybackBar(theme, color),
+                      child: buildKnowledgePlaybackBar(
+                        theme, color,
+                        showChunkProgress: true,
+                      ),
                     ),
                   ],
                 ),
     );
   }
-
-  /// 底部播放控制栏
-  Widget _buildPlaybackBar(ThemeData theme, Color color) {
-    final isDark = theme.brightness == Brightness.dark;
-    final playingLabel = _playingSectionIndex >= 0 && _playingSectionIndex < _sections.length
-        ? _sections[_playingSectionIndex].title
-        : '考点知识';
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: isDark ? theme.colorScheme.surface : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.12),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: _playAllKnowledge,
-            child: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: _isPlayingKnowledge ? Colors.red : color,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                _isPlayingKnowledge ? Icons.stop_rounded : Icons.playlist_play_rounded,
-                color: Colors.white,
-                size: 24,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _isPlayingKnowledge ? '正在播放' : '点击播放全部',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : Colors.black87,
-                  ),
-                ),
-                if (_isPlayingKnowledge)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          playingLabel,
-                          style: TextStyle(fontSize: 12, color: color),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 4),
-                        if (_currentChunkCount > 0)
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '第 ${_playingSectionIndex + 1} / ${_sections.length} 节 · 当前段 ${_currentChunkIndex + 1} / $_currentChunkCount',
-                                style: TextStyle(fontSize: 11, color: color.withValues(alpha: 0.8)),
-                              ),
-                              const SizedBox(height: 6),
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(6),
-                                child: LinearProgressIndicator(
-                                  value: _currentChunkCount > 0
-                                      ? (_currentChunkIndex + 1) / _currentChunkCount
-                                      : 0,
-                                  minHeight: 6,
-                                  backgroundColor: color.withValues(alpha: 0.14),
-                                  valueColor: AlwaysStoppedAnimation<Color>(color),
-                                ),
-                              ),
-                            ],
-                          ),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          if (_isPlayingKnowledge)
-            GestureDetector(
-              onTap: _stopKnowledgePlayback,
-              child: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: Colors.grey.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  Icons.close_rounded,
-                  color: isDark ? Colors.white70 : Colors.black54,
-                  size: 20,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildEmptyState() {
     return Center(
       child: Column(

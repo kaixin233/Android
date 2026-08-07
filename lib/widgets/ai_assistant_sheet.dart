@@ -148,77 +148,56 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
   Future<void> _ask(String question) async {
     final trimmed = question.trim();
     if (trimmed.isEmpty || _isAsking) return;
-
     if (!_hasApiKey) {
       _showNoKeyDialog(trimmed);
       return;
     }
-
-    setState(() {
-      _isAsking = true;
-      _error = null;
-      _failedQuestion = null;
-    });
     _inputController.clear();
-    _scrollToBottom();
-
-    try {
-      final answer = await AiService.chat(_buildApiMessages(trimmed));
-      final record = await AiQaStorageService.appendMessage(
-        itemId: widget.itemId,
-        itemType: widget.itemType,
-        itemTitle: widget.itemTitle,
-        contextText: widget.contextText,
-        message: AiQaMessage(question: trimmed, answer: answer),
-      );
-      if (!mounted) return;
-      setState(() {
-        _record = record;
-        _isAsking = false;
-      });
-      _scrollToBottom();
-    } on AiApiException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isAsking = false;
-        _error = e.message;
-        _failedQuestion = trimmed;
-      });
-      _scrollToBottom();
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isAsking = false;
-        _error = '出现未知错误，请重试';
-        _failedQuestion = trimmed;
-      });
-      _scrollToBottom();
-    }
+    await _executeAiRequest(trimmed);
   }
 
   /// 重新生成最后一条回答
   Future<void> _regenerate() async {
     final messages = _record?.messages;
     if (messages == null || messages.isEmpty || _isAsking) return;
+    await _executeAiRequest(messages.last.question, replaceLast: true);
+  }
+
+  /// 发起一次 AI 请求并持久化结果
+  ///
+  /// [replaceLast] 为 true 时用新回答覆盖最后一条记录（重新生成），
+  /// 否则作为新一轮问答追加。
+  Future<void> _executeAiRequest(String question,
+      {bool replaceLast = false}) async {
     if (!_hasApiKey) {
-      _showNoKeyDialog(messages.last.question);
+      _showNoKeyDialog(question);
       return;
     }
-    final lastQuestion = messages.last.question;
 
     setState(() {
       _isAsking = true;
       _error = null;
       _failedQuestion = null;
     });
+    _scrollToBottom();
+
     try {
       final answer = await AiService.chat(
-          _buildApiMessages(lastQuestion, excludeLastTurn: true));
-      await AiQaStorageService.replaceLastMessage(
-        widget.itemId,
-        AiQaMessage(question: lastQuestion, answer: answer),
-      );
-      final record = await AiQaStorageService.loadRecord(widget.itemId);
+          _buildApiMessages(question, excludeLastTurn: replaceLast));
+      final message = AiQaMessage(question: question, answer: answer);
+      AiQaRecord? record;
+      if (replaceLast) {
+        await AiQaStorageService.replaceLastMessage(widget.itemId, message);
+        record = await AiQaStorageService.loadRecord(widget.itemId);
+      } else {
+        record = await AiQaStorageService.appendMessage(
+          itemId: widget.itemId,
+          itemType: widget.itemType,
+          itemTitle: widget.itemTitle,
+          contextText: widget.contextText,
+          message: message,
+        );
+      }
       if (!mounted) return;
       setState(() {
         _record = record;
@@ -226,18 +205,20 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
       });
       _scrollToBottom();
     } on AiApiException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isAsking = false;
-        _error = e.message;
-      });
+      _handleRequestError(e.message, question);
     } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isAsking = false;
-        _error = '出现未知错误，请重试';
-      });
+      _handleRequestError('出现未知错误，请重试', question);
     }
+  }
+
+  void _handleRequestError(String message, String question) {
+    if (!mounted) return;
+    setState(() {
+      _isAsking = false;
+      _error = message;
+      _failedQuestion = question;
+    });
+    _scrollToBottom();
   }
 
   Future<void> _clearRecord() async {

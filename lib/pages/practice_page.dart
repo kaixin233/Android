@@ -12,7 +12,7 @@ import '../services/question_service.dart';
 import '../services/storage_service.dart';
 import '../services/tts_service.dart';
 import '../utils/animations.dart';
-import '../widgets/ai_assistant_sheet.dart';
+import '../utils/ai_assistant_launcher.dart';
 import '../widgets/ask_ai_selection_area.dart';
 
 /// 练习页面配置
@@ -331,7 +331,7 @@ class _PracticePageState extends State<PracticePage> {
       buffer.write('回答错误。');
       // 错误时播报正确答案
       buffer.write('正确答案是：');
-      buffer.write(_getCorrectAnswerText(question));
+      buffer.write(AiAssistantLauncher.correctAnswerTextOf(question));
       buffer.write('。');
     }
 
@@ -1431,7 +1431,7 @@ class _PracticePageState extends State<PracticePage> {
           const SizedBox(height: 8),
           if (!_isCorrect) ...[
             Text(
-              '正确答案：${_getCorrectAnswerText(question)}',
+              '正确答案：${AiAssistantLauncher.correctAnswerTextOf(question)}',
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
@@ -1467,59 +1467,11 @@ class _PracticePageState extends State<PracticePage> {
 
   /// 以当前题目为上下文向 AI 提问（[selectedText] 为用户选中的片段）
   void _askAiAboutQuestion(Question question, {String? selectedText}) {
-    final whole = _buildQuestionContext(question);
-    final hasSelection = selectedText != null && selectedText.isNotEmpty;
-    final title = question.prompt.length > 30
-        ? '${question.prompt.substring(0, 30)}…'
-        : question.prompt;
-    AiAssistantSheet.show(
+    AiAssistantLauncher.showForQuestion(
       context,
-      itemId: 'q:${question.uniqueKey}',
-      itemType: 'question',
-      itemTitle: title,
-      contextText: hasSelection
-          ? '【选中片段】\n$selectedText\n\n【完整题目】\n$whole'
-          : whole,
+      question: question,
+      submitted: _submitted,
+      selectedText: selectedText,
     );
-  }
-
-  /// 组装题目上下文文本（题干 + 选项 + 提交后的答案与解析）
-  String _buildQuestionContext(Question question) {
-    final buffer = StringBuffer()
-      ..writeln('【题型】${question.type.label}')
-      ..writeln('【题目】${question.prompt}');
-    if (question.options.isNotEmpty) {
-      for (var i = 0; i < question.options.length; i++) {
-        buffer.writeln('${String.fromCharCode(65 + i)}. ${question.options[i]}');
-      }
-    }
-    if (_submitted) {
-      buffer.writeln('【正确答案】${_getCorrectAnswerText(question)}');
-      if (question.explanation.isNotEmpty) {
-        buffer.writeln('【解析】${question.explanation}');
-      }
-    } else {
-      buffer.writeln('（学员尚未作答，请勿直接给出答案，以启发式讲解为主）');
-    }
-    return buffer.toString();
-  }
-
-  String _getCorrectAnswerText(Question question) {
-    switch (question.type) {
-      case QuestionType.singleChoice:
-        if (question.answerIndex != null && question.answerIndex! < question.options.length) {
-          return question.options[question.answerIndex!];
-        }
-        return '未知';
-      case QuestionType.multipleChoice:
-        return question.answerIndices
-            .where((i) => i < question.options.length)
-            .map((i) => question.options[i])
-            .join('、');
-      case QuestionType.trueFalse:
-        return question.isCorrect == true ? '正确' : '错误';
-      case QuestionType.fillBlank:
-        return question.acceptableAnswers.join(' / ');
-    }
   }
 }

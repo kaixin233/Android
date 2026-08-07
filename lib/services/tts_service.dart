@@ -398,6 +398,58 @@ class TtsService {
     return result.trim();
   }
 
+  /// 将原始文本/HTML 清洗为纯文本，并按语音友好的句子或长度分块返回
+  ///
+  /// 供需要长文分段连续朗读的场景使用（如考点知识播放）。
+  static List<String> cleanAndChunk(String raw) {
+    // 移除常见 HTML 标签与实体（简单处理，复杂 HTML 可用后端预处理）
+    var text = raw.replaceAll(RegExp(r'<[^>]*>', multiLine: true), ' ');
+    text = text.replaceAll('&nbsp;', ' ');
+    text = text.replaceAll('&lt;', '<');
+    text = text.replaceAll('&gt;', '>');
+    text = text.replaceAll('&amp;', '&');
+    text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    if (text.isEmpty) return [];
+
+    // 先按中文句号、问号、感叹号或英文标点拆分为句子
+    final sentenceSep = RegExp(r'(?<=[。！？!?;；.])\s*');
+    final parts = text
+        .split(sentenceSep)
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+
+    // 合并句子以控制每块长度（目标 160-260 字符）
+    const int targetLength = 220;
+    final chunks = <String>[];
+    var buffer = StringBuffer();
+
+    for (final part in parts) {
+      if (buffer.isEmpty) {
+        buffer.write(part);
+      } else if ((buffer.length + part.length) <= targetLength) {
+        buffer.write(' ');
+        buffer.write(part);
+      } else {
+        chunks.add(buffer.toString());
+        buffer = StringBuffer(part);
+      }
+    }
+    if (buffer.isNotEmpty) {
+      chunks.add(buffer.toString());
+    }
+
+    // 如果没有切出句子（比如整段无标点），再按长度切分
+    if (chunks.isEmpty) {
+      for (var i = 0; i < text.length; i += targetLength) {
+        chunks.add(text.substring(i, (i + targetLength).clamp(0, text.length)));
+      }
+    }
+
+    return chunks;
+  }
+
   /// 朗读文本
   ///
   /// 核心策略（基于诊断修复）：
@@ -681,3 +733,4 @@ class TtsService {
     _onComplete = null;
   }
 }
+

@@ -51,6 +51,15 @@ class KnowledgeSection {
     }
     return buffer.toString();
   }
+
+  /// 小节纯文本（跳过图片与空段落，按行拼接），用作 AI 提问上下文
+  String toPlainText() {
+    return paragraphs
+        .where((p) => p.imagePath == null)
+        .map((p) => p.text)
+        .where((t) => t.trim().isNotEmpty)
+        .join('\n');
+  }
 }
 
 /// 考点知识服务 - 从 Markdown 文件中解析章节考点内容
