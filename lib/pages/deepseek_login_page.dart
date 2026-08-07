@@ -5,10 +5,10 @@ import '../services/ai_service.dart';
 
 /// DeepSeek 网页端登录页
 ///
-/// 用户在 App 内打开 chat.deepseek.com 并完成登录，本页通过
-/// [WebViewCookieManager] 从原生 Cookie 存储读取 `userToken`（即便为
-/// HttpOnly 也能读取），自动保存进 [AiService]，免去手动从浏览器
-/// 开发者工具复制 Token 的麻烦与泄露风险。
+/// 用户在 App 内打开 chat.deepseek.com 并完成登录，本页通过注入 JavaScript
+/// 从页面 `localStorage` 读取 `userToken`（DeepSeek 网页端将登录令牌存于
+/// 此处而非 Cookie，值为 JSON，真实 JWT 在 `.value` 字段），自动保存进
+/// [AiService]，免去手动从浏览器开发者工具复制 Token 的麻烦与泄露风险。
 class DeepSeekLoginPage extends StatefulWidget {
   const DeepSeekLoginPage({super.key});
 
@@ -72,9 +72,35 @@ class _DeepSeekLoginPageState extends State<DeepSeekLoginPage> {
     if (has != _detected) setState(() => _detected = has);
   }
 
-  /// 读取 userToken，按优先级尝试：原生 Cookie 存储（含 HttpOnly）→
-  /// 主域兜底 → document.cookie（非 HttpOnly）。
+  /// 读取 userToken，按优先级尝试：
+  /// 1. 页面 `localStorage`（DeepSeek 网页端实际存储位置，值为 JSON，
+  ///    真实令牌在 `.value` 字段，纯 JWT 以 `eyJ` 开头）——首选；
+  /// 2. 原生 Cookie 存储（部分环境可能以 Cookie 形式下发）；
+  /// 3. `document.cookie`（非 HttpOnly 场景）兜底。
   Future<String?> _readUserToken() async {
+    // 1) 首选：localStorage（与当前页面同源，可直接读取）
+    try {
+      final raw = await _controller.runJavaScriptReturningResult('''
+        (function() {
+          try {
+            var s = localStorage.getItem('userToken');
+            if (!s) return '';
+            try {
+              var p = JSON.parse(s);
+              if (p && typeof p.value === 'string' && p.value) return p.value;
+            } catch (e) {}
+            return s;
+          } catch (e) { return ''; }
+        })()
+      ''');
+      final js = raw.toString();
+      final token = _normalizeToken(js);
+      if (token != null) return token;
+    } catch (_) {
+      // 页面尚未就绪或 JS 不可用，忽略后继续兜底
+    }
+
+    // 2) 兜底：原生 Cookie 存储
     const domains = <String>[_baseUrl, 'https://deepseek.com'];
     for (final domain in domains) {
       try {
@@ -87,6 +113,8 @@ class _DeepSeekLoginPageState extends State<DeepSeekLoginPage> {
         // 某些平台对 domain 参数要求不同，忽略后继续兜底
       }
     }
+
+    // 3) 最后兜底：document.cookie（非 HttpOnly 场景）
     try {
       final raw =
           await _controller.runJavaScriptReturningResult('document.cookie');
@@ -103,6 +131,17 @@ class _DeepSeekLoginPageState extends State<DeepSeekLoginPage> {
       // document.cookie 在 HttpOnly 场景下读不到，属预期
     }
     return null;
+  }
+
+  /// 把 JS 回传结果规整成可用的 userToken。
+  /// 处理三种情况：裸 JWT（`eyJ...`）、被引号包裹的字符串、以及 `'null'` 文本。
+  String? _normalizeToken(String js) {
+    var s = js;
+    if (s.startsWith('"') && s.endsWith('"') && s.length > 1) {
+      s = s.substring(1, s.length - 1);
+    }
+    if (s.isEmpty || s == 'null') return null;
+    return s;
   }
 
   Future<void> _capture() async {
