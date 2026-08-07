@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import '../models/ai_qa_record.dart';
 import '../pages/ai_qa_history_page.dart';
 import '../pages/ai_settings_page.dart';
-import '../pages/deepseek_web_page.dart';
 import '../services/ai_qa_storage_service.dart';
 import '../services/ai_service.dart';
 
@@ -80,7 +79,7 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
   bool _isAsking = false;
   String? _error;
   String? _failedQuestion;
-  bool _hasApiKey = false;
+  bool _hasProvider = false;
   bool _contextExpanded = false;
 
   @override
@@ -91,11 +90,11 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
 
   Future<void> _bootstrap() async {
     final record = await AiQaStorageService.loadRecord(widget.itemId);
-    final hasKey = await AiService.hasApiKey();
+    final hasProvider = await AiService.hasAnyProvider();
     if (!mounted) return;
     setState(() {
       _record = record;
-      _hasApiKey = hasKey;
+      _hasProvider = hasProvider;
       _isLoading = false;
     });
     _scrollToBottom();
@@ -148,8 +147,8 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
   Future<void> _ask(String question) async {
     final trimmed = question.trim();
     if (trimmed.isEmpty || _isAsking) return;
-    if (!_hasApiKey) {
-      _showNoKeyDialog(trimmed);
+    if (!_hasProvider) {
+      _showNoProviderDialog(trimmed);
       return;
     }
     _inputController.clear();
@@ -169,8 +168,8 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
   /// 否则作为新一轮问答追加。
   Future<void> _executeAiRequest(String question,
       {bool replaceLast = false}) async {
-    if (!_hasApiKey) {
-      _showNoKeyDialog(question);
+    if (!_hasProvider) {
+      _showNoProviderDialog(question);
       return;
     }
 
@@ -248,37 +247,23 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
     });
   }
 
-  // ========== 网页端降级 ==========
+  // ========== 未配置提供方 ==========
 
-  void _showNoKeyDialog(String question) {
+  void _showNoProviderDialog(String question) {
     final theme = Theme.of(context);
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         icon: Icon(Icons.auto_awesome_rounded,
             color: theme.colorScheme.primary, size: 32),
-        title: const Text('未配置 DeepSeek API Key'),
+        title: const Text('尚未配置 AI 提供方'),
         content: const Text(
-          '配置 API Key 后即可在 App 内直接提问并自动保存回答。\n\n'
-          '也可以先复制问题，前往 DeepSeek 网页端粘贴提问（需登录）。',
+          '请先在「AI 助手设置」中填写以下任一方式，即可在 App 内直接提问并自动保存回答：\n\n'
+          '• 网页端 Token（免费，优先）：从 chat.deepseek.com 的 Cookie 复制 userToken\n'
+          '• 官方 API Key（备用）：前往 DeepSeek 开放平台创建',
         ),
-        actionsAlignment: MainAxisAlignment.spaceBetween,
+        actionsAlignment: MainAxisAlignment.end,
         actions: [
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => DeepseekWebPage(
-                    promptText:
-                        '【学习内容】${widget.contextText}\n\n【我的问题】$question',
-                  ),
-                ),
-              );
-            },
-            child: const Text('复制并打开网页端'),
-          ),
           FilledButton(
             onPressed: () async {
               Navigator.pop(ctx);
@@ -286,10 +271,10 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
                 context,
                 MaterialPageRoute(builder: (_) => const AiSettingsPage()),
               );
-              final hasKey = await AiService.hasApiKey();
-              if (mounted) setState(() => _hasApiKey = hasKey);
+              final hasProvider = await AiService.hasAnyProvider();
+              if (mounted) setState(() => _hasProvider = hasProvider);
             },
-            child: const Text('去配置 Key'),
+            child: const Text('去配置'),
           ),
         ],
       ),
@@ -511,7 +496,7 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
               style: theme.textTheme.bodySmall
                   ?.copyWith(color: theme.colorScheme.outline),
             ),
-            if (!_hasApiKey) ...[
+            if (!_hasProvider) ...[
               const SizedBox(height: 16),
               FilledButton.tonalIcon(
                 onPressed: () async {
@@ -519,11 +504,11 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
                     context,
                     MaterialPageRoute(builder: (_) => const AiSettingsPage()),
                   );
-                  final hasKey = await AiService.hasApiKey();
-                  if (mounted) setState(() => _hasApiKey = hasKey);
+                  final hasProvider = await AiService.hasAnyProvider();
+                  if (mounted) setState(() => _hasProvider = hasProvider);
                 },
                 icon: const Icon(Icons.key_rounded, size: 18),
-                label: const Text('配置 API Key 体验更佳'),
+                label: const Text('配置后体验更佳'),
               ),
             ],
           ],

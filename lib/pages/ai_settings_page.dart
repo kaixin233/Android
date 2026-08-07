@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../services/ai_service.dart';
-import 'deepseek_web_page.dart';
 
-/// AI 助手设置页 - 配置 DeepSeek API Key 与模型
+/// AI 助手设置页
+///
+/// 主用：DeepSeek 网页端 Token（免费，直接调用 chat.deepseek.com 后端）。
+/// 备用：官方 API Key（api.deepseek.com，按 token 计费）。
 class AiSettingsPage extends StatefulWidget {
   const AiSettingsPage({super.key});
 
@@ -12,7 +14,11 @@ class AiSettingsPage extends StatefulWidget {
 }
 
 class _AiSettingsPageState extends State<AiSettingsPage> {
+  final TextEditingController _tokenController = TextEditingController();
+  final TextEditingController _proxyController = TextEditingController();
   final TextEditingController _keyController = TextEditingController();
+
+  bool _obscureToken = true;
   bool _obscureKey = true;
   bool _isSaving = false;
   bool _isTesting = false;
@@ -27,10 +33,14 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
   }
 
   Future<void> _load() async {
+    final token = await AiService.getWebToken();
+    final proxy = await AiService.getProxyUrl();
     final key = await AiService.getApiKey();
     final model = await AiService.getModel();
     if (!mounted) return;
     setState(() {
+      _tokenController.text = token;
+      _proxyController.text = proxy;
       _keyController.text = key;
       _model = model;
     });
@@ -38,12 +48,16 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
 
   @override
   void dispose() {
+    _tokenController.dispose();
+    _proxyController.dispose();
     _keyController.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
     setState(() => _isSaving = true);
+    await AiService.saveWebToken(_tokenController.text);
+    await AiService.saveProxyUrl(_proxyController.text);
     await AiService.saveApiKey(_keyController.text);
     await AiService.saveModel(_model);
     if (!mounted) return;
@@ -56,12 +70,40 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
     );
   }
 
-  Future<void> _clear() async {
+  Future<void> _clearToken() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('清除网页端 Token'),
+        content: const Text('清除后将不再使用网页端免费通道。确定清除吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('清除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await AiService.clearWebToken();
+    if (!mounted) return;
+    setState(() {
+      _tokenController.clear();
+      _proxyController.clear();
+      _testResult = null;
+    });
+  }
+
+  Future<void> _clearKey() async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('清除 API Key'),
-        content: const Text('清除后将使用 DeepSeek 网页端降级模式提问。确定清除吗？'),
+        content: const Text('清除后若没有网页端 Token，将无法使用 AI 问答。确定清除吗？'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -93,9 +135,10 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
     try {
       await AiService.testConnection();
       if (!mounted) return;
+      final label = await AiService.activeProviderLabel();
       setState(() {
         _testSuccess = true;
-        _testResult = '连接成功，API Key 可用';
+        _testResult = '连接成功（$label）';
       });
     } on AiApiException catch (e) {
       if (!mounted) return;
@@ -122,6 +165,78 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // 网页端 Token（主用）
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.public_rounded, color: theme.colorScheme.primary),
+                      const SizedBox(width: 8),
+                      Text('网页端 Token（免费，优先）',
+                          style: theme.textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.bold)),
+                      const Spacer(),
+                      IconButton(
+                        onPressed: _clearToken,
+                        icon: const Icon(Icons.delete_outline_rounded),
+                        tooltip: '清除 Token',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    '从电脑浏览器登录 chat.deepseek.com，打开开发者工具 → '
+                    'Application → Cookies，复制 userToken 的值。App 会直接调用'
+                    '网页端接口对话，无需跳转网页、免费使用。',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: theme.colorScheme.outline),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _tokenController,
+                    obscureText: _obscureToken,
+                    enableSuggestions: false,
+                    autocorrect: false,
+                    decoration: InputDecoration(
+                      labelText: '网页端 Token (userToken)',
+                      hintText: '粘贴 chat.deepseek.com 的 userToken',
+                      prefixIcon: const Icon(Icons.key_rounded),
+                      suffixIcon: IconButton(
+                        icon: Icon(_obscureToken
+                            ? Icons.visibility_off_rounded
+                            : Icons.visibility_rounded),
+                        onPressed: () =>
+                            setState(() => _obscureToken = !_obscureToken),
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _proxyController,
+                    enableSuggestions: false,
+                    autocorrect: false,
+                    decoration: InputDecoration(
+                      labelText: '反代地址（可选）',
+                      hintText: '如直连失败（PoW/风控），填自托管地址，如 http://192.168.x.x:8000',
+                      prefixIcon: const Icon(Icons.hub_rounded),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // 官方 API Key（备用）
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -133,16 +248,21 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                       Icon(Icons.auto_awesome_rounded,
                           color: theme.colorScheme.primary),
                       const SizedBox(width: 8),
-                      Text('DeepSeek API',
+                      Text('官方 API Key（备用）',
                           style: theme.textTheme.titleMedium
                               ?.copyWith(fontWeight: FontWeight.bold)),
+                      const Spacer(),
+                      IconButton(
+                        onPressed: _clearKey,
+                        icon: const Icon(Icons.delete_outline_rounded),
+                        tooltip: '清除 Key',
+                      ),
                     ],
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    '填写 DeepSeek 开放平台的 API Key 后，即可在 App 内直接向 AI 提问，'
-                    '回答会自动关联保存到对应的学习条目。未填写时将降级为'
-                    '"复制问题 + 打开 DeepSeek 网页端"模式。',
+                    '若没有网页端 Token，或希望使用更稳定、有额度的通道，可填写官方 '
+                    'API Key（api.deepseek.com，按 token 计费）。未填写网页端 Token 时生效。',
                     style: theme.textTheme.bodySmall
                         ?.copyWith(color: theme.colorScheme.outline),
                   ),
@@ -192,129 +312,81 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                       if (value != null) setState(() => _model = value);
                     },
                   ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: _isSaving ? null : _save,
-                          icon: const Icon(Icons.save_rounded, size: 18),
-                          label: Text(_isSaving ? '保存中…' : '保存'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed:
-                              _isTesting || _keyController.text.trim().isEmpty
-                                  ? null
-                                  : _test,
-                          icon: _isTesting
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Icon(Icons.wifi_tethering_rounded,
-                                  size: 18),
-                          label: Text(_isTesting ? '测试中…' : '测试连接'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      IconButton(
-                        onPressed: _clear,
-                        icon: const Icon(Icons.delete_outline_rounded),
-                        tooltip: '清除 Key',
-                      ),
-                    ],
-                  ),
-                  if (_testResult != null) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: _testSuccess
-                            ? Colors.green.withValues(alpha: 0.1)
-                            : theme.colorScheme.errorContainer,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            _testSuccess
-                                ? Icons.check_circle_rounded
-                                : Icons.error_rounded,
-                            size: 18,
-                            color: _testSuccess
-                                ? Colors.green
-                                : theme.colorScheme.error,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _testResult!,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: _testSuccess
-                                    ? Colors.green.shade800
-                                    : theme.colorScheme.onErrorContainer,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
           ),
           const SizedBox(height: 12),
-          Card(
-            child: Column(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.open_in_new_rounded,
-                      color: Colors.blue),
-                  title: const Text('获取 API Key'),
-                  subtitle:
-                      const Text('前往 DeepSeek 开放平台注册并创建 Key（需充值额度）'),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const DeepseekWebPage(
-                        initialUrl: 'https://platform.deepseek.com/api_keys',
-                        pageTitle: 'DeepSeek 开放平台',
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _isSaving ? null : _save,
+                  icon: const Icon(Icons.save_rounded, size: 18),
+                  label: Text(_isSaving ? '保存中…' : '保存'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _isTesting ? null : _test,
+                  icon: _isTesting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.wifi_tethering_rounded, size: 18),
+                  label: Text(_isTesting ? '测试中…' : '测试连接'),
+                ),
+              ),
+            ],
+          ),
+          if (_testResult != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: _testSuccess
+                    ? Colors.green.withValues(alpha: 0.1)
+                    : theme.colorScheme.errorContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _testSuccess
+                        ? Icons.check_circle_rounded
+                        : Icons.error_rounded,
+                    size: 18,
+                    color: _testSuccess
+                        ? Colors.green
+                        : theme.colorScheme.error,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _testResult!,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: _testSuccess
+                            ? Colors.green.shade800
+                            : theme.colorScheme.onErrorContainer,
                       ),
                     ),
                   ),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading:
-                      const Icon(Icons.public_rounded, color: Colors.teal),
-                  title: const Text('DeepSeek 网页端'),
-                  subtitle: const Text('未配置 Key 时，可复制问题后在此粘贴提问'),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const DeepseekWebPage(),
-                    ),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
+          ],
+          const SizedBox(height: 16),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             child: Text(
-              '说明：API Key 仅保存在本机应用私有存储中，不会上传或分享。'
-              '调用 DeepSeek API 会产生少量费用，由 DeepSeek 平台按 token 计费。',
+              '说明：网页端 Token / API Key 仅保存在本机应用私有存储中，不会上传或分享。'
+              '网页端接口为非官方接口，可能随官网改版变化；官方 API 调用会产生少量费用，'
+              '由 DeepSeek 平台按 token 计费。',
               style: theme.textTheme.bodySmall
                   ?.copyWith(color: theme.colorScheme.outline),
             ),

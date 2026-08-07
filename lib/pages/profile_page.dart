@@ -340,7 +340,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 ListTile(
                   leading: const Icon(Icons.auto_awesome_rounded, color: Colors.deepPurple),
                   title: const Text('AI 助手设置'),
-                  subtitle: const Text('配置 DeepSeek API Key，选中即问'),
+                  subtitle: const Text('配置网页端 Token 或 API Key，选中即问'),
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AiSettingsPage())),
                 ),
                 const Divider(height: 1),
