@@ -324,10 +324,21 @@ const String kBridgeScript = r'''
       return null;
     }
 
-    var sendBtn = findSend();
-    if (!sendBtn) { fail('未找到发送按钮'); return; }
-    sendBtn.click();
-    post({ id: id, type: 'log', text: 'clicked' });
+    // 关键修复：
+    // 1) 填满文本后 React 是异步刷新状态，必须等一拍再点，否则 React 仍以为输入框为空而不发送；
+    // 2) DeepSeek 的发送是 div.ds-button（非 <button>），且 onClick 可能挂在按钮任意一层，
+    //    因此“点击该元素及其所有后代”，用事件冒泡覆盖到底，确保发送被触发。
+    setTimeout(function () {
+      var sendBtn = findSend();
+      if (!sendBtn) { fail('未找到发送按钮'); return; }
+      var nodes = [sendBtn];
+      var kids = sendBtn.querySelectorAll('*');
+      for (var n = 0; n < kids.length; n++) nodes.push(kids[n]);
+      for (var m = 0; m < nodes.length; m++) {
+        try { nodes[m].click(); } catch (e) {}
+      }
+      post({ id: id, type: 'log', text: 'clicked' });
+    }, 300);
 
     // 轮询等待回答稳定
     var start = Date.now();
