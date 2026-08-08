@@ -27,6 +27,15 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // 只打包 arm64-v8a（64 位 ARM），移除 armeabi-v7a / x86_64，减小 APK 体积。
+        // 注意：APK 仅能安装到 64 位 ARM 设备（绝大多数现代手机），
+        // 无法安装到 32 位-only 设备或 x86 模拟器。
+        // 配合 android/gradle.properties 中的 disable-abi-filtering=true，阻止 Flutter
+        // Gradle 插件把 defaultConfig.ndk.abiFilters 重置为全平台（否则会被覆盖、打出胖 APK）。
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
     }
 
     signingConfigs {
