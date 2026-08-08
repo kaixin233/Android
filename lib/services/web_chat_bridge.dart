@@ -320,49 +320,71 @@ const String kBridgeScript = r'''
       post({ id: id, type: 'log', text: 'enter-sent' });
     }, 300);
 
+    // 发送前快照：记录当前最后一条 AI 回答（用于区分本次新回答与历史消息）
+    var mdBefore = document.querySelectorAll('.ds-markdown');
+    var beforeCount = mdBefore.length;
+    var beforeText = (mdBefore.length
+        ? (mdBefore[mdBefore.length - 1].innerText || mdBefore[mdBefore.length - 1].textContent || '')
+        : '').trim();
+
     // 轮询等待回答稳定
     var start = Date.now();
-    var lastCaptured = '';
-    var lastScraped = '';
-    var stableCaptured = 0;
-    var stableScraped = 0;
+    var lastSse = '';
+    var stableSse = 0;
+    var lastDom = '';
+    var stableDom = 0;
 
-    function scrape() {
-      // 优先：找到最后一个“复制”按钮，上溯到消息容器取文本
+    // 取页面上“最后一条 AI 回答”文本（优先 .ds-markdown，桌面/移动兼容）。
+    // 这是最稳的兜底：无论前端用 fetch/XHR/EventSource，最终答案都渲染进 DOM。
+    function readLastAnswer() {
+      // 策略1：DeepSeek 用 .ds-markdown 渲染 AI 回答（桌面版稳定）
+      var md = document.querySelectorAll('.ds-markdown');
+      if (md && md.length) {
+        var last = md[md.length - 1];
+        var t = (last.innerText || last.textContent || '').trim();
+        if (t) return t;
+      }
+      // 策略2：带“复制”按钮的消息卡片，上溯祖先取文本（兼容旧版/移动版 SVG 按钮）
       var copyBtns = [];
       var bs = document.querySelectorAll('button, div.ds-button');
       for (var k = 0; k < bs.length; k++) {
-        var t = (bs[k].getAttribute('aria-label') || bs[k].textContent || '').toLowerCase();
-        if (t.indexOf('复制') !== -1 || t.indexOf('copy') !== -1) copyBtns.push(bs[k]);
+        var bt = (bs[k].getAttribute('aria-label') || bs[k].textContent || '').toLowerCase();
+        if (bt.indexOf('复制') !== -1 || bt.indexOf('copy') !== -1) copyBtns.push(bs[k]);
       }
       if (copyBtns.length) {
         var el = copyBtns[copyBtns.length - 1];
         for (var p = 0; p < 6 && el; p++) el = el.parentElement;
         if (el) {
           var txt = (el.innerText || el.textContent || '').replace(/复制/g, '').trim();
-          return txt;
+          if (txt) return txt;
         }
       }
       return '';
     }
 
     var timer = setInterval(function () {
+      // 1) SSE 抓取优先（本次请求的流，天然是新回答，文本最干净）
       var cap = window.__dsAnswer || '';
-      if (cap && cap === lastCaptured) stableCaptured++; else { stableCaptured = 0; lastCaptured = cap; }
-      if (cap && stableCaptured >= 2) {
+      if (cap && cap === lastSse) stableSse++; else { stableSse = 0; lastSse = cap; }
+      if (cap && stableSse >= 2) {
         clearInterval(timer);
         window.__dsCapturing = false;
         post({ id: id, type: 'answer', text: cap });
         return;
       }
 
-      var scr = scrape();
-      if (scr && scr === lastScraped) stableScraped++; else { stableScraped = 0; lastScraped = scr; }
-      if (scr && stableScraped >= 3) {
-        clearInterval(timer);
-        window.__dsCapturing = false;
-        post({ id: id, type: 'answer', text: scr });
-        return;
+      // 2) DOM 抓取兜底：必须“比发送前新增/变化”才视为本次新回答，避免误返回历史消息
+      var dom = readLastAnswer();
+      var mdNow = document.querySelectorAll('.ds-markdown').length;
+      var isNew = dom && (mdNow > beforeCount || dom !== beforeText);
+      if (isNew) {
+        if (dom === lastDom) stableDom++; else { stableDom = 0; lastDom = dom; }
+        if (stableDom >= 3) {
+          clearInterval(timer);
+          window.__dsCapturing = false;
+          post({ id: id, type: 'answer', text: dom });
+          return;
+        }
       }
 
       if (Date.now() - start > 115000) {
