@@ -7,10 +7,13 @@ import 'annotation_bubble.dart';
 
 /// 可标注文本渲染组件。
 ///
-/// 把一段 [KnowledgeParagraph] 渲染为"普通文本 + 高亮字段"的组合：
+/// 把一段 [KnowledgeParagraph] 渲染为"普通文本 + 内联高亮字段"的组合：
 /// - 预置注释来自 [KnowledgeParagraph.segments]（Markdown 中 `[[术语|解释]]`）；
 /// - 用户批注来自 [AnnotationStore]（运行时选中添加），按 term 合并到同一字段；
 /// 点击任意高亮字段，在其上方/下方弹出 [AnnotationBubble]。
+///
+/// 关键：整段用**单个 `Text.rich`** 渲染，高亮字段以 `WidgetSpan` 内联嵌入，
+/// 因此文本保持连续换行流，不会因高亮而把段落拆成独立盒子、破坏排版结构。
 class AnnotatedText extends StatelessWidget {
   const AnnotatedText({
     super.key,
@@ -40,9 +43,6 @@ class AnnotatedText extends StatelessWidget {
   /// 用户批注增删后回调（用于父级刷新相关状态）
   final VoidCallback? onAnnotationsChanged;
 
-  /// 计算当前段落"合并后的片段"：预置 segments 展开为 普通/注释 片段，
-  /// 再把用户批注按 term 合并进对应注释片段（note 追加展示）；无法匹配预置
-  /// 字段的用户批注，若本段纯文本包含该 term，则独立高亮到本段。
   /// 计算当前段落"合并后的片段"：把预置注释（来自 [KnowledgeParagraph.segments]）
   /// 与用户批注（运行时选中添加）都按其在正文中的实际位置高亮，而非追加到段尾。
   ///
@@ -141,7 +141,7 @@ class AnnotatedText extends StatelessWidget {
   void _onTapField(BuildContext context, _MergedSegment seg) {
     final box = context.findRenderObject() as RenderBox?;
     if (box == null) return;
-    // 高亮字段在屏幕中的位置（用全局坐标，Overlay 同坐标系）
+    // 高亮词在屏幕中的位置（用全局坐标，Overlay 同坐标系）
     final global = box.localToGlobal(Offset.zero);
     final rect = Rect.fromLTWH(
       global.dx,
@@ -168,8 +168,7 @@ class AnnotatedText extends StatelessWidget {
   }
 
   Future<void> _editUserAnnotation(BuildContext context, String term) async {
-    final existing =
-        userAnnotations.where((a) => a.term == term);
+    final existing = userAnnotations.where((a) => a.term == term);
     final initial = existing.isNotEmpty ? existing.first.note : '';
     final updated = await showNoteDialog(context, term, initial);
     if (updated == null) return;
@@ -252,55 +251,56 @@ class AnnotatedText extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
     final segs = _mergeSegments();
 
-    return Wrap(
-      crossAxisAlignment: WrapCrossAlignment.end,
-      children: [
-        for (final seg in segs)
-          if (seg.annotation == null)
-            Text(
-              seg.text,
-              style: TextStyle(
-                fontSize: 14,
-                height: 1.7,
-                color: isDark ? Colors.white70 : Colors.black87,
-              ),
-            )
-          else
-            _buildHighlight(context, seg, isDark),
-      ],
+    final baseStyle = TextStyle(
+      fontSize: 14,
+      height: 1.7,
+      color: isDark ? Colors.white70 : Colors.black87,
     );
-  }
 
-  Widget _buildHighlight(
-    BuildContext context,
-    _MergedSegment seg,
-    bool isDark,
-  ) {
-    final accent = seg.kind == AnnotationKind.preset
-        ? (isDark ? Colors.blue.shade200 : Colors.blue.shade700)
-        : (isDark ? Colors.orange.shade300 : Colors.orange.shade700);
-    return InkWell(
-      onTap: () => _onTapField(context, seg),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
-        margin: const EdgeInsets.symmetric(horizontal: 0.5),
-        decoration: BoxDecoration(
-          color: accent.withValues(alpha: isDark ? 0.22 : 0.14),
-          borderRadius: BorderRadius.circular(4),
-          border: Border(
-            bottom: BorderSide(color: accent, width: 1.4),
+    final spans = <InlineSpan>[];
+    for (final seg in segs) {
+      if (seg.annotation == null) {
+        spans.add(TextSpan(text: seg.text, style: baseStyle));
+        continue;
+      }
+      final accent = seg.kind == AnnotationKind.preset
+          ? (isDark ? Colors.blue.shade200 : Colors.blue.shade700)
+          : (isDark ? Colors.orange.shade300 : Colors.orange.shade700);
+      spans.add(WidgetSpan(
+        alignment: PlaceholderAlignment.baseline,
+        baseline: TextBaseline.alphabetic,
+        child: Builder(
+          builder: (ctx) => GestureDetector(
+            onTap: () => _onTapField(ctx, seg),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: isDark ? 0.22 : 0.12),
+                borderRadius: BorderRadius.circular(4),
+                border: Border(
+                  bottom: BorderSide(color: accent, width: 1.4),
+                ),
+              ),
+              child: Text(
+                seg.text,
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 1.7,
+                  color: accent,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
           ),
         ),
-        child: Text(
-          seg.text,
-          style: TextStyle(
-            fontSize: 14,
-            height: 1.7,
-            color: accent,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
+      ));
+    }
+
+    // 用单个 Text.rich 渲染：普通文本连续成段、正常换行；高亮以 WidgetSpan 内联，
+    // 不会像 Wrap 那样把段落拆成独立盒子而破坏排版结构。
+    return Text.rich(
+      TextSpan(style: baseStyle, children: spans),
+      textAlign: TextAlign.start,
     );
   }
 }

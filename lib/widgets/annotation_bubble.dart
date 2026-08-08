@@ -15,6 +15,7 @@ class AnnotationBubble extends StatefulWidget {
     this.onAskAi,
     this.onEdit,
     this.onDelete,
+    this.onClose,
   });
 
   /// 被标注的术语（气泡标题）
@@ -37,6 +38,9 @@ class AnnotationBubble extends StatefulWidget {
 
   /// 删除回调（仅用户批注提供）
   final VoidCallback? onDelete;
+
+  /// 关闭气泡的回调（点击空白区域 / 关闭按钮时调用）
+  final VoidCallback? onClose;
 
   /// 在 [Overlay] 中显示气泡，返回关闭函数
   static Future<void> show({
@@ -75,6 +79,7 @@ class AnnotationBubble extends StatefulWidget {
                 entry.remove();
                 onDelete();
               },
+        onClose: () => entry.remove(),
       ),
     );
     overlay.insert(entry);
@@ -117,10 +122,10 @@ class _AnnotationBubbleState extends State<AnnotationBubble> {
 
     return Stack(
       children: [
-        // 透明全屏层：点击任意处关闭气泡
+        // 透明全屏层：点击任意处关闭气泡（气泡本身覆盖在上方，点击气泡不会命中此处）
         Positioned.fill(
           child: GestureDetector(
-            onTap: () => Navigator.of(context, rootNavigator: true),
+            onTap: widget.onClose,
             behavior: HitTestBehavior.opaque,
             child: Container(color: Colors.transparent),
           ),
@@ -163,6 +168,20 @@ class _AnnotationBubbleState extends State<AnnotationBubble> {
                             ),
                           ),
                         ),
+                        // 关闭按钮
+                        if (widget.onClose != null)
+                          GestureDetector(
+                            onTap: widget.onClose,
+                            behavior: HitTestBehavior.opaque,
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 4),
+                              child: Icon(
+                                Icons.close_rounded,
+                                size: 18,
+                                color: theme.hintColor,
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                     const SizedBox(height: 8),
