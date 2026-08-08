@@ -61,8 +61,10 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.release
-            minifyEnabled false
-            shrinkResources false
+            // 开启 R8 压缩：移除未使用代码与资源，进一步减小 APK 体积
+            // （arm64 单架构已 -46%，R8 通常还能再砍数 MB）。
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }

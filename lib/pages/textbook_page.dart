@@ -15,6 +15,7 @@ import '../utils/ai_assistant_launcher.dart';
 import '../utils/knowledge_playback_mixin.dart';
 import '../widgets/ask_ai_selection_area.dart';
 import '../widgets/annotated_text.dart';
+import 'my_annotations_page.dart';
 import 'practice_page.dart';
 
 /// 大纲与考点页面 - 显示教材章节大纲与题库分类
@@ -36,6 +37,16 @@ class _TextbookPageState extends State<TextbookPage> {
       appBar: AppBar(
         title: const Text('大纲与考点'),
         centerTitle: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.note_alt_outlined),
+            tooltip: '我的批注',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const MyAnnotationsPage()),
+            ),
+          ),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(60),
           child: Padding(

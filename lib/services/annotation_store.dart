@@ -236,4 +236,53 @@ class AnnotationStore {
     final jsonList = _all.map((a) => a.toJson()).toList();
     await prefs.setString(_key, jsonEncode(jsonList));
   }
+
+  /// 全部批注（只读视图），供"我的批注"汇总页展示。
+  static List<UserAnnotation> get all => List.unmodifiable(_all);
+
+  /// 当前批注总数。
+  static int get count => _all.length;
+
+  /// 导出全部批注为 JSON 字符串（含版本与导出时间，便于将来兼容）。
+  static String exportJson() => jsonEncode({
+        'version': 1,
+        'exportedAt': DateTime.now().toIso8601String(),
+        'annotations': _all.map((a) => a.toJson()).toList(),
+      });
+
+  /// 从 JSON 字符串导入批注。
+  ///
+  /// [merge]=true 时按主键合并（冲突以导入内容为准，不会误删本地其它批注）；
+  /// [merge]=false 时先清空再整体替换。返回导入的条数。
+  static Future<int> importJson(String json, {bool merge = true}) async {
+    final decoded = jsonDecode(json);
+    final List<dynamic> list;
+    if (decoded is Map<String, dynamic> && decoded['annotations'] is List) {
+      list = decoded['annotations'] as List<dynamic>;
+    } else if (decoded is List) {
+      list = decoded;
+    } else {
+      throw const FormatException('无法识别的批注备份格式');
+    }
+    final incoming = <UserAnnotation>[
+      for (final e in list) UserAnnotation.fromJson(e as Map<String, dynamic>),
+    ];
+    if (!merge) {
+      _all = [];
+      _byKey.clear();
+    }
+    for (final a in incoming) {
+      _byKey[a.paragraphKey] = a; // 主键冲突：导入覆盖本地
+    }
+    _all = _byKey.values.toList();
+    await _persist();
+    return incoming.length;
+  }
+
+  /// 清空全部批注（谨慎使用，通常配合导出备份）。
+  static Future<void> clearAll() async {
+    _all = [];
+    _byKey.clear();
+    await _persist();
+  }
 }
