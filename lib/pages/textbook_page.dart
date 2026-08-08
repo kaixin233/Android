@@ -17,6 +17,7 @@ import '../widgets/ask_ai_selection_area.dart';
 import '../widgets/annotated_text.dart';
 import 'my_annotations_page.dart';
 import 'practice_page.dart';
+import 'global_search_page.dart';
 
 /// 大纲与考点页面 - 显示教材章节大纲与题库分类
 class TextbookPage extends StatefulWidget {
@@ -28,6 +29,22 @@ class TextbookPage extends StatefulWidget {
 
 class _TextbookPageState extends State<TextbookPage> {
   String _searchQuery = '';
+  Map<String, Map<String, dynamic>> _lastRead = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLastRead();
+  }
+
+  Future<void> _loadLastRead() async {
+    final map = <String, Map<String, dynamic>>{};
+    for (final book in Textbooks.all) {
+      final entry = await StorageService.loadLastRead(book.subject.name);
+      if (entry != null) map[book.subject.name] = entry;
+    }
+    if (mounted) setState(() => _lastRead = map);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +55,14 @@ class _TextbookPageState extends State<TextbookPage> {
         title: const Text('大纲与考点'),
         centerTitle: false,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.search_rounded),
+            tooltip: '全局搜索',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const GlobalSearchPage()),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.note_alt_outlined),
             tooltip: '我的批注',
@@ -81,6 +106,8 @@ class _TextbookPageState extends State<TextbookPage> {
           // 总体学习进度概览
           _buildOverallProgress(theme, app),
           const SizedBox(height: 16),
+          // 继续阅读
+          _buildContinueReading(theme),
           ...Textbooks.all.map((book) => _TextbookCard(book: book, searchQuery: _searchQuery)),
           const SizedBox(height: 24),
           Card(
@@ -107,6 +134,103 @@ class _TextbookPageState extends State<TextbookPage> {
           ),
         ],
       ),
+    );
+  }
+
+  /// 继续阅读：列出各科目上次打开的章节考点，点按直达。
+  Widget _buildContinueReading(ThemeData theme) {
+    if (_lastRead.isEmpty) return const SizedBox.shrink();
+    final items = <Widget>[];
+    for (final entry in _lastRead.entries) {
+      Textbook? book;
+      for (final b in Textbooks.all) {
+        if (b.subject.name == entry.key) {
+          book = b;
+          break;
+        }
+      }
+      if (book == null) continue;
+      final selected = book;
+      final data = entry.value;
+      final chapterNumber = data['chapterNumber'] as String? ?? '';
+      final title = data['title'] as String? ?? '';
+      items.add(
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(color: Color(book.color).withValues(alpha: 0.3)),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ChapterKnowledgePage(
+                  subject: selected.subject,
+                  chapterNumber: chapterNumber,
+                  chapterTitle: title,
+                  bookColor: selected.color,
+                  bookTitle: selected.title,
+                ),
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Color(book.color).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.play_circle_outline_rounded,
+                        color: Color(book.color)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('继续阅读 · ${book.title}',
+                            style: const TextStyle(
+                                fontSize: 13, fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 2),
+                        Text(title,
+                            style: TextStyle(
+                                fontSize: 13, color: Colors.grey.shade600),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.arrow_forward_rounded),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.history_rounded, color: theme.colorScheme.primary),
+            const SizedBox(width: 8),
+            Text('继续阅读',
+                style: theme.textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ...items,
+        const SizedBox(height: 16),
+      ],
     );
   }
 
@@ -389,6 +513,13 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     initKnowledgePlayback();
     // 确保用户批注已从本地加载到内存
     AnnotationStore.ensureLoaded();
+    // 记录"上次阅读"，用于教材页"继续阅读"
+    StorageService.saveLastRead(
+      widget.subject.name,
+      widget.chapterNumber,
+      widget.subsection.number,
+      widget.subsection.title,
+    );
   }
 
   @override
@@ -1130,6 +1261,24 @@ class _KnowledgeSectionCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                // 书签按钮
+                if (onAnnotate != null)
+                  GestureDetector(
+                    onTap: () => _toggleBookmark(context),
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        Icons.bookmark_outline_rounded,
+                        color: color,
+                        size: 20,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -1141,7 +1290,7 @@ class _KnowledgeSectionCard extends StatelessWidget {
               extraActions: onAnnotate == null
                   ? const []
                   : [SelectionAction(label: '加注释', onSelected: onAnnotate!)],
-              child: _buildParagraphs(theme, isDark),
+              child: _buildParagraphs(context, theme, isDark),
             ),
           ),
         ],
@@ -1149,42 +1298,110 @@ class _KnowledgeSectionCard extends StatelessWidget {
     );
   }
 
-  Widget _buildParagraphs(ThemeData theme, bool isDark) {
+  /// 点击配图查看大图（可双指缩放/拖动）。
+  void _showImageZoom(BuildContext context, String imagePath) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (ctx) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            foregroundColor: Colors.white,
+            title: const Text('查看大图'),
+          ),
+          body: InteractiveViewer(
+            minScale: 0.5,
+            maxScale: 4,
+            child: Center(
+              child: Image.asset(
+                'assets/knowledge/$imagePath',
+                fit: BoxFit.contain,
+                errorBuilder: (c, e, s) => const Center(
+                  child: Icon(Icons.broken_image_outlined,
+                      color: Colors.white54, size: 64),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 切换当前小节的阅读书签。
+  Future<void> _toggleBookmark(BuildContext context) async {
+    final id = '${subject.name}_$chapterNumber}_${section.number}';
+    final bookmarked = await StorageService.toggleBookmark({
+      'id': id,
+      'subject': subject.name,
+      'chapterNumber': chapterNumber,
+      'sectionNumber': section.number,
+      'title': section.title,
+      'savedAt': DateTime.now().toIso8601String(),
+    });
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(bookmarked ? '已加入书签' : '已移除书签')),
+      );
+    }
+  }
+
+  Widget _buildParagraphs(BuildContext context, ThemeData theme, bool isDark) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: section.paragraphs.map((p) {
         // 图片段落
         if (p.imagePath != null) {
+          final imagePath = p.imagePath!;
           return Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.asset(
-                'assets/knowledge/${p.imagePath}',
-                fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: isDark ? Colors.black26 : Colors.grey.shade200,
+            child: GestureDetector(
+              onTap: () => _showImageZoom(context, imagePath),
+              child: Stack(
+                alignment: Alignment.topRight,
+                children: [
+                  ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.broken_image_outlined,
-                          color: isDark ? Colors.white54 : Colors.grey),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '图片缺失：${p.imagePath}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: isDark ? Colors.white54 : Colors.grey,
-                          ),
+                    child: Image.asset(
+                      'assets/knowledge/$imagePath',
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.black26 : Colors.grey.shade200,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.broken_image_outlined,
+                                color: isDark ? Colors.white54 : Colors.grey),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '图片缺失：$imagePath',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark ? Colors.white54 : Colors.grey,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
-                ),
+                  Container(
+                    margin: const EdgeInsets.all(8),
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.zoom_in_rounded,
+                        color: Colors.white, size: 18),
+                  ),
+                ],
               ),
             ),
           );
@@ -1317,6 +1534,13 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
     initKnowledgePlayback();
     // 确保用户批注已从本地加载到内存
     AnnotationStore.ensureLoaded();
+    // 记录"上次阅读"（章节级），用于教材页"继续阅读"
+    StorageService.saveLastRead(
+      widget.subject.name,
+      widget.chapterNumber,
+      '',
+      '第${widget.chapterNumber}章 考点知识',
+    );
   }
 
   @override

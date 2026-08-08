@@ -190,6 +190,123 @@ class StorageService {
     await prefs.setString(_themeModeKey, mode);
   }
 
+  // ========== 阅读字号缩放 ==========
+
+  static const String _fontScaleKey = 'fontScale';
+
+  static Future<double> loadFontScale() async {
+    final prefs = await _instance;
+    return prefs.getDouble(_fontScaleKey) ?? 1.0;
+  }
+
+  static Future<void> saveFontScale(double scale) async {
+    final prefs = await _instance;
+    await prefs.setDouble(_fontScaleKey, scale);
+  }
+
+  // ========== 自动本地备份时间戳 ==========
+
+  static const String _lastAutoBackupKey = 'lastAutoBackupAt';
+
+  static Future<int> loadLastAutoBackup() async {
+    final prefs = await _instance;
+    return prefs.getInt(_lastAutoBackupKey) ?? 0;
+  }
+
+  static Future<void> saveLastAutoBackup(int millis) async {
+    final prefs = await _instance;
+    await prefs.setInt(_lastAutoBackupKey, millis);
+  }
+
+  // ========== 自动备份开关 ==========
+
+  static const String _autoBackupKey = 'autoBackupEnabled';
+
+  static Future<bool> loadAutoBackupEnabled() async {
+    final prefs = await _instance;
+    return prefs.getBool(_autoBackupKey) ?? true;
+  }
+
+  static Future<void> saveAutoBackupEnabled(bool enabled) async {
+    final prefs = await _instance;
+    await prefs.setBool(_autoBackupKey, enabled);
+  }
+
+  // ========== 阅读书签 + 上次阅读 ==========
+
+  static const String _bookmarksKey = 'readingBookmarks';
+  static const String _lastReadKey = 'lastReadSection';
+
+  static Future<List<Map<String, dynamic>>> loadBookmarks() async {
+    final prefs = await _instance;
+    final raw = prefs.getString(_bookmarksKey);
+    if (raw == null) return [];
+    try {
+      final list = jsonDecode(raw) as List<dynamic>;
+      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  static Future<void> saveBookmarks(List<Map<String, dynamic>> bookmarks) async {
+    final prefs = await _instance;
+    await prefs.setString(_bookmarksKey, jsonEncode(bookmarks));
+  }
+
+  static Future<bool> isBookmarked(String id) async {
+    final list = await loadBookmarks();
+    return list.any((b) => b['id'] == id);
+  }
+
+  /// 切换书签：已存在则移除，否则新增。返回最新是否收藏。
+  static Future<bool> toggleBookmark(Map<String, dynamic> bookmark) async {
+    final list = await loadBookmarks();
+    final idx = list.indexWhere((b) => b['id'] == bookmark['id']);
+    final nowBookmarked = idx < 0;
+    if (nowBookmarked) {
+      list.add(bookmark);
+    } else {
+      list.removeAt(idx);
+    }
+    await saveBookmarks(list);
+    return nowBookmarked;
+  }
+
+  static Future<void> saveLastRead(
+    String subject,
+    String chapterNumber,
+    String sectionNumber,
+    String title,
+  ) async {
+    final prefs = await _instance;
+    final map = <String, dynamic>{
+      'chapterNumber': chapterNumber,
+      'sectionNumber': sectionNumber,
+      'title': title,
+      'at': DateTime.now().toIso8601String(),
+    };
+    final all = prefs.getString(_lastReadKey);
+    final data = all == null
+        ? <String, dynamic>{}
+        : (jsonDecode(all) as Map<String, dynamic>);
+    data[subject] = map;
+    await prefs.setString(_lastReadKey, jsonEncode(data));
+  }
+
+  static Future<Map<String, dynamic>?> loadLastRead(String subject) async {
+    final prefs = await _instance;
+    final all = prefs.getString(_lastReadKey);
+    if (all == null) return null;
+    try {
+      final data = jsonDecode(all) as Map<String, dynamic>;
+      final entry = data[subject];
+      return entry == null ? null : Map<String, dynamic>.from(entry as Map);
+    } catch (e) {
+      return null;
+    }
+  }
+
   // ========== 震动反馈 ==========
 
   static Future<bool> loadVibrationEnabled() async {

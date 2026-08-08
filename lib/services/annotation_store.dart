@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -11,15 +12,55 @@ enum AnnotationScope {
   global,
 }
 
+/// 用户批注的分类，用于阅读时按类型配色区分。
+enum AnnotationCategory {
+  /// 重点：需要记住的核心结论。
+  keyPoint,
+
+  /// 疑问：没理解、待弄清的地方。
+  question,
+
+  /// 待背：需要背诵记忆的内容。
+  todo,
+}
+
+extension AnnotationCategoryX on AnnotationCategory {
+  String get label {
+    switch (this) {
+      case AnnotationCategory.keyPoint:
+        return '重点';
+      case AnnotationCategory.question:
+        return '疑问';
+      case AnnotationCategory.todo:
+        return '待背';
+    }
+  }
+
+  /// 批注底色（浅）/ 文字与边框色（深），随主题自适应。
+  Color get color {
+    switch (this) {
+      case AnnotationCategory.keyPoint:
+        return const Color(0xFFE65100); // 橙
+      case AnnotationCategory.question:
+        return const Color(0xFF1565C0); // 蓝
+      case AnnotationCategory.todo:
+        return const Color(0xFF2E7D32); // 绿
+    }
+  }
+}
+
 /// 添加 / 编辑批注弹窗的返回值。
 class AnnotationResult {
-  const AnnotationResult(this.note, this.scope);
+  const AnnotationResult(this.note, this.scope, [this.category = AnnotationCategory.keyPoint]);
 
   /// 批注内容（已 trim）。
   final String note;
 
   /// 生效范围。
   final AnnotationScope scope;
+
+  /// 分类（重点/疑问/待背）。
+  final AnnotationCategory category;
 }
 
 /// 用户批注（运行时在考点知识中选中文本后添加）。
@@ -44,6 +85,9 @@ class UserAnnotation {
   /// 生效范围：[AnnotationScope.field] 仅本小节；[AnnotationScope.global] 本科目全局。
   final AnnotationScope scope;
 
+  /// 分类（重点/疑问/待背），用于配色区分。
+  final AnnotationCategory category;
+
   const UserAnnotation({
     required this.subject,
     required this.chapterNumber,
@@ -53,6 +97,7 @@ class UserAnnotation {
     required this.note,
     required this.createdAt,
     this.scope = AnnotationScope.field,
+    this.category = AnnotationCategory.keyPoint,
   });
 
   Map<String, dynamic> toJson() => {
@@ -64,6 +109,7 @@ class UserAnnotation {
         'note': note,
         'createdAt': createdAt,
         'scope': scope.name,
+        'category': category.name,
       };
 
   factory UserAnnotation.fromJson(Map<String, dynamic> json) => UserAnnotation(
@@ -78,6 +124,10 @@ class UserAnnotation {
           (e) => e.name == (json['scope'] as String?),
           orElse: () => AnnotationScope.field,
         ),
+        category: AnnotationCategory.values.firstWhere(
+          (e) => e.name == (json['category'] as String?),
+          orElse: () => AnnotationCategory.keyPoint,
+        ),
       );
 
   /// 不可变更新副本（保留原始定位主键，便于原地编辑）。
@@ -90,6 +140,7 @@ class UserAnnotation {
     String? note,
     int? createdAt,
     AnnotationScope? scope,
+    AnnotationCategory? category,
   }) =>
       UserAnnotation(
         subject: subject ?? this.subject,
@@ -100,6 +151,7 @@ class UserAnnotation {
         note: note ?? this.note,
         createdAt: createdAt ?? this.createdAt,
         scope: scope ?? this.scope,
+        category: category ?? this.category,
       );
 
   /// 段落内定位主键：相同段落 + 相同 term 视为同一处（用于去重/更新）。

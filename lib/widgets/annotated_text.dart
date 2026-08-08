@@ -98,6 +98,7 @@ class AnnotatedText extends StatelessWidget {
           term: u.term,
           note: u.note,
           kind: AnnotationKind.user,
+          category: u.category,
         ));
         idx = text.indexOf(u.term, idx + u.term.length);
       }
@@ -123,6 +124,9 @@ class AnnotatedText extends StatelessWidget {
                 ? presetNote
                 : '$presetNote\n\n— 我的批注 —\n$userNote',
             kind: AnnotationKind.user,
+            category: last.kind == AnnotationKind.user
+                ? last.category
+                : m.category,
           );
         }
         // 术语不同的重叠（如用户批注落在预置长术语内部）：保留先放置者，忽略后者
@@ -142,6 +146,7 @@ class AnnotatedText extends StatelessWidget {
         text: m.term,
         annotation: m.note,
         kind: m.kind,
+        category: m.category,
       ));
       pos = m.end;
     }
@@ -170,6 +175,7 @@ class AnnotatedText extends StatelessWidget {
       anchorRect: rect,
       kind: seg.kind,
       scope: ann?.scope,
+      category: ann?.category ?? AnnotationCategory.keyPoint,
       onAskAi: onAskAi == null
           ? null
           : () => onAskAi!('${seg.text}：${seg.annotation ?? ''}'),
@@ -202,12 +208,21 @@ class AnnotatedText extends StatelessWidget {
   Future<void> _editUserAnnotation(BuildContext context, String term) async {
     final existing = _findUserAnnotation(term);
     if (existing == null) return;
-    final result =
-        await showNoteDialog(context, term, existing.note, initialScope: existing.scope);
+    final result = await showNoteDialog(
+      context,
+      term,
+      existing.note,
+      initialScope: existing.scope,
+      initialCategory: existing.category,
+    );
     if (result == null) return;
-    // 沿用原批注对象（保留主键与 scope），仅更新内容与范围
+    // 沿用原批注对象（保留主键与 scope/category），仅更新内容与范围
     await AnnotationStore.upsert(
-      existing.copyWith(note: result.note, scope: result.scope),
+      existing.copyWith(
+        note: result.note,
+        scope: result.scope,
+        category: result.category,
+      ),
     );
     onAnnotationsChanged?.call();
   }
@@ -226,9 +241,11 @@ class AnnotatedText extends StatelessWidget {
     String term,
     String initial, {
     AnnotationScope initialScope = AnnotationScope.field,
+    AnnotationCategory initialCategory = AnnotationCategory.keyPoint,
   }) async {
     final controller = TextEditingController(text: initial);
     var scope = initialScope;
+    var category = initialCategory;
     return showDialog<AnnotationResult>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -251,6 +268,27 @@ class AnnotatedText extends StatelessWidget {
                   hintText: '写下你的理解、解释或备注…',
                   border: OutlineInputBorder(),
                 ),
+              ),
+              const SizedBox(height: 16),
+              const Text('分类', style: TextStyle(fontSize: 13, color: Colors.grey)),
+              const SizedBox(height: 8),
+              SegmentedButton<AnnotationCategory>(
+                selected: {category},
+                onSelectionChanged: (s) => setState(() => category = s.first),
+                segments: const [
+                  ButtonSegment(
+                    value: AnnotationCategory.keyPoint,
+                    label: Text('重点'),
+                  ),
+                  ButtonSegment(
+                    value: AnnotationCategory.question,
+                    label: Text('疑问'),
+                  ),
+                  ButtonSegment(
+                    value: AnnotationCategory.todo,
+                    label: Text('待背'),
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
               const Text('生效范围', style: TextStyle(fontSize: 13, color: Colors.grey)),
@@ -285,7 +323,7 @@ class AnnotatedText extends StatelessWidget {
             ),
             FilledButton(
               onPressed: () => Navigator.of(ctx).pop(
-                AnnotationResult(controller.text.trim(), scope),
+                AnnotationResult(controller.text.trim(), scope, category),
               ),
               child: const Text('保存'),
             ),
@@ -315,7 +353,7 @@ class AnnotatedText extends StatelessWidget {
       }
       final accent = seg.kind == AnnotationKind.preset
           ? (isDark ? Colors.blue.shade200 : Colors.blue.shade700)
-          : (isDark ? Colors.orange.shade300 : Colors.orange.shade700);
+          : (seg.category ?? AnnotationCategory.keyPoint).color;
       spans.add(WidgetSpan(
         alignment: PlaceholderAlignment.baseline,
         baseline: TextBaseline.alphabetic,
@@ -362,6 +400,7 @@ class _Mark {
   final String term;
   final String note;
   final AnnotationKind kind;
+  final AnnotationCategory category;
 
   const _Mark({
     required this.start,
@@ -369,6 +408,7 @@ class _Mark {
     required this.term,
     required this.note,
     required this.kind,
+    this.category = AnnotationCategory.keyPoint,
   });
 }
 
@@ -377,10 +417,12 @@ class _MergedSegment {
   final String text;
   final String? annotation;
   final AnnotationKind kind;
+  final AnnotationCategory? category;
 
   const _MergedSegment({
     required this.text,
     this.annotation,
     this.kind = AnnotationKind.preset,
+    this.category,
   });
 }

@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
 import '../models/history_item.dart';
 import '../services/storage_service.dart';
+import '../services/backup_service.dart';
 import '../services/tts_service.dart';
 import 'knowledge_assessment_page.dart';
 import 'note_page.dart';
@@ -150,11 +151,33 @@ class _ProfilePageState extends State<ProfilePage> {
                       DropdownMenuItem(value: 'system', child: Text('跟随系统')),
                       DropdownMenuItem(value: 'light', child: Text('浅色')),
                       DropdownMenuItem(value: 'dark', child: Text('深色')),
+                      DropdownMenuItem(value: 'eyeCare', child: Text('护眼')),
                     ],
                     onChanged: (value) async {
                       if (value == null) return;
                       await widget.onThemeChanged(value);
                     },
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.text_fields_rounded, color: Colors.blue),
+                  title: const Text('阅读字号'),
+                  subtitle: Slider(
+                    value: app.fontScale,
+                    min: 0.8,
+                    max: 1.4,
+                    divisions: 12,
+                    label: '${(app.fontScale * 100).toInt()}%',
+                    onChanged: (value) {
+                      context.read<AppProvider>().saveFontScale(
+                        double.parse(value.toStringAsFixed(2)),
+                      );
+                    },
+                  ),
+                  trailing: Text(
+                    '${(app.fontScale * 100).toInt()}%',
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
                   ),
                 ),
                 const Divider(height: 1),
@@ -363,6 +386,23 @@ class _ProfilePageState extends State<ProfilePage> {
                   padding: const EdgeInsets.all(16),
                   child: Text('数据管理', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                 ),
+                SwitchListTile(
+                  secondary: const Icon(Icons.backup_rounded, color: Colors.teal),
+                  title: const Text('自动本地备份'),
+                  subtitle: const Text('每周自动备份到应用私有目录'),
+                  value: app.autoBackup,
+                  onChanged: (value) {
+                    context.read<AppProvider>().saveAutoBackup(value);
+                  },
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.backup_rounded, color: Colors.teal),
+                  title: const Text('立即备份'),
+                  subtitle: const Text('把题库、记录、收藏、批注备份到本地'),
+                  onTap: _backupNow,
+                ),
+                const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.download_rounded, color: Colors.blue),
                   title: const Text('导出全部数据'),
@@ -464,6 +504,23 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
       ),
     );
+  }
+
+  Future<void> _backupNow() async {
+    try {
+      final file = await BackupService.backupNow();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已备份到：${file.path}')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('备份失败：$e')),
+        );
+      }
+    }
   }
 
   Future<void> _exportData() async {

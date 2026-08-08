@@ -937,12 +937,24 @@ class _PracticePageState extends State<PracticePage> {
     final question = _questions[_currentIndex];
     final isLast = _currentIndex == _questions.length - 1;
     final theme = Theme.of(context);
+    final app = context.watch<AppProvider>();
+    final isFav = app.favorites.contains(question.uniqueKey);
     final progress = (_currentIndex + 1) / _questions.length;
 
     return Scaffold(
       appBar: AppBar(
         title: Text(_getPracticeTitle()),
         actions: [
+          // 收藏当前题目
+          IconButton(
+            icon: Icon(
+              isFav ? Icons.star_rounded : Icons.star_outline_rounded,
+              color: isFav ? Colors.amber : null,
+            ),
+            tooltip: isFav ? '取消收藏' : '收藏题目',
+            onPressed: () =>
+                context.read<AppProvider>().toggleFavorite(question.uniqueKey),
+          ),
           // AI 学习助手（以当前题目为上下文提问）
           IconButton(
             icon: const Icon(Icons.auto_awesome_rounded),

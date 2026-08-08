@@ -37,7 +37,6 @@ class _AppRoot extends StatefulWidget {
 }
 
 class _AppRootState extends State<_AppRoot> {
-  ThemeMode _themeMode = ThemeMode.system;
   bool _isInitialized = false;
 
   @override
@@ -49,12 +48,7 @@ class _AppRootState extends State<_AppRoot> {
   Future<void> _initializeApp() async {
     final provider = Provider.of<AppProvider>(context, listen: false);
     await provider.initialize();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      setState(() {
-        _themeMode = _parseThemeMode(provider.themeMode);
-        _isInitialized = true;
-      });
-    });
+    if (mounted) setState(() => _isInitialized = true);
   }
 
   ThemeMode _parseThemeMode(String mode) {
@@ -68,21 +62,64 @@ class _AppRootState extends State<_AppRoot> {
     }
   }
 
+  /// 护眼（米黄）主题：暖色调、低蓝光，适合长时间阅读。
+  ThemeData get _eyeCareTheme => ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFB08968),
+          brightness: Brightness.light,
+        ),
+        useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFFF5ECD8),
+        cardColor: const Color(0xFFFBF4E6),
+      );
+
+  ({ThemeData theme, ThemeData darkTheme, ThemeMode mode}) _resolveTheme(String mode) {
+    if (mode == 'eyeCare') {
+      return (theme: _eyeCareTheme, darkTheme: _eyeCareTheme, mode: ThemeMode.light);
+    }
+    return (
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green, brightness: Brightness.light),
+        useMaterial3: true,
+      ),
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green, brightness: Brightness.dark),
+        useMaterial3: true,
+      ),
+      mode: _parseThemeMode(mode),
+    );
+  }
+
   Future<void> _setThemeMode(String mode) async {
+    // 仅负责持久化；主题由 watch(provider) 响应式刷新
     final provider = Provider.of<AppProvider>(context, listen: false);
     await provider.saveThemeMode(mode);
-    setState(() {
-      _themeMode = _parseThemeMode(mode);
-    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final provider = context.watch<AppProvider>();
     if (!_isInitialized) {
       return const MaterialApp(
-        home: Scaffold(body: Center(child: CircularProgressIndicator())),
+        home: Scaffold(
+          body: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.school_rounded, size: 72, color: Colors.green),
+                SizedBox(height: 16),
+                Text('二级建造师学习',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                SizedBox(height: 12),
+                CircularProgressIndicator(),
+              ],
+            ),
+          ),
+        ),
       );
     }
+
+    final resolved = _resolveTheme(provider.themeMode);
 
     return MaterialApp(
       title: '二级建造师学习',
@@ -98,19 +135,18 @@ class _AppRootState extends State<_AppRoot> {
         Locale('zh', 'CN'),
         Locale('en', 'US'),
       ],
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green, brightness: Brightness.light),
-        useMaterial3: true,
+      theme: resolved.theme,
+      darkTheme: resolved.darkTheme,
+      themeMode: resolved.mode,
+      // 全局字号缩放：阅读/题库等所有文字随设置放大或缩小
+      builder: (ctx, child) => MediaQuery(
+        data: MediaQuery.of(ctx).copyWith(textScaler: TextScaler.linear(provider.fontScale)),
+        child: child!,
       ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green, brightness: Brightness.dark),
-        useMaterial3: true,
-      ),
-      themeMode: _themeMode,
       home: Stack(
         children: <Widget>[
           HomePage(
-            themeMode: _themeMode.name,
+            themeMode: provider.themeMode,
             onThemeChanged: _setThemeMode,
           ),
           // 常驻网页端 WebView（隐藏保活；登录时全屏可交互）。

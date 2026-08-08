@@ -8,6 +8,7 @@ import '../models/study_plan.dart';
 import '../services/question_service.dart';
 import '../services/storage_service.dart';
 import '../services/tts_service.dart';
+import '../services/backup_service.dart';
 
 class AppProvider extends ChangeNotifier {
   List<Question> _allQuestions = [];
@@ -21,6 +22,8 @@ class AppProvider extends ChangeNotifier {
   int _streakDays = 0;
   String _themeMode = 'system';
   bool _vibrationEnabled = true;
+  double _fontScale = 1.0;
+  bool _autoBackup = true;
 
   // 语音设置
   bool _ttsAutoPlayExplanation = true;
@@ -41,6 +44,8 @@ class AppProvider extends ChangeNotifier {
   int get streakDays => _streakDays;
   String get themeMode => _themeMode;
   bool get vibrationEnabled => _vibrationEnabled;
+  double get fontScale => _fontScale;
+  bool get autoBackup => _autoBackup;
 
   bool get ttsAutoPlayExplanation => _ttsAutoPlayExplanation;
   bool get ttsAutoReadQuestion => _ttsAutoReadQuestion;
@@ -60,10 +65,14 @@ class AppProvider extends ChangeNotifier {
         _loadWrongQuestions().catchError((e) => debugPrint('loadWrongQuestions error: $e')),
         _loadStats().catchError((e) => debugPrint('loadStats error: $e')),
         _loadThemeMode().catchError((e) => debugPrint('loadThemeMode error: $e')),
+        _loadFontScale().catchError((e) => debugPrint('loadFontScale error: $e')),
+        _loadAutoBackup().catchError((e) => debugPrint('loadAutoBackup error: $e')),
         _loadVibrationEnabled().catchError((e) => debugPrint('loadVibrationEnabled error: $e')),
         _loadAllQuestions().catchError((e) => debugPrint('loadAllQuestions error: $e')),
         _loadTtsSettings().catchError((e) => debugPrint('loadTtsSettings error: $e')),
       ]);
+      // 启动后按需触发本地自动备份（失败不影响使用）
+      BackupService.runIfNeeded().catchError((e) => debugPrint('autoBackup error: $e'));
     } catch (e) {
       debugPrint('Error initializing app: $e');
     }
@@ -108,6 +117,14 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> _loadThemeMode() async {
     _themeMode = await StorageService.loadThemeMode();
+  }
+
+  Future<void> _loadFontScale() async {
+    _fontScale = await StorageService.loadFontScale();
+  }
+
+  Future<void> _loadAutoBackup() async {
+    _autoBackup = await StorageService.loadAutoBackupEnabled();
   }
 
   Future<void> _loadVibrationEnabled() async {
@@ -219,6 +236,18 @@ class AppProvider extends ChangeNotifier {
     _themeMode = mode;
     notifyListeners();
     await StorageService.saveThemeMode(mode);
+  }
+
+  Future<void> saveFontScale(double scale) async {
+    _fontScale = scale;
+    notifyListeners();
+    await StorageService.saveFontScale(scale);
+  }
+
+  Future<void> saveAutoBackup(bool enabled) async {
+    _autoBackup = enabled;
+    notifyListeners();
+    await StorageService.saveAutoBackupEnabled(enabled);
   }
 
   Future<void> saveVibrationEnabled(bool enabled) async {

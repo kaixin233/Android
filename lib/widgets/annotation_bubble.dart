@@ -12,6 +12,7 @@ class AnnotationBubble extends StatefulWidget {
     super.key,
     required this.term,
     required this.note,
+    required this.category,
     required this.anchorRect,
     this.kind = AnnotationKind.preset,
     this.scope,
@@ -36,6 +37,9 @@ class AnnotationBubble extends StatefulWidget {
   /// 用户批注的生效范围（仅 [AnnotationKind.user] 有意义），用于在气泡上标注。
   final AnnotationScope? scope;
 
+  /// 用户批注分类（重点/疑问/待背），用于配色与标签。
+  final AnnotationCategory category;
+
   /// "问 AI 解释"回调（仅预置注释默认提供）
   final VoidCallback? onAskAi;
 
@@ -56,6 +60,7 @@ class AnnotationBubble extends StatefulWidget {
     required Rect anchorRect,
     AnnotationKind kind = AnnotationKind.preset,
     AnnotationScope? scope,
+    AnnotationCategory category = AnnotationCategory.keyPoint,
     VoidCallback? onAskAi,
     VoidCallback? onEdit,
     VoidCallback? onDelete,
@@ -69,6 +74,7 @@ class AnnotationBubble extends StatefulWidget {
         anchorRect: anchorRect,
         kind: kind,
         scope: scope,
+        category: category,
         onAskAi: onAskAi == null
             ? null
             : () {
@@ -126,7 +132,7 @@ class _AnnotationBubbleState extends State<AnnotationBubble> {
 
     final accent = widget.kind == AnnotationKind.preset
         ? (isDark ? Colors.blue.shade200 : Colors.blue.shade700)
-        : (isDark ? Colors.orange.shade200 : Colors.orange.shade700);
+        : widget.category.color;
 
     return Stack(
       children: [
@@ -201,33 +207,57 @@ class _AnnotationBubbleState extends State<AnnotationBubble> {
                         color: isDark ? Colors.white70 : Colors.black87,
                       ),
                     ),
-                    if (widget.kind == AnnotationKind.user &&
-                        widget.scope != null)
+                    if (widget.kind == AnnotationKind.user)
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: (isDark
-                                    ? Colors.orange.shade200
-                                    : Colors.orange.shade700)
-                                .withValues(alpha: 0.14),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            widget.scope == AnnotationScope.global
-                                ? '全局生效'
-                                : '仅当前字段',
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              color: isDark
-                                  ? Colors.orange.shade200
-                                  : Colors.orange.shade700,
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: widget.category.color.withValues(alpha: 0.14),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                widget.category.label,
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: widget.category.color,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                             ),
-                          ),
+                            if (widget.scope != null)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: (isDark
+                                          ? Colors.orange.shade200
+                                          : Colors.orange.shade700)
+                                      .withValues(alpha: 0.14),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  widget.scope == AnnotationScope.global
+                                      ? '全局生效'
+                                      : '仅当前字段',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    color: isDark
+                                        ? Colors.orange.shade200
+                                        : Colors.orange.shade700,
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     if (widget.onAskAi != null ||
