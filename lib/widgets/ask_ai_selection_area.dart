@@ -44,17 +44,15 @@ class _AskAiSelectionAreaState extends State<AskAiSelectionArea> {
         _selectedText = content?.plainText.trim() ?? '';
       },
       contextMenuBuilder: (context, selectableRegionState) {
-        final items = <ContextMenuButtonItem>[
-          ...selectableRegionState.contextMenuButtonItems,
-          if (_selectedText.isNotEmpty)
-            ContextMenuButtonItem(
-              label: '问 AI',
-              onPressed: () {
-                final text = _selectedText;
-                selectableRegionState.hideToolbar();
-                if (text.isNotEmpty) widget.onAskAi(text);
-              },
-            ),
+        // 默认系统项只保留最常用的"复制""全选"，去掉分享/搜索等，避免把自定义项挤进"更多"
+        final defaults = selectableRegionState.contextMenuButtonItems
+            .where((b) =>
+                b.type == ContextMenuButtonType.copy ||
+                b.type == ContextMenuButtonType.selectAll)
+            .toList();
+
+        // 自定义操作（如"加注释"）优先前置，再放内置"问 AI"，保证最常操作的入口不在折叠菜单里
+        final custom = <ContextMenuButtonItem>[
           for (final action in widget.extraActions)
             if (_selectedText.isNotEmpty)
               ContextMenuButtonItem(
@@ -65,7 +63,18 @@ class _AskAiSelectionAreaState extends State<AskAiSelectionArea> {
                   if (text.isNotEmpty) action.onSelected(text);
                 },
               ),
+          if (_selectedText.isNotEmpty)
+            ContextMenuButtonItem(
+              label: '问 AI',
+              onPressed: () {
+                final text = _selectedText;
+                selectableRegionState.hideToolbar();
+                if (text.isNotEmpty) widget.onAskAi(text);
+              },
+            ),
         ];
+
+        final items = <ContextMenuButtonItem>[...custom, ...defaults];
         return AdaptiveTextSelectionToolbar.buttonItems(
           anchors: selectableRegionState.contextMenuAnchors,
           buttonItems: items,

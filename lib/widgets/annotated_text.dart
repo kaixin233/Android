@@ -43,49 +43,97 @@ class AnnotatedText extends StatelessWidget {
   /// 计算当前段落"合并后的片段"：预置 segments 展开为 普通/注释 片段，
   /// 再把用户批注按 term 合并进对应注释片段（note 追加展示）；无法匹配预置
   /// 字段的用户批注，若本段纯文本包含该 term，则独立高亮到本段。
+  /// 计算当前段落"合并后的片段"：把预置注释（来自 [KnowledgeParagraph.segments]）
+  /// 与用户批注（运行时选中添加）都按其在正文中的实际位置高亮，而非追加到段尾。
+  ///
+  /// - 预置片段：segments 的文本顺序拼接即为段落干净文本，因此可用累加偏移精确定位；
+  /// - 用户批注：在段落文本中查找术语出现的位置（可多处），就地高亮；
+  /// - 若用户批注与某预置术语重合，合并两者 note（展示为橙色"我的批注"）。
   List<_MergedSegment> _mergeSegments() {
-    final result = <_MergedSegment>[];
-    final userByTerm = <String, String>{};
-    for (final u in userAnnotations) {
-      userByTerm[u.term] = u.note;
-    }
+    final text = paragraph.text;
+    if (text.isEmpty) return const [];
 
+    // 1) 收集所有"标记区间"（按在文本中的起止位置）
+    final marks = <_Mark>[];
+
+    // 预置注释：用 segments 累加偏移定位
     final segs = paragraph.segments;
-    if (segs == null) {
-      // 无预置片段：整段作为普通文本，仅可被用户批注高亮
-      result.add(_MergedSegment(text: paragraph.text));
-    } else {
+    if (segs != null) {
+      var offset = 0;
       for (final s in segs) {
         if (s.annotation != null) {
-          final term = s.text;
-          final userNote = userByTerm.remove(term);
-          final note = userNote != null
-              ? '${s.annotation}\n\n— 我的批注 —\n$userNote'
-              : (s.annotation ?? '');
-          result.add(_MergedSegment(
-            text: term,
-            annotation: note,
-            kind: userNote != null
-                ? AnnotationKind.user
-                : AnnotationKind.preset,
+          marks.add(_Mark(
+            start: offset,
+            end: offset + s.text.length,
+            term: s.text,
+            note: s.annotation!,
+            kind: AnnotationKind.preset,
           ));
-        } else {
-          result.add(_MergedSegment(text: s.text));
         }
+        offset += s.text.length;
       }
     }
 
-    // 用户批注里没有对应预置字段的（纯用户高亮）：仅当本段文本包含该 term
-    // 时才高亮到本段，避免无关段落误高亮。
-    final paragraphPlain = paragraph.text;
-    for (final entry in userByTerm.entries) {
-      if (paragraphPlain.contains(entry.key)) {
-        result.add(_MergedSegment(
-          text: entry.key,
-          annotation: entry.value,
+    // 用户批注：在本段文本中查找术语出现的位置（可多处），就地高亮
+    for (final u in userAnnotations) {
+      if (u.term.isEmpty) continue;
+      var idx = text.indexOf(u.term);
+      while (idx != -1) {
+        marks.add(_Mark(
+          start: idx,
+          end: idx + u.term.length,
+          term: u.term,
+          note: u.note,
           kind: AnnotationKind.user,
         ));
+        idx = text.indexOf(u.term, idx + u.term.length);
       }
+    }
+
+    // 2) 处理重叠：按起始排序，重叠时优先保留先放置的；若预置与用户术语相同，
+    //    则合并 note（保留预置解释，追加用户批注），并以"用户"类型展示。
+    marks.sort((a, b) => a.start.compareTo(b.start));
+    final placed = <_Mark>[];
+    for (final m in marks) {
+      final last = placed.isEmpty ? null : placed.last;
+      if (last != null && m.start < last.end) {
+        if (last.term == m.term) {
+          final presetNote =
+              last.kind == AnnotationKind.preset ? last.note : m.note;
+          final userNote =
+              last.kind == AnnotationKind.user ? last.note : m.note;
+          placed[placed.length - 1] = _Mark(
+            start: last.start,
+            end: last.end,
+            term: last.term,
+            note: userNote.isEmpty
+                ? presetNote
+                : '$presetNote\n\n— 我的批注 —\n$userNote',
+            kind: AnnotationKind.user,
+          );
+        }
+        // 术语不同的重叠（如用户批注落在预置长术语内部）：保留先放置者，忽略后者
+        continue;
+      }
+      placed.add(m);
+    }
+
+    // 3) 按位置切出"普通文本 + 高亮片段"
+    final result = <_MergedSegment>[];
+    var pos = 0;
+    for (final m in placed) {
+      if (m.start > pos) {
+        result.add(_MergedSegment(text: text.substring(pos, m.start)));
+      }
+      result.add(_MergedSegment(
+        text: m.term,
+        annotation: m.note,
+        kind: m.kind,
+      ));
+      pos = m.end;
+    }
+    if (pos < text.length) {
+      result.add(_MergedSegment(text: text.substring(pos)));
     }
     return result;
   }
@@ -255,6 +303,23 @@ class AnnotatedText extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 标记区间：文本中 [start, end) 范围内的高亮片段及其注释
+class _Mark {
+  final int start;
+  final int end;
+  final String term;
+  final String note;
+  final AnnotationKind kind;
+
+  const _Mark({
+    required this.start,
+    required this.end,
+    required this.term,
+    required this.note,
+    required this.kind,
+  });
 }
 
 /// 合并后的渲染片段
