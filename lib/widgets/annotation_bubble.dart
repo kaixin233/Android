@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/annotation_store.dart';
+
 /// 标签注释气泡。
 ///
 /// 由 [AnnotatedText] 在点击高亮字段时调用：根据高亮字段在屏幕中的位置，
@@ -12,6 +14,7 @@ class AnnotationBubble extends StatefulWidget {
     required this.note,
     required this.anchorRect,
     this.kind = AnnotationKind.preset,
+    this.scope,
     this.onAskAi,
     this.onEdit,
     this.onDelete,
@@ -29,6 +32,9 @@ class AnnotationBubble extends StatefulWidget {
 
   /// 注释类型：预置 / 用户批注（影响操作按钮与配色）
   final AnnotationKind kind;
+
+  /// 用户批注的生效范围（仅 [AnnotationKind.user] 有意义），用于在气泡上标注。
+  final AnnotationScope? scope;
 
   /// "问 AI 解释"回调（仅预置注释默认提供）
   final VoidCallback? onAskAi;
@@ -49,6 +55,7 @@ class AnnotationBubble extends StatefulWidget {
     required String note,
     required Rect anchorRect,
     AnnotationKind kind = AnnotationKind.preset,
+    AnnotationScope? scope,
     VoidCallback? onAskAi,
     VoidCallback? onEdit,
     VoidCallback? onDelete,
@@ -61,6 +68,7 @@ class AnnotationBubble extends StatefulWidget {
         note: note,
         anchorRect: anchorRect,
         kind: kind,
+        scope: scope,
         onAskAi: onAskAi == null
             ? null
             : () {
@@ -193,6 +201,35 @@ class _AnnotationBubbleState extends State<AnnotationBubble> {
                         color: isDark ? Colors.white70 : Colors.black87,
                       ),
                     ),
+                    if (widget.kind == AnnotationKind.user &&
+                        widget.scope != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: (isDark
+                                    ? Colors.orange.shade200
+                                    : Colors.orange.shade700)
+                                .withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            widget.scope == AnnotationScope.global
+                                ? '全局生效'
+                                : '仅当前字段',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: isDark
+                                  ? Colors.orange.shade200
+                                  : Colors.orange.shade700,
+                            ),
+                          ),
+                        ),
+                      ),
                     if (widget.onAskAi != null ||
                         widget.onEdit != null ||
                         widget.onDelete != null)

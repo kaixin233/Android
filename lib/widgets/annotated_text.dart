@@ -74,9 +74,22 @@ class AnnotatedText extends StatelessWidget {
       }
     }
 
-    // 用户批注：在本段文本中查找术语出现的位置（可多处），就地高亮
+    // 用户批注：先按 term 去重（同一术语可能同时有"当前字段"与"全局"批注），
+    // 优先保留"当前字段"，同范围则保留最新；再在本段文本中查找术语位置就地高亮。
+    final userByTerm = <String, UserAnnotation>{};
     for (final u in userAnnotations) {
       if (u.term.isEmpty) continue;
+      final prev = userByTerm[u.term];
+      if (prev == null) {
+        userByTerm[u.term] = u;
+      } else if (prev.scope != u.scope) {
+        // 更具体的"当前字段"优先于"全局"
+        if (prev.scope != AnnotationScope.field) userByTerm[u.term] = u;
+      } else if (u.createdAt > prev.createdAt) {
+        userByTerm[u.term] = u;
+      }
+    }
+    for (final u in userByTerm.values) {
       var idx = text.indexOf(u.term);
       while (idx != -1) {
         marks.add(_Mark(
@@ -149,12 +162,14 @@ class AnnotatedText extends StatelessWidget {
       box.size.width,
       box.size.height,
     );
+    final ann = seg.kind == AnnotationKind.user ? _findUserAnnotation(seg.text) : null;
     AnnotationBubble.show(
       context: context,
       term: seg.text,
       note: seg.annotation ?? '',
       anchorRect: rect,
       kind: seg.kind,
+      scope: ann?.scope,
       onAskAi: onAskAi == null
           ? null
           : () => onAskAi!('${seg.text}：${seg.annotation ?? ''}'),
@@ -167,80 +182,115 @@ class AnnotatedText extends StatelessWidget {
     );
   }
 
-  Future<void> _editUserAnnotation(BuildContext context, String term) async {
-    final existing = userAnnotations.where((a) => a.term == term);
-    final initial = existing.isNotEmpty ? existing.first.note : '';
-    final updated = await showNoteDialog(context, term, initial);
-    if (updated == null) return;
-    await _upsertUserAnnotation(term, updated);
-    onAnnotationsChanged?.call();
+  /// 在当前小节批注列表中定位某术语对应的批注对象（保留原始 scope/章节）。
+  /// 优先"当前字段"，同范围取最新。
+  UserAnnotation? _findUserAnnotation(String term) {
+    UserAnnotation? best;
+    for (final a in userAnnotations) {
+      if (a.term != term) continue;
+      if (best == null) {
+        best = a;
+      } else if (best.scope != a.scope) {
+        if (best.scope != AnnotationScope.field) best = a;
+      } else if (a.createdAt > best.createdAt) {
+        best = a;
+      }
+    }
+    return best;
   }
 
-  Future<void> _deleteUserAnnotation(String term) async {
-    await AnnotationStore.remove(
-      subject.name,
-      chapterNumber,
-      section.number,
-      -1,
-      term,
+  Future<void> _editUserAnnotation(BuildContext context, String term) async {
+    final existing = _findUserAnnotation(term);
+    if (existing == null) return;
+    final result =
+        await showNoteDialog(context, term, existing.note, initialScope: existing.scope);
+    if (result == null) return;
+    // 沿用原批注对象（保留主键与 scope），仅更新内容与范围
+    await AnnotationStore.upsert(
+      existing.copyWith(note: result.note, scope: result.scope),
     );
     onAnnotationsChanged?.call();
   }
 
-  /// 新增/更新一处用户批注（整节级：paragraphIndex = -1）。
-  Future<void> _upsertUserAnnotation(String term, String note) async {
-    await AnnotationStore.upsert(UserAnnotation(
-      subject: subject.name,
-      chapterNumber: chapterNumber,
-      sectionNumber: section.number,
-      paragraphIndex: -1,
-      term: term,
-      note: note,
-      createdAt: DateTime.now().millisecondsSinceEpoch,
-    ));
+  Future<void> _deleteUserAnnotation(String term) async {
+    final target = _findUserAnnotation(term);
+    if (target == null) return;
+    await AnnotationStore.removeAnnotation(target);
+    onAnnotationsChanged?.call();
   }
 
-  /// 弹出输入框让用户填写批注（null 表示取消）。公开静态以便页面复用。
-  static Future<String?> showNoteDialog(
+  /// 弹出输入框让用户填写批注，并选择生效范围。
+  /// 返回 [AnnotationResult]（note + scope）；取消时返回 null。公开静态以便页面复用。
+  static Future<AnnotationResult?> showNoteDialog(
     BuildContext context,
     String term,
-    String initial,
-  ) async {
+    String initial, {
+    AnnotationScope initialScope = AnnotationScope.field,
+  }) async {
     final controller = TextEditingController(text: initial);
-    return showDialog<String>(
+    var scope = initialScope;
+    return showDialog<AnnotationResult>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(initial.isEmpty ? '添加批注' : '编辑批注'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '标注内容：$term',
-              style: const TextStyle(fontSize: 13, color: Colors.grey),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              maxLines: 4,
-              autofocus: true,
-              decoration: const InputDecoration(
-                hintText: '写下你的理解、解释或备注…',
-                border: OutlineInputBorder(),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => AlertDialog(
+          title: Text(initial.isEmpty ? '添加批注' : '编辑批注'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '标注内容：$term',
+                style: const TextStyle(fontSize: 13, color: Colors.grey),
               ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                maxLines: 4,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: '写下你的理解、解释或备注…',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('生效范围', style: TextStyle(fontSize: 13, color: Colors.grey)),
+              const SizedBox(height: 8),
+              SegmentedButton<AnnotationScope>(
+                selected: {scope},
+                onSelectionChanged: (s) => setState(() => scope = s.first),
+                segments: const [
+                  ButtonSegment(
+                    value: AnnotationScope.field,
+                    label: Text('当前字段'),
+                  ),
+                  ButtonSegment(
+                    value: AnnotationScope.global,
+                    label: Text('全局'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                scope == AnnotationScope.global
+                    ? '全局：本科目内所有同名术语都会显示此批注'
+                    : '当前字段：仅在本小节内显示此批注',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(null),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(
+                AnnotationResult(controller.text.trim(), scope),
+              ),
+              child: const Text('保存'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(null),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-            child: const Text('保存'),
-          ),
-        ],
       ),
     );
   }

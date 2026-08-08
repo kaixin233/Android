@@ -552,15 +552,16 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
 
   /// 为选中文本添加/编辑用户批注。term 为用户选中的短语（整节级批注）。
   Future<void> _annotateSection(KnowledgeSection section, String term) async {
-    final note = await AnnotatedText.showNoteDialog(context, term, '');
-    if (note == null || note.isEmpty) return;
+    final result = await AnnotatedText.showNoteDialog(context, term, '');
+    if (result == null || result.note.isEmpty) return;
     await AnnotationStore.upsert(UserAnnotation(
       subject: widget.subject.name,
       chapterNumber: widget.chapterNumber,
       sectionNumber: section.number,
       paragraphIndex: -1,
       term: term,
-      note: note,
+      note: result.note,
+      scope: result.scope,
       createdAt: DateTime.now().millisecondsSinceEpoch,
     ));
     if (mounted) setState(() {});
@@ -1276,15 +1277,16 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
 
   /// 为选中文本添加/编辑用户批注。term 为用户选中的短语（整节级批注）。
   Future<void> _annotateSection(KnowledgeSection section, String term) async {
-    final note = await AnnotatedText.showNoteDialog(context, term, '');
-    if (note == null || note.isEmpty) return;
+    final result = await AnnotatedText.showNoteDialog(context, term, '');
+    if (result == null || result.note.isEmpty) return;
     await AnnotationStore.upsert(UserAnnotation(
       subject: widget.subject.name,
       chapterNumber: widget.chapterNumber,
       sectionNumber: section.number,
       paragraphIndex: -1,
       term: term,
-      note: note,
+      note: result.note,
+      scope: result.scope,
       createdAt: DateTime.now().millisecondsSinceEpoch,
     ));
     if (mounted) setState(() {});

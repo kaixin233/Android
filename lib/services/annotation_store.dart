@@ -2,6 +2,26 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// 用户批注的生效范围。
+enum AnnotationScope {
+  /// 仅在添加处所在的小节生效（默认）。
+  field,
+
+  /// 全局生效：同一科目下所有出现该术语的地方都显示此批注。
+  global,
+}
+
+/// 添加 / 编辑批注弹窗的返回值。
+class AnnotationResult {
+  const AnnotationResult(this.note, this.scope);
+
+  /// 批注内容（已 trim）。
+  final String note;
+
+  /// 生效范围。
+  final AnnotationScope scope;
+}
+
 /// 用户批注（运行时在考点知识中选中文本后添加）。
 ///
 /// 与 Markdown 源中的预置注释不同，用户批注由读者创建、本地持久化，
@@ -21,6 +41,9 @@ class UserAnnotation {
   /// 创建时间戳（毫秒），用于排序与展示。
   final int createdAt;
 
+  /// 生效范围：[AnnotationScope.field] 仅本小节；[AnnotationScope.global] 本科目全局。
+  final AnnotationScope scope;
+
   const UserAnnotation({
     required this.subject,
     required this.chapterNumber,
@@ -29,6 +52,7 @@ class UserAnnotation {
     required this.term,
     required this.note,
     required this.createdAt,
+    this.scope = AnnotationScope.field,
   });
 
   Map<String, dynamic> toJson() => {
@@ -39,6 +63,7 @@ class UserAnnotation {
         'term': term,
         'note': note,
         'createdAt': createdAt,
+        'scope': scope.name,
       };
 
   factory UserAnnotation.fromJson(Map<String, dynamic> json) => UserAnnotation(
@@ -49,6 +74,32 @@ class UserAnnotation {
         term: json['term'] as String,
         note: json['note'] as String,
         createdAt: json['createdAt'] as int,
+        scope: AnnotationScope.values.firstWhere(
+          (e) => e.name == (json['scope'] as String?),
+          orElse: () => AnnotationScope.field,
+        ),
+      );
+
+  /// 不可变更新副本（保留原始定位主键，便于原地编辑）。
+  UserAnnotation copyWith({
+    String? subject,
+    String? chapterNumber,
+    String? sectionNumber,
+    int? paragraphIndex,
+    String? term,
+    String? note,
+    int? createdAt,
+    AnnotationScope? scope,
+  }) =>
+      UserAnnotation(
+        subject: subject ?? this.subject,
+        chapterNumber: chapterNumber ?? this.chapterNumber,
+        sectionNumber: sectionNumber ?? this.sectionNumber,
+        paragraphIndex: paragraphIndex ?? this.paragraphIndex,
+        term: term ?? this.term,
+        note: note ?? this.note,
+        createdAt: createdAt ?? this.createdAt,
+        scope: scope ?? this.scope,
       );
 
   /// 段落内定位主键：相同段落 + 相同 term 视为同一处（用于去重/更新）。
@@ -115,14 +166,27 @@ class AnnotationStore {
 
   /// 取某小节内的全部批注（跨段落，按创建时间升序）。
   /// 用于 `AnnotatedText` 在段落渲染时按 term 匹配高亮。
+  ///
+  /// 包含两类：
+  /// - 本小节内的 [AnnotationScope.field] 批注；
+  /// - 同一科目下 [AnnotationScope.global] 的全局批注（本科目任意小节都生效）。
   static List<UserAnnotation> annotationsForSection(
     String subject,
     String chapterNumber,
     String sectionNumber,
   ) {
-    final prefix = '$subject|$chapterNumber|$sectionNumber|';
-    return _all.where((a) => a.paragraphKey.startsWith(prefix)).toList()
-      ..sort((x, y) => x.createdAt.compareTo(y.createdAt));
+    final result = <UserAnnotation>[];
+    for (final a in _all) {
+      if (a.subject != subject) continue;
+      if (a.scope == AnnotationScope.global) {
+        result.add(a); // 全局：本科目内任意小节都生效
+      } else if (a.chapterNumber == chapterNumber &&
+          a.sectionNumber == sectionNumber) {
+        result.add(a); // 当前字段：仅本小节
+      }
+    }
+    result.sort((x, y) => x.createdAt.compareTo(y.createdAt));
+    return result;
   }
 
   /// 新增或更新一处批注（按 paragraphKey 去重，已存在则覆盖 note）。
@@ -146,7 +210,7 @@ class AnnotationStore {
     await _persist();
   }
 
-  /// 删除指定 term 的一处批注。
+  /// 删除指定 term 的一处批注（按章节定位，匹配 paragraphKey 前缀）。
   static Future<void> remove(
     String subject,
     String chapterNumber,
@@ -156,6 +220,13 @@ class AnnotationStore {
   ) async {
     final key = '$subject|$chapterNumber|$sectionNumber|$paragraphIndex|$term';
     _byKey.remove(key);
+    _all = _byKey.values.toList();
+    await _persist();
+  }
+
+  /// 删除一处批注（按完整主键定位，保留其原始 scope/章节，适用于全局批注）。
+  static Future<void> removeAnnotation(UserAnnotation a) async {
+    _byKey.remove(a.paragraphKey);
     _all = _byKey.values.toList();
     await _persist();
   }
