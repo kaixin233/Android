@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../models/ai_qa_record.dart';
 import '../pages/ai_qa_history_page.dart';
@@ -82,6 +83,10 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
   String? _failedQuestion;
   bool _hasProvider = false;
   bool _contextExpanded = false;
+  bool _debugOpen = false;
+
+  /// 网页端正在流式生成时的临时文本（实时回显用）
+  String? _streamingText;
 
   @override
   void initState() {
@@ -167,7 +172,7 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
   /// 发起一次 AI 请求并持久化结果
   ///
   /// [replaceLast] 为 true 时用新回答覆盖最后一条记录（重新生成），
-  /// 否则作为新一轮问答追加。
+  /// 否则作为新一轮问答追加。网页端通道下通过 [onProgress] 流式回显。
   Future<void> _executeAiRequest(String question,
       {bool replaceLast = false}) async {
     if (!_hasProvider) {
@@ -179,11 +184,18 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
       _isAsking = true;
       _error = null;
       _failedQuestion = null;
+      _streamingText = '';
     });
     _scrollToBottom();
 
     try {
-      final answer = await _answer(question, excludeLastTurn: replaceLast);
+      final answer = await _answer(
+        question,
+        excludeLastTurn: replaceLast,
+        onProgress: (partial) {
+          if (mounted) setState(() => _streamingText = partial);
+        },
+      );
       final message = AiQaMessage(question: question, answer: answer);
       AiQaRecord? record;
       if (replaceLast) {
@@ -202,6 +214,7 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
       setState(() {
         _record = record;
         _isAsking = false;
+        _streamingText = null;
       });
       _scrollToBottom();
     } on AiApiException catch (e) {
@@ -218,10 +231,11 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
   /// 2. 否则若配置了官方 API Key → 走官方接口（稳定、按 token 计费）；
   /// 3. 都没有 → 抛出提示，引导用户登录网页端或填 Key。
   Future<String> _answer(String question,
-      {bool excludeLastTurn = false}) async {
+      {bool excludeLastTurn = false,
+      void Function(String partial)? onProgress}) async {
     if (await WebChatBridge.instance.checkLogin()) {
       final prompt = _buildWebPrompt(question, excludeLastTurn: excludeLastTurn);
-      return WebChatBridge.instance.sendPrompt(prompt);
+      return WebChatBridge.instance.sendPrompt(prompt, onProgress: onProgress);
     }
     if (await AiService.hasApiKey()) {
       return AiService.chatOfficial(
@@ -261,6 +275,7 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
       _isAsking = false;
       _error = message;
       _failedQuestion = question;
+      _streamingText = null;
     });
     _scrollToBottom();
   }
@@ -360,6 +375,7 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
             _buildContextCard(theme),
             const Divider(height: 1),
             Expanded(child: _buildBody(theme)),
+            _buildDebugPanel(theme),
             if (_error != null) _buildErrorCard(theme),
             _buildQuickPrompts(theme),
             _buildInputBar(theme),
@@ -411,11 +427,21 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
               MaterialPageRoute(builder: (_) => const AiQaHistoryPage()),
             ),
           ),
+          IconButton(
+            icon: const Icon(Icons.add_comment_rounded),
+            tooltip: '开启新对话',
+            onPressed: _isAsking
+                ? null
+                : () => WebChatBridge.instance.newSession(),
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert_rounded),
             onSelected: (value) {
               if (value == 'regenerate') _regenerate();
               if (value == 'clear') _clearRecord();
+              if (value == 'newchat') {
+                WebChatBridge.instance.newSession();
+              }
             },
             itemBuilder: (_) => [
               PopupMenuItem(
@@ -426,6 +452,16 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(Icons.refresh_rounded),
                   title: Text('重新生成最后一条'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'newchat',
+                enabled: !_isAsking,
+                child: const ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.add_comment_rounded),
+                  title: Text('开启新对话'),
                 ),
               ),
               PopupMenuItem(
@@ -499,7 +535,7 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
       return const Center(child: CircularProgressIndicator());
     }
     final messages = _record?.messages ?? <AiQaMessage>[];
-    if (messages.isEmpty && !_isAsking) {
+    if (messages.isEmpty && !_isAsking && _streamingText == null) {
       return _buildEmptyState(theme);
     }
     return ListView.builder(
@@ -508,6 +544,10 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
       itemCount: messages.length + (_isAsking ? 1 : 0),
       itemBuilder: (context, index) {
         if (index >= messages.length) {
+          // 网页端流式生成中：实时回显当前已生成文本
+          if (_streamingText != null && _streamingText!.isNotEmpty) {
+            return _buildAiBubble(theme, _streamingText!);
+          }
           return _buildLoadingBubble(theme);
         }
         final m = messages[index];
@@ -604,7 +644,17 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SelectableText(text, style: const TextStyle(height: 1.6)),
+            MarkdownBody(
+              data: text,
+              selectable: true,
+              styleSheet: MarkdownStyleSheet(
+                p: const TextStyle(height: 1.6),
+                code: TextStyle(
+                  fontFamily: 'monospace',
+                  backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                ),
+              ),
+            ),
             Align(
               alignment: Alignment.centerRight,
               child: IconButton(
@@ -657,6 +707,45 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
                     ?.copyWith(color: theme.colorScheme.outline)),
           ],
         ),
+      ),
+    );
+  }
+
+  /// 桥接过程调试面板（可折叠）：展示 fill / enter / captured / DOM-DUMP 等事件
+  Widget _buildDebugPanel(ThemeData theme) {
+    return ValueListenableBuilder<List<String>>(
+      valueListenable: WebChatBridge.instance.debugLog,
+      builder: (context, logs, _) => ExpansionTile(
+        title: Text(
+          '桥接调试日志（${logs.length} 条）',
+          style: theme.textTheme.bodySmall
+              ?.copyWith(color: theme.colorScheme.outline),
+        ),
+        initiallyExpanded: _debugOpen,
+        onExpansionChanged: (v) => setState(() => _debugOpen = v),
+        tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+        children: [
+          Container(
+            constraints: const BoxConstraints(maxHeight: 180),
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              children: logs.reversed
+                  .map((l) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 1),
+                        child: Text(
+                          l,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                      ))
+                  .toList(),
+            ),
+          ),
+        ],
       ),
     );
   }
