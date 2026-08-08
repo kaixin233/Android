@@ -2,6 +2,21 @@ import 'package:flutter/services.dart';
 
 import '../models/question.dart';
 
+/// 行内片段：一段连续文本，可携带"标签注释"。
+///
+/// 注释（[annotation]）来自 Markdown 源中的 `[[术语|解释]]` 预置语法，
+/// 与普通文本一起组成 [KnowledgeParagraph.segments]，用于在高亮字段上
+/// 点击弹出气泡。所有 [annotation] 为 null 的片段拼接即原始干净文本。
+class InlineSegment {
+  final String text;
+
+  /// 标签注释：术语本身即 [text]，[annotation] 为气泡中展示的解释内容。
+  /// 普通文本片段此值为 null。
+  final String? annotation;
+
+  const InlineSegment(this.text, [this.annotation]);
+}
+
 /// 考点知识点段落
 class KnowledgeParagraph {
   final String text;
@@ -13,12 +28,17 @@ class KnowledgeParagraph {
   /// 仅当该段落是一张图片时非空；图片段落的 [text] 为空，不参与语音播报。
   final String? imagePath;
 
+  /// 行内片段（支持标签注释高亮）。当为 null 时表示按整段 [text] 处理，
+  /// 这是图片/标题/加粗等非注释承载型段落的常见情况。
+  final List<InlineSegment>? segments;
+
   const KnowledgeParagraph({
     required this.text,
     this.isHeading = false,
     this.isSubheading = false,
     this.isBold = false,
     this.imagePath,
+    this.segments,
   });
 }
 
@@ -207,11 +227,46 @@ class KnowledgeService {
         continue;
       }
 
-      // 普通段落
-      current.paragraphs.add(KnowledgeParagraph(text: trimmed));
+      // 普通段落（支持行内标签注释 [[术语|解释]]）
+      final parsed = _parseInlineAnnotations(trimmed);
+      current.paragraphs.add(KnowledgeParagraph(
+        text: parsed.$1,
+        segments: parsed.$2,
+      ));
     }
 
     return sections;
+  }
+
+  /// 解析普通段落中的行内标签注释语法：`[[术语|解释]]`。
+  ///
+  /// 返回 `(干净文本, 片段列表)`：
+  /// - 干净文本已剥离 `[[ ]]` 标记，仅保留术语原文（用于 TTS/AI 上下文）；
+  /// - 片段列表把文本切成交替的"普通段"（[annotation] 为 null）与"注释段"。
+  static (String, List<InlineSegment>) _parseInlineAnnotations(String src) {
+    final segments = <InlineSegment>[];
+    final buffer = StringBuffer();
+    final regex = RegExp(r'\[\[([^\[\]|]+)(?:\|([^\[\]]*))?\]\]');
+    var lastEnd = 0;
+    for (final m in regex.allMatches(src)) {
+      // 注释标记前的普通文本
+      if (m.start > lastEnd) {
+        final plain = src.substring(lastEnd, m.start);
+        segments.add(InlineSegment(plain));
+        buffer.write(plain);
+      }
+      final term = m.group(1)!.trim();
+      final note = (m.group(2) ?? '').trim();
+      segments.add(InlineSegment(term, note));
+      buffer.write(term); // 干净文本只保留术语，不含 [[ ]] 与解释
+      lastEnd = m.end;
+    }
+    if (lastEnd < src.length) {
+      final plain = src.substring(lastEnd);
+      segments.add(InlineSegment(plain));
+      buffer.write(plain);
+    }
+    return (buffer.toString(), segments);
   }
 
   /// 清除缓存

@@ -10,9 +10,11 @@ import '../services/question_loader.dart';
 import '../services/question_service.dart';
 import '../services/storage_service.dart';
 import '../services/knowledge_service.dart';
+import '../services/annotation_store.dart';
 import '../utils/ai_assistant_launcher.dart';
 import '../utils/knowledge_playback_mixin.dart';
 import '../widgets/ask_ai_selection_area.dart';
+import '../widgets/annotated_text.dart';
 import 'practice_page.dart';
 
 /// 大纲与考点页面 - 显示教材章节大纲与题库分类
@@ -374,6 +376,8 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     _loadData();
     // 预热 TTS 引擎，避免首次点击朗读时出现明显延迟
     initKnowledgePlayback();
+    // 确保用户批注已从本地加载到内存
+    AnnotationStore.ensureLoaded();
   }
 
   @override
@@ -513,10 +517,14 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
             return _KnowledgeSectionCard(
               section: section,
               color: color,
+              subject: widget.subject,
+              chapterNumber: widget.chapterNumber,
               isPlaying: isThisPlaying,
               onPlayTap: () => playSection(index),
               onAskAi: (text) => _askAiAboutSection(section, selectedText: text),
               onAskAiWhole: () => _askAiAboutSection(section),
+              onAnnotate: (text) => _annotateSection(section, text),
+              onAnnotationsChanged: () => setState(() {}),
             );
           },
         ),
@@ -540,6 +548,22 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
       section: section,
       selectedText: selectedText,
     );
+  }
+
+  /// 为选中文本添加/编辑用户批注。term 为用户选中的短语（整节级批注）。
+  Future<void> _annotateSection(KnowledgeSection section, String term) async {
+    final note = await AnnotatedText.showNoteDialog(context, term, '');
+    if (note == null || note.isEmpty) return;
+    await AnnotationStore.upsert(UserAnnotation(
+      subject: widget.subject.name,
+      chapterNumber: widget.chapterNumber,
+      sectionNumber: section.number,
+      paragraphIndex: -1,
+      term: term,
+      note: note,
+      createdAt: DateTime.now().millisecondsSinceEpoch,
+    ));
+    if (mounted) setState(() {});
   }
   Widget _buildPracticeTab(ThemeData theme, Color color) {
     return ListView(
@@ -977,14 +1001,20 @@ class _KnowledgeSectionCard extends StatelessWidget {
   const _KnowledgeSectionCard({
     required this.section,
     required this.color,
+    required this.subject,
+    required this.chapterNumber,
     this.isPlaying = false,
     this.onPlayTap,
     this.onAskAi,
     this.onAskAiWhole,
+    this.onAnnotate,
+    this.onAnnotationsChanged,
   });
 
   final KnowledgeSection section;
   final Color color;
+  final QuestionSubject subject;
+  final String chapterNumber;
   final bool isPlaying;
   final VoidCallback? onPlayTap;
 
@@ -993,6 +1023,12 @@ class _KnowledgeSectionCard extends StatelessWidget {
 
   /// 以整个小节内容为上下文向 AI 提问的回调
   final VoidCallback? onAskAiWhole;
+
+  /// 选中部分段落后点击"加注释"的回调，参数为选中文本
+  final ValueChanged<String>? onAnnotate;
+
+  /// 用户批注增删后回调（用于刷新卡片高亮）
+  final VoidCallback? onAnnotationsChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1085,15 +1121,16 @@ class _KnowledgeSectionCard extends StatelessWidget {
               ],
             ),
           ),
-          // 段落内容（支持选中文本后"问 AI"）
+          // 段落内容（支持选中文本后"问 AI" / "加注释"）
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-            child: onAskAi == null
-                ? _buildParagraphs(theme, isDark)
-                : AskAiSelectionArea(
-                    onAskAi: onAskAi!,
-                    child: _buildParagraphs(theme, isDark),
-                  ),
+            child: AskAiSelectionArea(
+              onAskAi: onAskAi ?? (_) {},
+              extraActions: onAnnotate == null
+                  ? const []
+                  : [SelectionAction(label: '加注释', onSelected: onAnnotate!)],
+              child: _buildParagraphs(theme, isDark),
+            ),
           ),
         ],
       ),
@@ -1181,13 +1218,21 @@ class _KnowledgeSectionCard extends StatelessWidget {
         }
         return Padding(
           padding: const EdgeInsets.only(top: 2, bottom: 4),
-          child: Text(
-            p.text,
-            style: TextStyle(
-              fontSize: 14,
-              height: 1.7,
-              color: isDark ? Colors.white70 : Colors.black87,
+          child: AnnotatedText(
+            paragraph: p,
+            subject: subject,
+            chapterNumber: chapterNumber,
+            section: section,
+            userAnnotations: AnnotationStore.annotationsForSection(
+              subject.name,
+              chapterNumber,
+              section.number,
             ),
+            color: color,
+            onAskAi: onAskAi == null
+                ? null
+                : (text) => onAskAi!(text),
+            onAnnotationsChanged: onAnnotationsChanged,
           ),
         );
       }).toList(),
@@ -1229,6 +1274,22 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
     );
   }
 
+  /// 为选中文本添加/编辑用户批注。term 为用户选中的短语（整节级批注）。
+  Future<void> _annotateSection(KnowledgeSection section, String term) async {
+    final note = await AnnotatedText.showNoteDialog(context, term, '');
+    if (note == null || note.isEmpty) return;
+    await AnnotationStore.upsert(UserAnnotation(
+      subject: widget.subject.name,
+      chapterNumber: widget.chapterNumber,
+      sectionNumber: section.number,
+      paragraphIndex: -1,
+      term: term,
+      note: note,
+      createdAt: DateTime.now().millisecondsSinceEpoch,
+    ));
+    if (mounted) setState(() {});
+  }
+
   bool _isLoading = true;
   List<KnowledgeSection> _sections = [];
 
@@ -1241,6 +1302,8 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
     _loadData();
     // 预热 TTS 引擎，避免首次点击朗读时出现明显延迟
     initKnowledgePlayback();
+    // 确保用户批注已从本地加载到内存
+    AnnotationStore.ensureLoaded();
   }
 
   @override
@@ -1293,6 +1356,8 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
                         return _KnowledgeSectionCard(
                           section: _sections[index],
                           color: color,
+                          subject: widget.subject,
+                          chapterNumber: widget.chapterNumber,
                           isPlaying: isThisPlaying,
                           onPlayTap: () => playSection(index),
                           onAskAi: (text) =>
@@ -1300,6 +1365,9 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
                                   selectedText: text),
                           onAskAiWhole: () =>
                               _askAiAboutSection(_sections[index]),
+                          onAnnotate: (text) =>
+                              _annotateSection(_sections[index], text),
+                          onAnnotationsChanged: () => setState(() {}),
                         );
                       },
                     ),
