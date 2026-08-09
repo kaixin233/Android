@@ -171,6 +171,7 @@ class AnnotationStore {
 
   static SharedPreferences? _prefs;
   static bool _loaded = false;
+  static Future<void>? _loadingFuture;
   static List<UserAnnotation> _all = [];
 
   /// 内存索引：paragraphKey -> 批注，便于段落级 O(1) 查询。
@@ -181,9 +182,14 @@ class AnnotationStore {
     return _prefs!;
   }
 
-  /// 确保批注已从本地加载到内存（幂等）。
+  /// 确保批注已从本地加载到内存（幂等，且并发调用只加载一次）。
   static Future<void> ensureLoaded() async {
     if (_loaded) return;
+    _loadingFuture ??= _doLoad();
+    await _loadingFuture;
+  }
+
+  static Future<void> _doLoad() async {
     final prefs = await _instance;
     final saved = prefs.getString(_key);
     _all = [];
@@ -202,6 +208,7 @@ class AnnotationStore {
       }
     }
     _loaded = true;
+    _loadingFuture = null;
   }
 
   /// 取某段内的全部批注（按创建时间升序）。

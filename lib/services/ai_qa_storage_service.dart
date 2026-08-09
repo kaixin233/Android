@@ -136,4 +136,20 @@ class AiQaStorageService {
     final prefs = await _instance;
     await prefs.remove(_recordsKey);
   }
+
+  /// 导出全部问答记录为 JSON 列表（供 StorageService 的统一数据导出使用）。
+  static Future<List<Map<String, dynamic>>> exportAllJson() async {
+    final all = await _loadAll();
+    return all.values.map((r) => r.toJson()).toList();
+  }
+
+  /// 从 JSON 列表中导入问答记录（按 itemId 合并，已存在则覆盖）。
+  static Future<void> importAllJson(List<dynamic> list) async {
+    final all = await _loadAll();
+    for (final e in list) {
+      final rec = AiQaRecord.fromJson(e as Map<String, dynamic>);
+      all[rec.itemId] = rec;
+    }
+    await _saveAll(all);
+  }
 }

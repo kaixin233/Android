@@ -7,6 +7,7 @@ import '../models/history_item.dart';
 import '../models/study_plan.dart';
 import '../models/note.dart';
 import '../models/knowledge_point.dart';
+import '../services/ai_qa_storage_service.dart';
 
 /// 持久化存储服务 - 封装 SharedPreferences 操作
 class StorageService {
@@ -159,6 +160,12 @@ class StorageService {
     final keys = await loadWrongQuestionKeys();
     keys.remove(uniqueKey);
     await saveWrongQuestionKeys(keys);
+    // 同步清理错误次数统计，避免错题本移除后该 key 的计数残留导致错题分析页虚高
+    final counts = await loadWrongCounts();
+    if (counts.containsKey(uniqueKey)) {
+      counts.remove(uniqueKey);
+      await saveWrongCounts(counts);
+    }
   }
 
   static Future<Map<String, int>> loadWrongCounts() async {
@@ -304,6 +311,18 @@ class StorageService {
       return entry == null ? null : Map<String, dynamic>.from(entry as Map);
     } catch (e) {
       return null;
+    }
+  }
+
+  /// 读取完整的"上次阅读"映射（科目 -> 进度），用于数据导出。
+  static Future<Map<String, dynamic>> loadAllLastRead() async {
+    final prefs = await _instance;
+    final all = prefs.getString(_lastReadKey);
+    if (all == null) return {};
+    try {
+      return Map<String, dynamic>.from(jsonDecode(all) as Map<String, dynamic>);
+    } catch (e) {
+      return {};
     }
   }
 
@@ -454,70 +473,165 @@ class StorageService {
 
   // ========== 数据导出 ==========
 
+  /// 导出全部用户数据。注意此方法必须覆盖所有持久化数据集，
+  /// 否则"导出全部数据"与自动备份会把未包含的数据变成不可逆丢失。
   static Future<String> exportAllData() async {
     final imported = await loadImportedQuestions();
     final history = await loadHistory();
     final favorites = await loadFavorites();
     final wrongKeys = await loadWrongQuestionKeys();
+    final wrongCounts = await loadWrongCounts();
     final completedChapters = await loadCompletedChapters();
     final streakDays = await loadStreakDays();
     final chapterProgress = await _loadChapterProgress();
+    final notes = await loadNotes();
+    final studyPlans = await loadStudyPlans();
+    final knowledgeStats = await loadKnowledgeStats();
+    final bookmarks = await loadBookmarks();
+    final lastRead = await loadAllLastRead();
+    final planProgress = await loadAllPlanProgress();
+    final aiQaRecords = await AiQaStorageService.exportAllJson();
 
     final data = {
-      'version': '1.0',
+      'version': '1.1',
       'exportedAt': DateTime.now().toIso8601String(),
       'importedQuestions': imported.map((q) => q.toJson()).toList(),
       'history': history.map((h) => h.toJson()).toList(),
       'favorites': favorites.toList(),
       'wrongQuestionKeys': wrongKeys,
+      'wrongCounts': wrongCounts,
       'completedChapters': completedChapters,
       'streakDays': streakDays,
       'chapterProgress': chapterProgress,
+      'notes': notes.map((n) => n.toJson()).toList(),
+      'studyPlans': studyPlans.map((p) => p.toJson()).toList(),
+      'knowledgeStats': knowledgeStats.map((s) => s.toJson()).toList(),
+      'bookmarks': bookmarks,
+      'lastRead': lastRead,
+      'planProgress': planProgress,
+      'aiQaRecords': aiQaRecords,
     };
     return const JsonEncoder.withIndent('  ').convert(data);
   }
 
   // ========== 数据导入 ==========
 
+  /// 导入全部用户数据。逐字段容错解析，单个字段损坏不影响其它字段，
+  /// 且覆盖所有导出的数据集（笔记/计划/统计/书签/阅读进度/AI 问答等）。
   static Future<void> importAllData(String jsonString) async {
     try {
       final data = jsonDecode(jsonString) as Map<String, dynamic>;
       final prefs = await _instance;
 
       if (data.containsKey('importedQuestions')) {
-        final questions = (data['importedQuestions'] as List<dynamic>)
+        final questions = (data['importedQuestions'] as List<dynamic>? ?? [])
             .map((e) => Question.fromJson(e as Map<String, dynamic>))
             .toList();
         await saveImportedQuestions(questions);
       }
 
       if (data.containsKey('history')) {
-        final history = (data['history'] as List<dynamic>)
+        final history = (data['history'] as List<dynamic>? ?? [])
             .map((e) => HistoryItem.fromJson(e as Map<String, dynamic>))
             .toList();
         await saveHistory(history);
       }
 
       if (data.containsKey('favorites')) {
-        final favorites = (data['favorites'] as List<dynamic>).cast<String>().toSet();
+        final favorites =
+            (data['favorites'] as List<dynamic>? ?? []).whereType<String>().toSet();
         await saveFavorites(favorites);
       }
 
       if (data.containsKey('wrongQuestionKeys')) {
-        final wrongKeys = (data['wrongQuestionKeys'] as List<dynamic>).cast<String>();
+        final wrongKeys =
+            (data['wrongQuestionKeys'] as List<dynamic>? ?? []).whereType<String>().toList();
         await saveWrongQuestionKeys(wrongKeys);
       }
 
+      if (data.containsKey('wrongCounts')) {
+        final raw = data['wrongCounts'];
+        final Map<String, int> counts = {};
+        if (raw is Map) {
+          raw.forEach((k, v) {
+            if (k is String) counts[k] = (v is int) ? v : (int.tryParse(v.toString()) ?? 0);
+          });
+        }
+        await saveWrongCounts(counts);
+      }
+
       if (data.containsKey('completedChapters')) {
-        await saveCompletedChapters(data['completedChapters'] as int);
+        final v = data['completedChapters'];
+        if (v is int) await saveCompletedChapters(v);
       }
 
       if (data.containsKey('streakDays')) {
-        await prefs.setInt(_streakDaysKey, data['streakDays'] as int);
+        final v = data['streakDays'];
+        if (v is int) await prefs.setInt(_streakDaysKey, v);
       }
 
       if (data.containsKey('chapterProgress')) {
-        await prefs.setString(_chapterProgressKey, jsonEncode(data['chapterProgress']));
+        final v = data['chapterProgress'];
+        if (v is Map) await prefs.setString(_chapterProgressKey, jsonEncode(v));
+      }
+
+      if (data.containsKey('notes')) {
+        final notes = (data['notes'] as List<dynamic>? ?? [])
+            .map((e) => Note.fromJson(e as Map<String, dynamic>))
+            .toList();
+        await prefs.setString(
+          _notesKey,
+          jsonEncode(notes.map((n) => n.toJson()).toList()),
+        );
+      }
+
+      if (data.containsKey('studyPlans')) {
+        final plans = (data['studyPlans'] as List<dynamic>? ?? [])
+            .map((e) => StudyPlan.fromJson(e as Map<String, dynamic>))
+            .toList();
+        await prefs.setStringList(
+          _studyPlansKey,
+          plans.map((p) => jsonEncode(p.toJson())).toList(),
+        );
+      }
+
+      if (data.containsKey('knowledgeStats')) {
+        final stats = (data['knowledgeStats'] as List<dynamic>? ?? [])
+            .map((e) => KnowledgePointStats.fromJson(e as Map<String, dynamic>))
+            .toList();
+        await saveKnowledgeStats(stats);
+      }
+
+      if (data.containsKey('bookmarks')) {
+        final bms = (data['bookmarks'] as List<dynamic>? ?? [])
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+        await saveBookmarks(bms);
+      }
+
+      if (data.containsKey('lastRead')) {
+        final v = data['lastRead'];
+        if (v is Map) await prefs.setString(_lastReadKey, jsonEncode(v));
+      }
+
+      if (data.containsKey('planProgress')) {
+        final Map<String, List<String>> progress = {};
+        final raw = data['planProgress'];
+        if (raw is Map) {
+          raw.forEach((k, v) {
+            if (k is String && v is List) {
+              progress[k] = v.whereType<String>().toList();
+            }
+          });
+        }
+        await saveAllPlanProgress(progress);
+      }
+
+      if (data.containsKey('aiQaRecords')) {
+        final raw = data['aiQaRecords'];
+        final list = raw is List ? raw : (raw is Map ? raw.values.toList() : <dynamic>[]);
+        await AiQaStorageService.importAllJson(list);
       }
     } catch (e) {
       rethrow;
@@ -563,6 +677,38 @@ class StorageService {
       plans.map((p) => jsonEncode(p.toJson())).toList(),
     );
     await prefs.remove('${_planProgressKey}_$id');
+  }
+
+  /// 读取全部学习计划打卡进度（id -> 打卡日期列表），用于数据导出。
+  static Future<Map<String, List<String>>> loadAllPlanProgress() async {
+    final prefs = await _instance;
+    final result = <String, List<String>>{};
+    const prefix = '${_planProgressKey}_';
+    for (final key in prefs.getKeys()) {
+      if (key.startsWith(prefix)) {
+        final id = key.substring(prefix.length);
+        final raw = prefs.getString(key);
+        if (raw != null) {
+          try {
+            result[id] = (jsonDecode(raw) as List<dynamic>).whereType<String>().toList();
+          } catch (_) {
+            // 单条损坏不影响其它
+          }
+        }
+      }
+    }
+    return result;
+  }
+
+  /// 写入全部学习计划打卡进度（导入数据时使用）。
+  static Future<void> saveAllPlanProgress(Map<String, List<String>> progress) async {
+    final prefs = await _instance;
+    for (final entry in progress.entries) {
+      await prefs.setString(
+        '${_planProgressKey}_${entry.key}',
+        jsonEncode(entry.value),
+      );
+    }
   }
 
   static Future<void> markPlanDayCompleted(String planId) async {

@@ -153,7 +153,6 @@ class AppProvider extends ChangeNotifier {
     await StorageService.addHistory(item);
     // 一次性更新关联状态，避免多次 notifyListeners
     _streakDays = await StorageService.loadStreakDays();
-    _completedChapters = await StorageService.loadCompletedChapters();
     notifyListeners();
   }
 
@@ -182,6 +181,7 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> removeWrongQuestion(String uniqueKey) async {
     _wrongQuestions.remove(uniqueKey);
+    _wrongCounts.remove(uniqueKey);
     notifyListeners();
     await StorageService.removeWrongQuestion(uniqueKey);
   }
