@@ -124,9 +124,13 @@ class KnowledgeService {
       return all.where((s) => s.number == subsectionNumber).toList();
     }
 
-    // 匹配整章：小节号以 chapterNumber + "." 开头
+    // 匹配整章：小节号的第一段（章号）需等于 chapterNumber。
+    // 不能用 startsWith('$chapterNumber.')，否则 "1" 会误匹配 "10/11" 等章节。
     return all
-        .where((s) => s.number.startsWith('$chapterNumber.'))
+        .where((s) {
+          final seg = s.number.split('.');
+          return seg.isNotEmpty && seg[0] == chapterNumber;
+        })
         .toList();
   }
 

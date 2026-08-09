@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -20,12 +22,29 @@ class GlobalSearchPage extends StatefulWidget {
 
 class _GlobalSearchPageState extends State<GlobalSearchPage> {
   String _query = '';
+  // 实际用于过滤的查询词，经防抖后更新，避免每键全量扫描上万道题
+  String _searchQuery = '';
+  Timer? _debounceTimer;
+
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    super.dispose();
+  }
+
+  void _onQueryChanged(String value) {
+    setState(() => _query = value.trim());
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) setState(() => _searchQuery = _query);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final app = context.watch<AppProvider>();
-    final q = _query.trim().toLowerCase();
+    final q = _searchQuery.toLowerCase();
 
     final questionHits = <Question>[];
     final annotationHits = <UserAnnotation>[];
@@ -66,14 +85,20 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: TextField(
               autofocus: true,
-              onChanged: (v) => setState(() => _query = v.trim()),
+              onChanged: _onQueryChanged,
               decoration: InputDecoration(
                 hintText: '搜索题目、批注、笔记…',
                 prefixIcon: const Icon(Icons.search_rounded, size: 20),
                 suffixIcon: _query.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.clear_rounded, size: 20),
-                        onPressed: () => setState(() => _query = ''),
+                        onPressed: () {
+                          _debounceTimer?.cancel();
+                          setState(() {
+                            _query = '';
+                            _searchQuery = '';
+                          });
+                        },
                       )
                     : null,
                 isDense: true,

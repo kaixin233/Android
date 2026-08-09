@@ -6,21 +6,34 @@ import 'storage_service.dart';
 class QuestionService {
   QuestionService._();
 
-  /// 全局缓存：合并后的所有题目，避免重复加载和拼接
-  static List<Question>? _cachedAll;
+  /// 合并缓存：默认题库（真相源在 [QuestionLoader]，经 [DefaultQuestions]）+ 导入题库。
+  /// 这里只持有组合后的视图，不再与 [QuestionLoader] 各存一份全量默认题，避免冗余与不一致。
+  static List<Question>? _mergedCache;
 
-  /// 清除缓存（导入/删除题目后调用）
+  /// 导入题库缓存（与默认题缓存解耦，单独刷新）
+  static List<Question>? _cachedImported;
+
+  /// 清除缓存（导入/删除题目后调用）。默认题库缓存由 [QuestionLoader] 统一管理。
   static void clearCache() {
-    _cachedAll = null;
+    _mergedCache = null;
+    _cachedImported = null;
   }
 
-  /// 获取所有题目（默认 + 导入），首次加载后缓存
+  /// 获取所有题目（默认 + 导入）。默认题库复用 [QuestionLoader] 的单一缓存，
+  /// 导入题本地缓存，二者按引用合并，避免双份冗余。
   static Future<List<Question>> getAllQuestions() async {
-    if (_cachedAll != null) return _cachedAll!;
+    if (_mergedCache != null) return _mergedCache!;
     final defaults = await DefaultQuestions.loadAll();
-    final imported = await StorageService.loadImportedQuestions();
-    _cachedAll = [...defaults, ...imported];
-    return _cachedAll!;
+    final imported = await _getImported();
+    _mergedCache = [...defaults, ...imported];
+    return _mergedCache!;
+  }
+
+  /// 导入题库的缓存读取，与默认题库缓存解耦，便于导入/删除后精确刷新。
+  static Future<List<Question>> _getImported() async {
+    if (_cachedImported != null) return _cachedImported!;
+    _cachedImported = await StorageService.loadImportedQuestions();
+    return _cachedImported!;
   }
 
   /// 按科目获取题目
@@ -62,7 +75,7 @@ if (subsection != null && subsection.isNotEmpty) {
         final matchesTitle = q.title.toLowerCase().contains(kw);
         final matchesPrompt = q.prompt.toLowerCase().contains(kw);
         final matchesKnowledgePoints = q.knowledgePoints.any(
-          (kp) => kp.toLowerCase().contains(kw) || kw.contains(kp.toLowerCase()),
+          (kp) => kp.toLowerCase().contains(kw),
         );
         if (!matchesTitle && !matchesPrompt && !matchesKnowledgePoints) {
           return false;

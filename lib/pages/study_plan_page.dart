@@ -194,8 +194,11 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
     List<DateTime?> currentWeek = List.filled(7, null);
 
     for (int i = 1; i <= daysInMonth; i++) {
-      currentWeek[(firstDay + i - 2) % 7] = DateTime(_selectedDate.year, _selectedDate.month, i);
-      if ((firstDay + i - 1) % 7 == 0) {
+      // 列索引：星期日(weekday=7)→0，星期一(1)→1 … 星期六(6)→6，与表头「日一二三四五六」对齐
+      currentWeek[(firstDay + i - 1) % 7] =
+          DateTime(_selectedDate.year, _selectedDate.month, i);
+      // 当前日落在星期六(列 6)时，下一格进入新的一周
+      if ((firstDay + i - 1) % 7 == 6) {
         weeks.add(currentWeek);
         currentWeek = List.filled(7, null);
       }
@@ -343,6 +346,13 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
   }
 
   Widget _buildCalendarView(ThemeData theme) {
+    // 优先使用第一个进行中且未完成的计划，否则回退到默认（法规/10题）
+    final activePlan =
+        _plans.where((p) => p.isActive && !p.isCompleted).firstOrNull;
+    final suggestionSubject = activePlan?.subject ?? QuestionSubject.law;
+    final suggestionLimit = activePlan?.targetQuestions ?? 10;
+    final suggestionTitle =
+        activePlan != null ? '完成「${activePlan.title}」' : '完成今日章节练习';
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -370,7 +380,8 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('完成今日章节练习', style: TextStyle(fontWeight: FontWeight.bold)),
+                          Text(suggestionTitle,
+                              style: const TextStyle(fontWeight: FontWeight.bold)),
                           const SizedBox(height: 4),
                           Text('建议学习时间：30分钟', style: theme.textTheme.bodySmall),
                         ],
@@ -383,7 +394,10 @@ class _StudyPlanPageState extends State<StudyPlanPage> {
                           context,
                           MaterialPageRoute(
                             builder: (context) => PracticePage(
-                              config: const PracticeConfig(subject: QuestionSubject.law, questionLimit: 10),
+                              config: PracticeConfig(
+                                subject: suggestionSubject,
+                                questionLimit: suggestionLimit,
+                              ),
                               onCompleted: (result) async {
                                 await provider.addHistory(result);
                               },

@@ -255,6 +255,14 @@ class _NoteEditPageState extends State<NoteEditPage> {
     }
   }
 
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _contentController.dispose();
+    _tagsController.dispose();
+    super.dispose();
+  }
+
   void _saveNote() async {
     if (_titleController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请输入标题')));

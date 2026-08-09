@@ -47,9 +47,9 @@ class KnowledgePoint {
           : null,
       chapter: json['chapter'] as String?,
       parentId: json['parentId'] as String?,
-      totalQuestions: json['totalQuestions'] as int? ?? 0,
-      correctCount: json['correctCount'] as int? ?? 0,
-      masteryLevel: json['masteryLevel'] as double? ?? 0.0,
+      totalQuestions: (json['totalQuestions'] as num?)?.toInt() ?? 0,
+      correctCount: (json['correctCount'] as num?)?.toInt() ?? 0,
+      masteryLevel: (json['masteryLevel'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }
@@ -84,10 +84,13 @@ class KnowledgePointStats {
       point: KnowledgePoint.fromJson(json['point'] as Map<String, dynamic>),
       wrongCount: json['wrongCount'] as int? ?? 0,
       practiceCount: json['practiceCount'] as int? ?? 0,
-      lastPracticeDate: json['lastPracticeDate'] != null
-          ? DateTime.parse(json['lastPracticeDate'] as String)
+      lastPracticeDate: json['lastPracticeDate'] is String
+          ? DateTime.tryParse(json['lastPracticeDate'] as String)
           : null,
-      trend: (json['trend'] as List<dynamic>?)?.map((e) => e as double).toList() ?? [],
+      trend: (json['trend'] as List<dynamic>?)
+              ?.map((e) => (e as num).toDouble())
+              .toList() ??
+          [],
     );
   }
 }

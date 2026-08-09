@@ -88,17 +88,24 @@ class StudyPlan {
 
   factory StudyPlan.fromJson(Map<String, dynamic> json) {
     return StudyPlan(
-      id: json['id'] as String,
-      title: json['title'] as String,
-      type: PlanTypeExtension.fromName(json['type'] as String),
-      subject: QuestionSubjectExtension.fromName(json['subject'] as String),
-      targetQuestions: json['targetQuestions'] as int,
-      targetMinutes: json['targetMinutes'] as int,
-      startDate: DateTime.parse(json['startDate'] as String),
-      endDate: DateTime.parse(json['endDate'] as String),
-      description: json['description'] as String? ?? '',
-      completedDays: json['completedDays'] as int? ?? 0,
-      totalDays: json['totalDays'] as int? ?? 1,
+      id: json['id']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      type: PlanTypeExtension.fromName(
+          json['type']?.toString() ?? 'daily'),
+      subject: json['subject'] != null
+          ? QuestionSubjectExtension.fromName(json['subject'].toString())
+          : QuestionSubject.law,
+      targetQuestions: (json['targetQuestions'] as num?)?.toInt() ?? 0,
+      targetMinutes: (json['targetMinutes'] as num?)?.toInt() ?? 0,
+      startDate: json['startDate'] is String
+          ? DateTime.tryParse(json['startDate'] as String) ?? DateTime.now()
+          : DateTime.now(),
+      endDate: json['endDate'] is String
+          ? DateTime.tryParse(json['endDate'] as String) ?? DateTime.now()
+          : DateTime.now(),
+      description: json['description']?.toString() ?? '',
+      completedDays: (json['completedDays'] as num?)?.toInt() ?? 0,
+      totalDays: (json['totalDays'] as num?)?.toInt() ?? 1,
     );
   }
 

@@ -171,12 +171,12 @@ class AppProvider extends ChangeNotifier {
   // ========== 错题 ==========
 
   Future<void> addWrongQuestion(String uniqueKey) async {
-    if (!_wrongQuestions.contains(uniqueKey)) {
-      _wrongQuestions.add(uniqueKey);
-      _wrongCounts[uniqueKey] = (_wrongCounts[uniqueKey] ?? 0) + 1;
-      notifyListeners();
-      await StorageService.addWrongQuestion(uniqueKey);
-    }
+    // 每次答错都累加计数（与 StorageService 一致），使"错题次数"统计真实可用；
+    // 只在首次加入错题集时将其加入集合，但计数始终 +1。
+    _wrongQuestions.add(uniqueKey);
+    _wrongCounts[uniqueKey] = (_wrongCounts[uniqueKey] ?? 0) + 1;
+    notifyListeners();
+    await StorageService.addWrongQuestion(uniqueKey);
   }
 
   Future<void> removeWrongQuestion(String uniqueKey) async {
@@ -184,6 +184,15 @@ class AppProvider extends ChangeNotifier {
     _wrongCounts.remove(uniqueKey);
     notifyListeners();
     await StorageService.removeWrongQuestion(uniqueKey);
+  }
+
+  /// 清空错题本（同步内存与存储），供错题本页面"清空"操作调用。
+  Future<void> clearWrongQuestions() async {
+    _wrongQuestions.clear();
+    _wrongCounts.clear();
+    notifyListeners();
+    await StorageService.saveWrongQuestionKeys([]);
+    await StorageService.saveWrongCounts({});
   }
 
   // ========== 笔记 ==========

@@ -156,8 +156,9 @@ class AnnotatedText extends StatelessWidget {
     return result;
   }
 
-  void _onTapField(BuildContext context, _MergedSegment seg) {
-    final box = context.findRenderObject() as RenderBox?;
+  void _onTapField(BuildContext context, GlobalKey key, _MergedSegment seg) {
+    // 用被点击高亮字段自身的 RenderBox 定位，而非整个 Text.rich 段落
+    final box = key.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return;
     // 高亮词在屏幕中的位置（用全局坐标，Overlay 同坐标系）
     final global = box.localToGlobal(Offset.zero);
@@ -358,10 +359,13 @@ class AnnotatedText extends StatelessWidget {
         alignment: PlaceholderAlignment.baseline,
         baseline: TextBaseline.alphabetic,
         child: Builder(
-          builder: (ctx) => GestureDetector(
-            onTap: () => _onTapField(ctx, seg),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
+          builder: (ctx) {
+            final fieldKey = GlobalKey();
+            return GestureDetector(
+              onTap: () => _onTapField(ctx, fieldKey, seg),
+              child: Container(
+                key: fieldKey,
+                padding: const EdgeInsets.symmetric(horizontal: 2),
               decoration: BoxDecoration(
                 color: accent.withValues(alpha: isDark ? 0.22 : 0.12),
                 borderRadius: BorderRadius.circular(4),
@@ -379,7 +383,8 @@ class AnnotatedText extends StatelessWidget {
                 ),
               ),
             ),
-          ),
+            );
+          }
         ),
       ));
     }

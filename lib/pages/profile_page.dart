@@ -467,7 +467,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     showAboutDialog(
                       context: context,
                       applicationName: '二级建造师学习',
-                      applicationVersion: '1.0.6',
+                      applicationVersion: '1.0.8',
                       applicationLegalese: '© 2026',
                       children: [
                         const SizedBox(height: 12),

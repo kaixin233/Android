@@ -37,4 +37,17 @@ void main() {
     );
     expect(sections, isNotEmpty);
   });
+
+  test('市政科目 第1章 不应误匹配第10章及以后的小节', () async {
+    final sections = await KnowledgeService.getSectionsBySubsection(
+      subject: QuestionSubject.practice,
+      chapterNumber: '1',
+    );
+    expect(sections, isNotEmpty, reason: '第1章应至少包含 1.x 小节');
+    for (final s in sections) {
+      final seg = s.number.split('.');
+      expect(seg.isNotEmpty && seg[0] == '1', isTrue,
+          reason: '小节 ${s.number} 不属于第1章（疑似被 "10/11…" 章误匹配）');
+    }
+  });
 }

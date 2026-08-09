@@ -64,8 +64,8 @@ class _WrongQuestionsPageState extends State<WrongQuestionsPage> {
       ),
     );
     if (confirmed == true) {
-      await StorageService.saveWrongQuestionKeys([]);
-      await StorageService.saveWrongCounts({});
+      // 通过 provider 清空，保证内存状态（教材页错题数等统计）同步更新
+      await context.read<AppProvider>().clearWrongQuestions();
       await _loadData();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

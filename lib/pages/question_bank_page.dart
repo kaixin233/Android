@@ -131,7 +131,8 @@ class _QuestionBankPageState extends State<QuestionBankPage> {
   }
 
   Future<void> _toggleFavorite(Question question) async {
-    await StorageService.toggleFavorite(question.uniqueKey);
+    // 走 provider 单一数据源，确保其它页面（如教材收藏练习计数）实时同步
+    await context.read<AppProvider>().toggleFavorite(question.uniqueKey);
     await _loadData();
   }
 
