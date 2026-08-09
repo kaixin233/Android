@@ -1018,10 +1018,21 @@ class _PracticePageState extends State<PracticePage> {
           if (vx.abs() < 300) return;
           if (vx.abs() < vy.abs()) return;
           if (vx < 0) {
-            // 左滑：下一题（最后一题不触发交卷，避免误触）
-            if (_currentIndex < _questions.length - 1) _nextQuestion();
+            // 左滑：下一题。未提交答案时不允许跳题，与「提交答案」按钮行为一致
+            if (_currentIndex < _questions.length - 1) {
+              if (!_submitted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('请先提交答案，再进入下一题'),
+                    duration: Duration(seconds: 1),
+                  ),
+                );
+                return;
+              }
+              _nextQuestion();
+            }
           } else {
-            // 右滑：上一题
+            // 右滑：上一题（与「上一题」按钮一致，随时可返回查看）
             if (_currentIndex > 0) _previousQuestion();
           }
         },
