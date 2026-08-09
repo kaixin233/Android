@@ -1010,10 +1010,25 @@ class _PracticePageState extends State<PracticePage> {
             ),
         ],
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
+      body: GestureDetector(
+        onPanEnd: (details) {
+          final vx = details.velocity.pixelsPerSecond.dx;
+          final vy = details.velocity.pixelsPerSecond.dy;
+          // 仅响应明显的水平滑动，避免与题目区垂直滚动冲突
+          if (vx.abs() < 300) return;
+          if (vx.abs() < vy.abs()) return;
+          if (vx < 0) {
+            // 左滑：下一题（最后一题不触发交卷，避免误触）
+            if (_currentIndex < _questions.length - 1) _nextQuestion();
+          } else {
+            // 右滑：上一题
+            if (_currentIndex > 0) _previousQuestion();
+          }
+        },
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 进度行：题号 + 进度条 + 百分比 + 科目标签
@@ -1113,7 +1128,8 @@ class _PracticePageState extends State<PracticePage> {
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 
   Widget _buildTypeChip(QuestionType type, ThemeData theme) {
