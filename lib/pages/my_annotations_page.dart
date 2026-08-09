@@ -24,11 +24,22 @@ class MyAnnotationsPage extends StatefulWidget {
 
 class _MyAnnotationsPageState extends State<MyAnnotationsPage> {
   String _query = '';
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    AnnotationStore.ensureLoaded();
+    _loadAnnotations();
+  }
+
+  Future<void> _loadAnnotations() async {
+    try {
+      await AnnotationStore.ensureLoaded();
+    } catch (e) {
+      debugPrint('Error loading annotations: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   /// 把批注按"所属教材"分组，组内按章节/小节顺序排序，便于阅读。
@@ -223,6 +234,14 @@ class _MyAnnotationsPageState extends State<MyAnnotationsPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('我的批注'), centerTitle: false),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
     final groups = _buildGroups();
 
     return Scaffold(

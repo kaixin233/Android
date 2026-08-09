@@ -30,24 +30,25 @@ class _WrongAnalysisPageState extends State<WrongAnalysisPage> {
     setState(() => _isLoading = true);
     try {
       final wrongKeys = await StorageService.loadWrongQuestionKeys();
-      final wrongCounts = await StorageService.loadWrongCounts();
-      
+
       final allQuestions = await QuestionService.getAllQuestions();
       _wrongQuestions = allQuestions.where((q) => wrongKeys.contains(q.uniqueKey)).toList();
-      
+
       _wrongBySubject = {};
       _wrongByType = {};
       _wrongByDifficulty = {};
-      
+
+      // 分布统计按"去重错题数"口径累计，与上方"总错题数"卡片保持一致，
+      // 避免卡片显示去重题数、图表却显示累计答错次数导致口径对不上。
       for (final q in _wrongQuestions) {
-        _wrongBySubject[q.subject] = (_wrongBySubject[q.subject] ?? 0) + (wrongCounts[q.uniqueKey] ?? 1);
-        _wrongByType[q.type] = (_wrongByType[q.type] ?? 0) + (wrongCounts[q.uniqueKey] ?? 1);
-        _wrongByDifficulty[q.difficulty.label] = (_wrongByDifficulty[q.difficulty.label] ?? 0) + (wrongCounts[q.uniqueKey] ?? 1);
+        _wrongBySubject[q.subject] = (_wrongBySubject[q.subject] ?? 0) + 1;
+        _wrongByType[q.type] = (_wrongByType[q.type] ?? 0) + 1;
+        _wrongByDifficulty[q.difficulty.label] = (_wrongByDifficulty[q.difficulty.label] ?? 0) + 1;
       }
     } catch (e) {
       debugPrint('Error loading wrong questions analysis: $e');
     }
-    setState(() => _isLoading = false);
+    if (mounted) setState(() => _isLoading = false);
   }
 
   Widget _buildSubjectChart(ThemeData theme) {

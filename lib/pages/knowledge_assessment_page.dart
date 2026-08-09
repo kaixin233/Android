@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/history_item.dart';
 import '../models/knowledge_point.dart';
+import '../models/question.dart';
 import '../services/storage_service.dart';
 import 'practice_page.dart';
 
@@ -31,7 +32,7 @@ class _KnowledgeAssessmentPageState extends State<KnowledgeAssessmentPage> {
     } catch (e) {
       debugPrint('Error loading knowledge stats: $e');
     }
-    setState(() => _isLoading = false);
+    if (mounted) setState(() => _isLoading = false);
   }
 
   String _getMasteryLevel(double mastery) {
@@ -68,6 +69,51 @@ class _KnowledgeAssessmentPageState extends State<KnowledgeAssessmentPage> {
         .where((s) => s.point.masteryLevel < 0.6)
         .toList()
       ..sort((a, b) => a.point.masteryLevel.compareTo(b.point.masteryLevel));
+  }
+
+  /// 针对薄弱点练习：选取薄弱点最集中的科目进行针对性练习，
+  /// 替代原先"普通练习"式的全科目混合，让练习真正落在需要补强的科目上。
+  PracticeConfig _buildWeakPointPracticeConfig(List<KnowledgePointStats> weakPoints) {
+    // 按科目归组薄弱点，统计每科薄弱点数量与平均掌握度。
+    final bySubject = <QuestionSubject, List<KnowledgePointStats>>{};
+    for (final s in weakPoints) {
+      final subj = s.point.subject;
+      if (subj == null) continue;
+      (bySubject[subj] ??= []).add(s);
+    }
+
+    QuestionSubject? targetSubject;
+    if (bySubject.isNotEmpty) {
+      QuestionSubject? worst;
+      int worstCount = 0;
+      double worstMastery = 1.0;
+      for (final entry in bySubject.entries) {
+        final count = entry.value.length;
+        final avgMastery =
+            entry.value.fold<double>(0, (sum, e) => sum + e.point.masteryLevel) / count;
+        if (count > worstCount || (count == worstCount && avgMastery < worstMastery)) {
+          worst = entry.key;
+          worstCount = count;
+          worstMastery = avgMastery;
+        }
+      }
+      targetSubject = worst;
+    }
+
+    // 极端情况：所有薄弱点都未关联科目时，退而用最薄弱知识点的名称做关键词筛选。
+    if (targetSubject == null && weakPoints.isNotEmpty) {
+      return PracticeConfig(
+        mode: PracticeMode.practice,
+        keyword: weakPoints.first.point.name,
+        shuffleQuestions: true,
+      );
+    }
+
+    return PracticeConfig(
+      mode: PracticeMode.practice,
+      subject: targetSubject,
+      shuffleQuestions: true,
+    );
   }
 
   @override
@@ -178,13 +224,14 @@ class _KnowledgeAssessmentPageState extends State<KnowledgeAssessmentPage> {
                           const SizedBox(height: 16),
                           FilledButton(
                             onPressed: () {
+                              final config = _buildWeakPointPracticeConfig(weakPoints);
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
                                   builder: (_) => PracticePage(
-                              config: const PracticeConfig(mode: PracticeMode.practice),
-                              onCompleted: (_) async => _loadData(),
-                            ),
+                                    config: config,
+                                    onCompleted: (_) async => _loadData(),
+                                  ),
                                 ),
                               );
                             },
@@ -288,5 +335,6 @@ class RadarChartPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant RadarChartPainter oldDelegate) =>
+      !identical(oldDelegate.stats, stats) || oldDelegate.theme != theme;
 }

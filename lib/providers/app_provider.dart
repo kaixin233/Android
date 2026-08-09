@@ -12,6 +12,10 @@ import '../services/backup_service.dart';
 
 class AppProvider extends ChangeNotifier {
   List<Question> _allQuestions = [];
+  // 科目/题型题量统计缓存：仅在加载或重载题目时计算一次，
+  // 避免每次 notifyListeners 触发 _TextbookCard 等消费者重建时重复遍历约 1.2 万道题。
+  Map<QuestionSubject, int>? _cachedSubjectStats;
+  Map<QuestionType, int>? _cachedTypeStats;
   List<HistoryItem> _history = [];
   List<Note> _notes = [];
   List<StudyPlan> _studyPlans = [];
@@ -80,12 +84,14 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> _loadAllQuestions() async {
     _allQuestions = await QuestionService.getAllQuestions();
+    _recomputeStats();
   }
 
   /// 重新加载题目列表（导入/删除题目后调用）
   Future<void> reloadQuestions() async {
     QuestionService.clearCache();
     _allQuestions = await QuestionService.getAllQuestions();
+    _recomputeStats();
     notifyListeners();
   }
 
@@ -327,19 +333,18 @@ class AppProvider extends ChangeNotifier {
 
   int get totalStudyPlans => _studyPlans.length;
 
-  Map<QuestionSubject, int> get subjectStats {
-    final stats = <QuestionSubject, int>{};
+  /// 重新计算科目/题型题量统计（仅在题目集合变化时调用一次）。
+  void _recomputeStats() {
+    final subjectStats = <QuestionSubject, int>{};
+    final typeStats = <QuestionType, int>{};
     for (final q in _allQuestions) {
-      stats[q.subject] = (stats[q.subject] ?? 0) + 1;
+      subjectStats[q.subject] = (subjectStats[q.subject] ?? 0) + 1;
+      typeStats[q.type] = (typeStats[q.type] ?? 0) + 1;
     }
-    return stats;
+    _cachedSubjectStats = Map.unmodifiable(subjectStats);
+    _cachedTypeStats = Map.unmodifiable(typeStats);
   }
 
-  Map<QuestionType, int> get typeStats {
-    final stats = <QuestionType, int>{};
-    for (final q in _allQuestions) {
-      stats[q.type] = (stats[q.type] ?? 0) + 1;
-    }
-    return stats;
-  }
+  Map<QuestionSubject, int> get subjectStats => _cachedSubjectStats ?? const {};
+  Map<QuestionType, int> get typeStats => _cachedTypeStats ?? const {};
 }
