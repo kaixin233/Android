@@ -91,6 +91,7 @@ class _PracticePageState extends State<PracticePage> {
   bool _isCorrect = false;
   int _elapsedSeconds = 0;
   Timer? _timer;
+  Timer? _autoNextTimer;
   final Set<String> _wrongKeys = {};
   final Map<String, _AnswerRecord> _questionResults = {};
   bool _isSpeaking = false;
@@ -107,12 +108,14 @@ class _PracticePageState extends State<PracticePage> {
   @override
   void dispose() {
     _timer?.cancel();
+    _autoNextTimer?.cancel();
     _fillBlankController.dispose();
     TtsService.stop();
     super.dispose();
   }
 
   Future<void> _loadQuestions() async {
+    final app = context.read<AppProvider>();
     final favorites = widget.config.onlyFavorites
         ? await StorageService.loadFavorites()
         : null;
@@ -140,7 +143,11 @@ class _PracticePageState extends State<PracticePage> {
       );
     }
 
-    if (widget.config.shuffleQuestions) {
+    // 非考试模式套用「题目乱序」默认设置；考试模式已在 config 中强制开启
+    final shuffleQuestions = widget.config.mode == PracticeMode.exam
+        ? widget.config.shuffleQuestions
+        : (widget.config.shuffleQuestions || app.practiceShuffleQuestions);
+    if (shuffleQuestions) {
       _questions.shuffle();
     }
 
@@ -149,7 +156,11 @@ class _PracticePageState extends State<PracticePage> {
       _questions = _questions.take(widget.config.questionLimit!).toList();
     }
 
-    if (widget.config.shuffleOptions) {
+    // 非考试模式套用「选项乱序」默认设置；考试模式已在 config 中强制开启
+    final shuffleOptions = widget.config.mode == PracticeMode.exam
+        ? widget.config.shuffleOptions
+        : (widget.config.shuffleOptions || app.practiceShuffleOptions);
+    if (shuffleOptions) {
       _questions = _questions.map(QuestionService.shuffleOptions).toList();
     }
 
@@ -311,6 +322,27 @@ class _PracticePageState extends State<PracticePage> {
       final skipExplanation = correct && app.ttsSkipExplanationOnCorrect;
       _speakExplanation(correct, skipExplanation: skipExplanation);
     }
+
+    // 提交后自动进入下一题（练习/错题模式，且设置开启）
+    if (app.practiceAutoNext &&
+        widget.config.mode != PracticeMode.exam &&
+        mounted) {
+      _scheduleAutoNext();
+    }
+  }
+
+  /// 提交答案后延迟自动跳到下一题；已是最后一题则自动交卷。
+  /// 用户在此期间手动翻题会取消该定时器（见 [_nextQuestion]/[_previousQuestion]）。
+  void _scheduleAutoNext() {
+    _autoNextTimer?.cancel();
+    _autoNextTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (!mounted) return;
+      if (_currentIndex >= _questions.length - 1) {
+        _finishPractice();
+      } else {
+        _nextQuestion();
+      }
+    });
   }
 
   /// 播报答题结果与解析
@@ -351,6 +383,7 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   void _nextQuestion() {
+    _autoNextTimer?.cancel();
     if (_currentIndex == _questions.length - 1) {
       _finishPractice();
       return;
@@ -370,6 +403,7 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   void _previousQuestion() {
+    _autoNextTimer?.cancel();
     if (_currentIndex == 0) return;
     _stopSpeakingIfNeeded();
     setState(() {
@@ -415,6 +449,7 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   Future<void> _finishPractice() async {
+    _autoNextTimer?.cancel();
     _timer?.cancel();
     _stopSpeakingIfNeeded();
     final total = _questions.length;

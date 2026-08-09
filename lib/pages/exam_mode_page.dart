@@ -21,6 +21,15 @@ class _ExamModePageState extends State<ExamModePage> {
   int _durationMinutes = 30;
 
   @override
+  void initState() {
+    super.initState();
+    // 套用「练习与考试」设置中的默认考试题量与时长
+    final app = context.read<AppProvider>();
+    _questionCount = app.examQuestionCount;
+    _durationMinutes = app.examDurationMinutes;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(

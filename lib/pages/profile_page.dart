@@ -350,6 +350,86 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
           const SizedBox(height: 16),
+          // 练习与考试设置
+          Card(
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text('练习与考试',
+                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                ),
+                _groupLabel('练习', theme),
+                SwitchListTile(
+                  secondary: const Icon(Icons.shuffle_rounded, color: Colors.blue),
+                  title: const Text('题目乱序'),
+                  subtitle: const Text('每次练习随机打乱题目顺序，避免只记住顺序'),
+                  value: app.practiceShuffleQuestions,
+                  onChanged: (value) {
+                    context.read<AppProvider>().savePracticeShuffleQuestions(value);
+                  },
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  secondary: const Icon(Icons.swap_horiz_rounded, color: Colors.indigo),
+                  title: const Text('选项乱序'),
+                  subtitle: const Text('打乱选择题选项顺序，检验真实掌握程度'),
+                  value: app.practiceShuffleOptions,
+                  onChanged: (value) {
+                    context.read<AppProvider>().savePracticeShuffleOptions(value);
+                  },
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  secondary: const Icon(Icons.skip_next_rounded, color: Colors.green),
+                  title: const Text('答对后自动下一题'),
+                  subtitle: const Text('提交答案后自动跳到下一题，连续刷题更高效'),
+                  value: app.practiceAutoNext,
+                  onChanged: (value) {
+                    context.read<AppProvider>().savePracticeAutoNext(value);
+                  },
+                ),
+                const Divider(height: 1),
+                _groupLabel('考试默认', theme),
+                ListTile(
+                  leading: const Icon(Icons.format_list_numbered_rounded, color: Colors.orange),
+                  title: const Text('默认考试题量'),
+                  subtitle: Slider(
+                    value: app.examQuestionCount.toDouble(),
+                    min: 10,
+                    max: 50,
+                    divisions: 8,
+                    label: '${app.examQuestionCount}',
+                    onChanged: (value) {
+                      context.read<AppProvider>().saveExamQuestionCount(value.round());
+                    },
+                  ),
+                  trailing: Text('${app.examQuestionCount}',
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.timer_rounded, color: Colors.red),
+                  title: const Text('默认考试时长'),
+                  subtitle: Slider(
+                    value: app.examDurationMinutes.toDouble(),
+                    min: 10,
+                    max: 120,
+                    divisions: 11,
+                    label: '${app.examDurationMinutes} 分钟',
+                    onChanged: (value) {
+                      context.read<AppProvider>().saveExamDurationMinutes(value.round());
+                    },
+                  ),
+                  trailing: Text('${app.examDurationMinutes} 分',
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
           // 学习工具
           Card(
             child: Column(
@@ -428,6 +508,41 @@ class _ProfilePageState extends State<ProfilePage> {
                   title: const Text('导入数据'),
                   subtitle: const Text('从导出的 JSON 备份文件恢复全部数据'),
                   onTap: _importData,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          // 学习目标
+          Card(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text('学习目标',
+                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: _buildDailyGoalProgress(app, theme),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.flag_rounded, color: Colors.teal),
+                  title: const Text('每日练习目标'),
+                  subtitle: Slider(
+                    value: app.dailyGoalQuestions.toDouble(),
+                    min: 10,
+                    max: 200,
+                    divisions: 19,
+                    label: '${app.dailyGoalQuestions} 题',
+                    onChanged: (value) {
+                      context.read<AppProvider>().saveDailyGoalQuestions(value.round());
+                    },
+                  ),
+                  trailing: Text('${app.dailyGoalQuestions}',
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                 ),
               ],
             ),
@@ -565,6 +680,39 @@ class _ProfilePageState extends State<ProfilePage> {
         trailing,
         style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
       ),
+    );
+  }
+
+  /// 学习目标的今日进度：统计今日已完成题数并与目标对比展示。
+  Widget _buildDailyGoalProgress(AppProvider app, ThemeData theme) {
+    final today = DateTime.now();
+    final done = app.history.where((h) {
+      final a = h.answeredAt;
+      return a.year == today.year && a.month == today.month && a.day == today.day;
+    }).fold<int>(0, (s, h) => s + h.totalCount);
+    final goal = app.dailyGoalQuestions;
+    final ratio = goal <= 0 ? 0.0 : (done / goal).clamp(0.0, 1.0);
+    final reached = done >= goal;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('今日已完成 $done 题',
+                style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+            Text(
+              reached ? '已达标' : '目标 $goal 题',
+              style: TextStyle(
+                color: reached ? Colors.green : Colors.grey,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        LinearProgressIndicator(value: ratio, minHeight: 8),
+      ],
     );
   }
 

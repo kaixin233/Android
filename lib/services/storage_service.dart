@@ -21,6 +21,14 @@ class StorageService {
   static const String _vibrationEnabledKey = 'vibrationEnabled';
   static const String _streakDaysKey = 'streakDays';
   static const String _lastPracticeDateKey = 'lastPracticeDate';
+  // 练习与考试设置
+  static const String _practiceShuffleQuestionsKey = 'practiceShuffleQuestions';
+  static const String _practiceShuffleOptionsKey = 'practiceShuffleOptions';
+  static const String _practiceAutoNextKey = 'practiceAutoNext';
+  static const String _examQuestionCountKey = 'examQuestionCount';
+  static const String _examDurationMinutesKey = 'examDurationMinutes';
+  // 学习目标
+  static const String _dailyGoalQuestionsKey = 'dailyGoalQuestions';
 
   static SharedPreferences? _prefs;
 
@@ -445,6 +453,70 @@ class StorageService {
       }
       await prefs.setString(_lastPracticeDateKey, todayStr);
     }
+  }
+
+  // ========== 练习与考试设置 ==========
+
+  static Future<bool> loadPracticeShuffleQuestions() async {
+    final prefs = await _instance;
+    return prefs.getBool(_practiceShuffleQuestionsKey) ?? false;
+  }
+
+  static Future<void> savePracticeShuffleQuestions(bool enabled) async {
+    final prefs = await _instance;
+    await prefs.setBool(_practiceShuffleQuestionsKey, enabled);
+  }
+
+  static Future<bool> loadPracticeShuffleOptions() async {
+    final prefs = await _instance;
+    return prefs.getBool(_practiceShuffleOptionsKey) ?? false;
+  }
+
+  static Future<void> savePracticeShuffleOptions(bool enabled) async {
+    final prefs = await _instance;
+    await prefs.setBool(_practiceShuffleOptionsKey, enabled);
+  }
+
+  static Future<bool> loadPracticeAutoNext() async {
+    final prefs = await _instance;
+    return prefs.getBool(_practiceAutoNextKey) ?? false;
+  }
+
+  static Future<void> savePracticeAutoNext(bool enabled) async {
+    final prefs = await _instance;
+    await prefs.setBool(_practiceAutoNextKey, enabled);
+  }
+
+  static Future<int> loadExamQuestionCount() async {
+    final prefs = await _instance;
+    return prefs.getInt(_examQuestionCountKey) ?? 20;
+  }
+
+  static Future<void> saveExamQuestionCount(int count) async {
+    final prefs = await _instance;
+    await prefs.setInt(_examQuestionCountKey, count);
+  }
+
+  static Future<int> loadExamDurationMinutes() async {
+    final prefs = await _instance;
+    return prefs.getInt(_examDurationMinutesKey) ?? 30;
+  }
+
+  static Future<void> saveExamDurationMinutes(int minutes) async {
+    final prefs = await _instance;
+    await prefs.setInt(_examDurationMinutesKey, minutes);
+  }
+
+  // ========== 学习目标 ==========
+
+  static Future<int> loadDailyGoalQuestions() async {
+    final prefs = await _instance;
+    return prefs.getInt(_dailyGoalQuestionsKey) ?? 50;
+  }
+
+  static Future<void> saveDailyGoalQuestions(int count) async {
+    final prefs = await _instance;
+    await prefs.setInt(_dailyGoalQuestionsKey, count);
   }
 
   // ========== 章节完成状态 ==========

@@ -28,6 +28,14 @@ class AppProvider extends ChangeNotifier {
   bool _vibrationEnabled = true;
   double _fontScale = 1.0;
   bool _autoBackup = true;
+  // 练习与考试设置
+  bool _practiceShuffleQuestions = false;
+  bool _practiceShuffleOptions = false;
+  bool _practiceAutoNext = false;
+  int _examQuestionCount = 20;
+  int _examDurationMinutes = 30;
+  // 学习目标
+  int _dailyGoalQuestions = 50;
 
   // 语音设置
   bool _ttsAutoPlayExplanation = true;
@@ -51,6 +59,12 @@ class AppProvider extends ChangeNotifier {
   bool get vibrationEnabled => _vibrationEnabled;
   double get fontScale => _fontScale;
   bool get autoBackup => _autoBackup;
+  bool get practiceShuffleQuestions => _practiceShuffleQuestions;
+  bool get practiceShuffleOptions => _practiceShuffleOptions;
+  bool get practiceAutoNext => _practiceAutoNext;
+  int get examQuestionCount => _examQuestionCount;
+  int get examDurationMinutes => _examDurationMinutes;
+  int get dailyGoalQuestions => _dailyGoalQuestions;
 
   bool get ttsEnabled => _ttsEnabled;
   bool get ttsAutoPlayExplanation => _ttsEnabled && _ttsAutoPlayExplanation;
@@ -74,6 +88,7 @@ class AppProvider extends ChangeNotifier {
         _loadFontScale().catchError((e) => debugPrint('loadFontScale error: $e')),
         _loadAutoBackup().catchError((e) => debugPrint('loadAutoBackup error: $e')),
         _loadVibrationEnabled().catchError((e) => debugPrint('loadVibrationEnabled error: $e')),
+        _loadPracticeSettings().catchError((e) => debugPrint('loadPracticeSettings error: $e')),
         _loadAllQuestions().catchError((e) => debugPrint('loadAllQuestions error: $e')),
         _loadTtsSettings().catchError((e) => debugPrint('loadTtsSettings error: $e')),
       ]);
@@ -137,6 +152,15 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> _loadVibrationEnabled() async {
     _vibrationEnabled = await StorageService.loadVibrationEnabled();
+  }
+
+  Future<void> _loadPracticeSettings() async {
+    _practiceShuffleQuestions = await StorageService.loadPracticeShuffleQuestions();
+    _practiceShuffleOptions = await StorageService.loadPracticeShuffleOptions();
+    _practiceAutoNext = await StorageService.loadPracticeAutoNext();
+    _examQuestionCount = await StorageService.loadExamQuestionCount();
+    _examDurationMinutes = await StorageService.loadExamDurationMinutes();
+    _dailyGoalQuestions = await StorageService.loadDailyGoalQuestions();
   }
 
   Future<void> _loadTtsSettings() async {
@@ -272,6 +296,44 @@ class AppProvider extends ChangeNotifier {
     _vibrationEnabled = enabled;
     notifyListeners();
     await StorageService.saveVibrationEnabled(enabled);
+  }
+
+  // ========== 练习与考试设置 ==========
+
+  Future<void> savePracticeShuffleQuestions(bool enabled) async {
+    _practiceShuffleQuestions = enabled;
+    notifyListeners();
+    await StorageService.savePracticeShuffleQuestions(enabled);
+  }
+
+  Future<void> savePracticeShuffleOptions(bool enabled) async {
+    _practiceShuffleOptions = enabled;
+    notifyListeners();
+    await StorageService.savePracticeShuffleOptions(enabled);
+  }
+
+  Future<void> savePracticeAutoNext(bool enabled) async {
+    _practiceAutoNext = enabled;
+    notifyListeners();
+    await StorageService.savePracticeAutoNext(enabled);
+  }
+
+  Future<void> saveExamQuestionCount(int count) async {
+    _examQuestionCount = count;
+    notifyListeners();
+    await StorageService.saveExamQuestionCount(count);
+  }
+
+  Future<void> saveExamDurationMinutes(int minutes) async {
+    _examDurationMinutes = minutes;
+    notifyListeners();
+    await StorageService.saveExamDurationMinutes(minutes);
+  }
+
+  Future<void> saveDailyGoalQuestions(int count) async {
+    _dailyGoalQuestions = count;
+    notifyListeners();
+    await StorageService.saveDailyGoalQuestions(count);
   }
 
   // ========== 语音设置 ==========
