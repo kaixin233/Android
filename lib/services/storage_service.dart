@@ -346,6 +346,17 @@ class StorageService {
   static const String _ttsSpeechRateKey = 'ttsSpeechRate';
   static const String _ttsPitchKey = 'ttsPitch';
   static const String _ttsVolumeKey = 'ttsVolume';
+  static const String _ttsEnabledKey = 'ttsEnabled';
+
+  static Future<bool> loadTtsEnabled() async {
+    final prefs = await _instance;
+    return prefs.getBool(_ttsEnabledKey) ?? true;
+  }
+
+  static Future<void> saveTtsEnabled(bool enabled) async {
+    final prefs = await _instance;
+    await prefs.setBool(_ttsEnabledKey, enabled);
+  }
 
   static Future<bool> loadTtsAutoPlayExplanation() async {
     final prefs = await _instance;

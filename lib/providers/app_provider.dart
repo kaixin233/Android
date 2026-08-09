@@ -36,6 +36,7 @@ class AppProvider extends ChangeNotifier {
   double _ttsSpeechRate = 0.5;
   double _ttsPitch = 1.0;
   double _ttsVolume = 1.0;
+  bool _ttsEnabled = true;
 
   List<Question> get allQuestions => _allQuestions;
   List<HistoryItem> get history => _history;
@@ -51,9 +52,10 @@ class AppProvider extends ChangeNotifier {
   double get fontScale => _fontScale;
   bool get autoBackup => _autoBackup;
 
-  bool get ttsAutoPlayExplanation => _ttsAutoPlayExplanation;
-  bool get ttsAutoReadQuestion => _ttsAutoReadQuestion;
-  bool get ttsSkipExplanationOnCorrect => _ttsSkipExplanationOnCorrect;
+  bool get ttsEnabled => _ttsEnabled;
+  bool get ttsAutoPlayExplanation => _ttsEnabled && _ttsAutoPlayExplanation;
+  bool get ttsAutoReadQuestion => _ttsEnabled && _ttsAutoReadQuestion;
+  bool get ttsSkipExplanationOnCorrect => _ttsEnabled && _ttsSkipExplanationOnCorrect;
   double get ttsSpeechRate => _ttsSpeechRate;
   double get ttsPitch => _ttsPitch;
   double get ttsVolume => _ttsVolume;
@@ -144,6 +146,7 @@ class AppProvider extends ChangeNotifier {
     _ttsSpeechRate = await StorageService.loadTtsSpeechRate();
     _ttsPitch = await StorageService.loadTtsPitch();
     _ttsVolume = await StorageService.loadTtsVolume();
+    _ttsEnabled = await StorageService.loadTtsEnabled();
     // 将用户保存的语音参数应用到 TTS 引擎
     await TtsService.applySpeechParams(
       rate: _ttsSpeechRate,
@@ -310,6 +313,12 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
     await StorageService.saveTtsVolume(volume);
     await TtsService.applySpeechParams(volume: volume);
+  }
+
+  Future<void> saveTtsEnabled(bool enabled) async {
+    _ttsEnabled = enabled;
+    notifyListeners();
+    await StorageService.saveTtsEnabled(enabled);
   }
 
   Future<void> refresh() async {

@@ -137,13 +137,20 @@ class _ProfilePageState extends State<ProfilePage> {
             ],
           ),
           const SizedBox(height: 16),
-          // 主题设置
+          // 外观与体验
           Card(
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text('外观与体验',
+                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                ),
                 ListTile(
                   leading: const Icon(Icons.palette_rounded),
                   title: const Text('主题模式'),
+                  subtitle: const Text('浅色 / 深色 / 护眼 / 跟随系统'),
                   trailing: DropdownButton<String>(
                     value: app.themeMode,
                     underline: const SizedBox(),
@@ -163,17 +170,23 @@ class _ProfilePageState extends State<ProfilePage> {
                 ListTile(
                   leading: const Icon(Icons.text_fields_rounded, color: Colors.blue),
                   title: const Text('阅读字号'),
-                  subtitle: Slider(
-                    value: app.fontScale,
-                    min: 0.8,
-                    max: 1.4,
-                    divisions: 12,
-                    label: '${(app.fontScale * 100).toInt()}%',
-                    onChanged: (value) {
-                      context.read<AppProvider>().saveFontScale(
-                        double.parse(value.toStringAsFixed(2)),
-                      );
-                    },
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('调整题目、解析与教材的全局显示大小'),
+                      Slider(
+                        value: app.fontScale,
+                        min: 0.8,
+                        max: 1.4,
+                        divisions: 12,
+                        label: '${(app.fontScale * 100).toInt()}%',
+                        onChanged: (value) {
+                          context.read<AppProvider>().saveFontScale(
+                            double.parse(value.toStringAsFixed(2)),
+                          );
+                        },
+                      ),
+                    ],
                   ),
                   trailing: Text(
                     '${(app.fontScale * 100).toInt()}%',
@@ -184,7 +197,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 SwitchListTile(
                   secondary: const Icon(Icons.vibration_rounded),
                   title: const Text('答题震动反馈'),
-                  subtitle: const Text('正确和错误时使用不同震动模式'),
+                  subtitle: const Text('答对与答错时使用不同震动模式进行提示'),
                   value: app.vibrationEnabled,
                   onChanged: (value) {
                     context.read<AppProvider>().saveVibrationEnabled(value);
@@ -194,31 +207,42 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
           const SizedBox(height: 16),
-          // 语音播报设置
+          // 语音播报设置（新增总开关 + 分组）
           Card(
+            clipBehavior: Clip.antiAlias,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text('语音播报', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                // 总开关：开启后下方各项才生效
+                SwitchListTile(
+                  secondary: const Icon(Icons.record_voice_over_rounded, color: Colors.teal),
+                  title: const Text('语音播报'),
+                  subtitle: const Text('开启后，可在答题与学习中语音朗读题目与解析'),
+                  value: app.ttsEnabled,
+                  onChanged: (value) {
+                    context.read<AppProvider>().saveTtsEnabled(value);
+                  },
                 ),
+                const Divider(height: 1),
+                _groupLabel('播报内容', theme),
                 SwitchListTile(
                   secondary: const Icon(Icons.record_voice_over_rounded, color: Colors.teal),
                   title: const Text('自动播报解析'),
-                  subtitle: const Text('答题后自动朗读正确答案和解析'),
+                  subtitle: const Text('答题后自动朗读正确答案与解析'),
                   value: app.ttsAutoPlayExplanation,
-                  onChanged: (value) {
-                    context.read<AppProvider>().saveTtsAutoPlayExplanation(value);
-                  },
+                  onChanged: app.ttsEnabled
+                      ? (value) {
+                          context.read<AppProvider>().saveTtsAutoPlayExplanation(value);
+                        }
+                      : null,
                 ),
                 const Divider(height: 1),
                 SwitchListTile(
                   secondary: const Icon(Icons.check_circle_outline_rounded, color: Colors.green),
                   title: const Text('答对不播报解析'),
-                  subtitle: const Text('回答正确时仅播报"回答正确"，跳过解析'),
+                  subtitle: const Text('回答正确时仅提示"回答正确"，跳过解析朗读'),
                   value: app.ttsSkipExplanationOnCorrect,
-                  onChanged: app.ttsAutoPlayExplanation
+                  onChanged: (app.ttsEnabled && app.ttsAutoPlayExplanation)
                       ? (value) {
                           context.read<AppProvider>().saveTtsSkipExplanationOnCorrect(value);
                         }
@@ -228,82 +252,72 @@ class _ProfilePageState extends State<ProfilePage> {
                 SwitchListTile(
                   secondary: const Icon(Icons.playlist_play_rounded, color: Colors.indigo),
                   title: const Text('自动朗读题目'),
-                  subtitle: const Text('进入题目时自动语音播报题目内容'),
+                  subtitle: const Text('进入题目时自动语音播报题干内容'),
                   value: app.ttsAutoReadQuestion,
-                  onChanged: (value) {
-                    context.read<AppProvider>().saveTtsAutoReadQuestion(value);
-                  },
+                  onChanged: app.ttsEnabled
+                      ? (value) {
+                          context.read<AppProvider>().saveTtsAutoReadQuestion(value);
+                        }
+                      : null,
                 ),
                 const Divider(height: 1),
-                // 语速调节
-                ListTile(
-                  leading: const Icon(Icons.speed_rounded, color: Colors.blue),
-                  title: const Text('语速'),
-                  subtitle: Slider(
-                    value: app.ttsSpeechRate,
-                    min: 0.0,
-                    max: 1.0,
-                    divisions: 10,
-                    label: app.ttsSpeechRate < 0.3
-                        ? '慢速'
-                        : app.ttsSpeechRate > 0.7
-                            ? '快速'
-                            : '正常',
-                    onChanged: (value) {
-                      context.read<AppProvider>().saveTtsSpeechRate(value);
-                    },
-                  ),
-                  trailing: Text(
-                    app.ttsSpeechRate.toStringAsFixed(1),
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                  ),
+                _groupLabel('声音参数', theme),
+                _speechParamTile(
+                  context: context,
+                  icon: Icons.speed_rounded,
+                  color: Colors.blue,
+                  title: '语速',
+                  value: app.ttsSpeechRate,
+                  min: 0.0,
+                  max: 1.0,
+                  divisions: 10,
+                  labelBuilder: (v) => v < 0.3
+                      ? '慢速'
+                      : v > 0.7
+                          ? '快速'
+                          : '正常',
+                  trailing: app.ttsSpeechRate.toStringAsFixed(1),
+                  onChanged: app.ttsEnabled
+                      ? (v) => context.read<AppProvider>().saveTtsSpeechRate(v)
+                      : null,
                 ),
                 const Divider(height: 1),
-                // 音调调节
-                ListTile(
-                  leading: const Icon(Icons.graphic_eq_rounded, color: Colors.purple),
-                  title: const Text('音调'),
-                  subtitle: Slider(
-                    value: app.ttsPitch,
-                    min: 0.5,
-                    max: 2.0,
-                    divisions: 15,
-                    label: app.ttsPitch < 0.8
-                        ? '低沉'
-                        : app.ttsPitch > 1.2
-                            ? '高亢'
-                            : '正常',
-                    onChanged: (value) {
-                      context.read<AppProvider>().saveTtsPitch(value);
-                    },
-                  ),
-                  trailing: Text(
-                    app.ttsPitch.toStringAsFixed(1),
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                  ),
+                _speechParamTile(
+                  context: context,
+                  icon: Icons.graphic_eq_rounded,
+                  color: Colors.purple,
+                  title: '音调',
+                  value: app.ttsPitch,
+                  min: 0.5,
+                  max: 2.0,
+                  divisions: 15,
+                  labelBuilder: (v) => v < 0.8
+                      ? '低沉'
+                      : v > 1.2
+                          ? '高亢'
+                          : '正常',
+                  trailing: app.ttsPitch.toStringAsFixed(1),
+                  onChanged: app.ttsEnabled
+                      ? (v) => context.read<AppProvider>().saveTtsPitch(v)
+                      : null,
                 ),
                 const Divider(height: 1),
-                // 音量调节
-                ListTile(
-                  leading: const Icon(Icons.volume_up_rounded, color: Colors.orange),
-                  title: const Text('音量'),
-                  subtitle: Slider(
-                    value: app.ttsVolume,
-                    min: 0.0,
-                    max: 1.0,
-                    divisions: 10,
-                    label: '${(app.ttsVolume * 100).toInt()}%',
-                    onChanged: (value) {
-                      context.read<AppProvider>().saveTtsVolume(value);
-                    },
-                  ),
-                  trailing: Text(
-                    '${(app.ttsVolume * 100).toInt()}%',
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                  ),
+                _speechParamTile(
+                  context: context,
+                  icon: Icons.volume_up_rounded,
+                  color: Colors.orange,
+                  title: '音量',
+                  value: app.ttsVolume,
+                  min: 0.0,
+                  max: 1.0,
+                  divisions: 10,
+                  labelBuilder: (v) => '${(v * 100).toInt()}%',
+                  trailing: '${(app.ttsVolume * 100).toInt()}%',
+                  onChanged: app.ttsEnabled
+                      ? (v) => context.read<AppProvider>().saveTtsVolume(v)
+                      : null,
                 ),
                 const Divider(height: 1),
-                // 试听语音按钮
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: SizedBox(
@@ -318,11 +332,10 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 ),
                 const Divider(height: 1),
-                // TTS 系统设置入口
                 ListTile(
                   leading: const Icon(Icons.settings_voice_rounded, color: Colors.grey),
                   title: const Text('系统语音引擎设置'),
-                  subtitle: const Text('打开系统 TTS 设置页面'),
+                  subtitle: const Text('打开系统 TTS 设置页，可更换发音人与语言'),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () async {
                     final success = await TtsService.openTtsSettings();
@@ -389,7 +402,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 SwitchListTile(
                   secondary: const Icon(Icons.backup_rounded, color: Colors.teal),
                   title: const Text('自动本地备份'),
-                  subtitle: const Text('每周自动备份到应用私有目录'),
+                  subtitle: const Text('每周自动备份到应用私有目录，防止数据丢失'),
                   value: app.autoBackup,
                   onChanged: (value) {
                     context.read<AppProvider>().saveAutoBackup(value);
@@ -406,14 +419,14 @@ class _ProfilePageState extends State<ProfilePage> {
                 ListTile(
                   leading: const Icon(Icons.download_rounded, color: Colors.blue),
                   title: const Text('导出全部数据'),
-                  subtitle: const Text('导出题库、记录、收藏为 JSON 文件'),
+                  subtitle: const Text('将题库、答题记录、收藏、批注导出为 JSON 文件'),
                   onTap: _exportData,
                 ),
                 const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.upload_rounded, color: Colors.green),
                   title: const Text('导入数据'),
-                  subtitle: const Text('从备份文件恢复数据'),
+                  subtitle: const Text('从导出的 JSON 备份文件恢复全部数据'),
                   onTap: _importData,
                 ),
               ],
@@ -502,6 +515,55 @@ class _ProfilePageState extends State<ProfilePage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// 设置组内小标题，用于把同类选项归组，提升可读性。
+  Widget _groupLabel(String text, ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+      child: Text(
+        text,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: theme.colorScheme.primary,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.6,
+        ),
+      ),
+    );
+  }
+
+  /// 统一的"声音参数"滑块行：左侧图标、标题 + 滑块、右侧数值。
+  /// [onChanged] 为 null 时整行禁用（置灰），用于总开关关闭时收起调节项。
+  Widget _speechParamTile({
+    required BuildContext context,
+    required IconData icon,
+    required Color color,
+    required String title,
+    required double value,
+    required double min,
+    required double max,
+    required int divisions,
+    required String Function(double) labelBuilder,
+    required String trailing,
+    required ValueChanged<double>? onChanged,
+  }) {
+    return ListTile(
+      enabled: onChanged != null,
+      leading: Icon(icon, color: color),
+      title: Text(title),
+      subtitle: Slider(
+        value: value,
+        min: min,
+        max: max,
+        divisions: divisions,
+        label: labelBuilder(value),
+        onChanged: onChanged,
+      ),
+      trailing: Text(
+        trailing,
+        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
       ),
     );
   }
