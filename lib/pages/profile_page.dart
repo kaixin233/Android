@@ -9,6 +9,8 @@ import '../models/history_item.dart';
 import '../services/storage_service.dart';
 import '../services/backup_service.dart';
 import '../services/tts_service.dart';
+import '../services/update_service.dart';
+import '../widgets/update_dialog.dart';
 import 'knowledge_assessment_page.dart';
 import 'note_page.dart';
 import 'ai_settings_page.dart';
@@ -508,6 +510,31 @@ class _ProfilePageState extends State<ProfilePage> {
                   title: const Text('导入数据'),
                   subtitle: const Text('从导出的 JSON 备份文件恢复全部数据'),
                   onTap: _importData,
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.system_update_alt_rounded, color: Colors.deepPurple),
+                  title: const Text('检查更新'),
+                  subtitle: app.updateAvailable
+                      ? Text('发现新版本 v${app.latestUpdate!.version}',
+                          style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w600))
+                      : Text('当前版本 v${app.appVersion}'),
+                  trailing: app.updateAvailable
+                      ? const Icon(Icons.arrow_circle_up_rounded, color: Colors.green)
+                      : const Icon(Icons.chevron_right_rounded),
+                  onTap: () async {
+                    final result = await app.checkForUpdate(manual: true);
+                    if (!mounted) return;
+                    if (result.hasUpdate && result.info != null) {
+                      UpdateDialog.showUpdateDialog(context, result.info!);
+                    } else if (result.error != null) {
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(SnackBar(content: Text(result.error!)));
+                    } else {
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(const SnackBar(content: Text('已是最新版本')));
+                    }
+                  },
                 ),
               ],
             ),

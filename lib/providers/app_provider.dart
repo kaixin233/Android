@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/textbooks.dart';
 import '../models/history_item.dart';
@@ -9,6 +13,7 @@ import '../services/question_service.dart';
 import '../services/storage_service.dart';
 import '../services/tts_service.dart';
 import '../services/backup_service.dart';
+import '../services/update_service.dart';
 
 class AppProvider extends ChangeNotifier {
   List<Question> _allQuestions = [];
@@ -46,6 +51,13 @@ class AppProvider extends ChangeNotifier {
   double _ttsVolume = 1.0;
   bool _ttsEnabled = true;
 
+  // 更新检查
+  String? _appVersion;
+  String? _appBuildNumber;
+  UpdateInfo? _latestUpdate;
+  DateTime? _lastUpdateCheckAt;
+  String? _updateError;
+
   List<Question> get allQuestions => _allQuestions;
   List<HistoryItem> get history => _history;
   List<Note> get notes => _notes;
@@ -74,6 +86,12 @@ class AppProvider extends ChangeNotifier {
   double get ttsPitch => _ttsPitch;
   double get ttsVolume => _ttsVolume;
 
+  String get appVersion => _appVersion ?? '1.0.8';
+  String? get appBuildNumber => _appBuildNumber;
+  UpdateInfo? get latestUpdate => _latestUpdate;
+  bool get updateAvailable => _latestUpdate != null;
+  String? get updateError => _updateError;
+
   Future<void> initialize() async {
     try {
       // 每个任务独立 catch，避免一个失败影响其他
@@ -91,12 +109,123 @@ class AppProvider extends ChangeNotifier {
         _loadPracticeSettings().catchError((e) => debugPrint('loadPracticeSettings error: $e')),
         _loadAllQuestions().catchError((e) => debugPrint('loadAllQuestions error: $e')),
         _loadTtsSettings().catchError((e) => debugPrint('loadTtsSettings error: $e')),
+        _loadUpdatePrefs().catchError((e) => debugPrint('loadUpdatePrefs error: $e')),
+        _loadAppVersion().catchError((e) => debugPrint('loadAppVersion error: $e')),
       ]);
       // 启动后按需触发本地自动备份（失败不影响使用）
       BackupService.runIfNeeded().catchError((e) => debugPrint('autoBackup error: $e'));
     } catch (e) {
       debugPrint('Error initializing app: $e');
     }
+  }
+
+  Future<void> _loadUpdatePrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final last = prefs.getInt('update_last_check');
+    if (last != null) {
+      _lastUpdateCheckAt = DateTime.fromMillisecondsSinceEpoch(last);
+    }
+    final infoJson = prefs.getString('update_info');
+    if (infoJson != null) {
+      try {
+        final m = jsonDecode(infoJson) as Map<String, dynamic>;
+        _latestUpdate = UpdateInfo(
+          tagName: m['tagName'] as String,
+          version: m['version'] as String,
+          releaseNotes: m['releaseNotes'] as String?,
+          apkUrl: m['apkUrl'] as String?,
+          publishedAt: m['publishedAt'] != null
+              ? DateTime.tryParse(m['publishedAt'] as String)
+              : null,
+          isPrerelease: m['isPrerelease'] as bool? ?? false,
+          htmlUrl: m['htmlUrl'] as String?,
+          buildNumber: m['buildNumber'] as int?,
+        );
+      } catch (_) {
+        // 解析失败则忽略缓存
+      }
+    }
+  }
+
+  Future<void> _loadAppVersion() async {
+    try {
+      final pkg = await PackageInfo.fromPlatform();
+      _appVersion = pkg.version;
+      _appBuildNumber = pkg.buildNumber;
+    } catch (_) {
+      // 获取失败则保留默认值
+    }
+  }
+
+  /// 检查 GitHub 是否有新版本。
+  ///
+  /// [manual] 为 true 时跳过冷却（"检查更新"按钮）；为 false 时受 12 小时冷却限制，
+  /// 避免频繁请求 GitHub API 触发限流。结果会缓存并持久化，供"我的"页展示。
+  static const Duration _updateCheckCooldown = Duration(hours: 12);
+
+  Future<UpdateCheckResult> checkForUpdate({bool manual = false}) async {
+    if (!manual) {
+      final now = DateTime.now();
+      if (_lastUpdateCheckAt != null &&
+          now.difference(_lastUpdateCheckAt!) < _updateCheckCooldown) {
+        // 冷却期内：直接返回已缓存结果，不再请求网络
+        return UpdateCheckResult(
+          hasUpdate: _latestUpdate != null,
+          info: _latestUpdate,
+          error: _updateError,
+        );
+      }
+    }
+
+    if (_appVersion == null) {
+      await _loadAppVersion();
+    }
+    final currentVersion = _appVersion ?? '1.0.8';
+    final currentBuild = int.tryParse(_appBuildNumber ?? '');
+
+    final result = await UpdateService.checkForUpdate(
+      currentVersion: currentVersion,
+      currentBuildNumber: currentBuild,
+    );
+
+    if (result.error != null) {
+      _updateError = result.error;
+      // 出错时保留上一次发现的更新（不清除），仅记录错误
+    } else {
+      _updateError = null;
+      _latestUpdate = result.hasUpdate ? result.info : null;
+    }
+
+    _lastUpdateCheckAt = DateTime.now();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(
+        'update_last_check',
+        _lastUpdateCheckAt!.millisecondsSinceEpoch,
+      );
+      if (_latestUpdate != null) {
+        await prefs.setString(
+          'update_info',
+          jsonEncode(<String, dynamic>{
+            'tagName': _latestUpdate!.tagName,
+            'version': _latestUpdate!.version,
+            'releaseNotes': _latestUpdate!.releaseNotes,
+            'apkUrl': _latestUpdate!.apkUrl,
+            'publishedAt': _latestUpdate!.publishedAt?.toIso8601String(),
+            'isPrerelease': _latestUpdate!.isPrerelease,
+            'htmlUrl': _latestUpdate!.htmlUrl,
+            'buildNumber': _latestUpdate!.buildNumber,
+          }),
+        );
+      } else {
+        await prefs.remove('update_info');
+      }
+    } catch (e) {
+      debugPrint('持久化更新信息失败: $e');
+    }
+
+    notifyListeners();
+    return result;
   }
 
   Future<void> _loadAllQuestions() async {

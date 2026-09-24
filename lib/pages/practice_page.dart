@@ -96,6 +96,9 @@ class _PracticePageState extends State<PracticePage> {
   final Map<String, _AnswerRecord> _questionResults = {};
   bool _isSpeaking = false;
   bool _isSpeakingExplanation = false;
+  // 完成流程幂等守卫：避免"自动下一题"定时器与手动点击"完成"竞态导致重复弹窗，
+  // 也避免 onCompleted 抛错时结果弹窗不弹出
+  bool _hasFinished = false;
 
   @override
   void initState() {
@@ -452,22 +455,35 @@ class _PracticePageState extends State<PracticePage> {
     _autoNextTimer?.cancel();
     _timer?.cancel();
     _stopSpeakingIfNeeded();
-    final total = _questions.length;
-    final result = HistoryItem(
-      title: _getPracticeTitle(),
-      answeredAt: DateTime.now(),
-      correctCount: _correctCount,
-      totalCount: total,
-      durationSeconds: _elapsedSeconds,
-      subject: widget.config.subject,
-      mode: widget.config.mode,
-      wrongQuestionKeys: _wrongKeys.toList(),
-    );
 
-    // 先保存结果，但不导航——导航由弹窗按钮统一处理
-    await widget.onCompleted(result);
+    // 幂等守卫：手动点击"完成"与"自动下一题"定时器可能同时触发本方法，
+    // 加锁避免重复弹出结果弹窗。
+    if (_hasFinished) return;
+    _hasFinished = true;
 
-    if (!mounted) return;
+    try {
+      final total = _questions.length;
+      final result = HistoryItem(
+        title: _getPracticeTitle(),
+        answeredAt: DateTime.now(),
+        correctCount: _correctCount,
+        totalCount: total,
+        durationSeconds: _elapsedSeconds,
+        subject: widget.config.subject,
+        mode: widget.config.mode,
+        wrongQuestionKeys: _wrongKeys.toList(),
+      );
+
+      // 先保存结果，但不导航——导航由弹窗按钮统一处理。
+      // 容错：保存失败不应阻断结果弹窗的展示（用户仍能看到本次成绩）。
+      try {
+        await widget.onCompleted(result);
+      } catch (e, stackTrace) {
+        debugPrint('保存练习结果失败（不影响结果展示）: $e');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+
+      if (!mounted) return;
 
     final accuracy = total == 0 ? 0 : (_correctCount * 100 ~/ total);
     final hasWrong = _wrongKeys.isNotEmpty;
@@ -635,6 +651,10 @@ class _PracticePageState extends State<PracticePage> {
         ],
       ),
     );
+    } finally {
+      // 结果弹窗关闭后解除守卫，允许"再练一次"后再次完成
+      _hasFinished = false;
+    }
   }
 
   String _getPracticeTitle() {

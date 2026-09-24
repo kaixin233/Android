@@ -338,14 +338,33 @@ class TtsService {
   static String preprocessText(String text) {
     var result = text;
 
-    // 1. 空括号（）() → "什么"
-    result = result.replaceAll(RegExp(r'[（(]\s*[）)]'), '什么');
-
-    // 2. 有内容的括号：去掉括号保留内容（语音不需要括号）
-    result = result.replaceAll(RegExp(r'[（(]([^）)]+)[）)]'), r'$1');
-
-    // 3. 方括号【】[] → 去掉括号保留内容
-    result = result.replaceAll(RegExp(r'[【\[]([^】\]]+)[】\]]'), r'$1');
+    // 1~3. 括号统一处理：去掉括号符号、保留括号内部文字。
+    //    语音引擎（尤其部分中文 TTS）遇到未处理的括号会误读（如把（）读成
+    //    "一美元"），甚至整段吞掉括号内的内容。因此对所有常见括号类型做剥离，
+    //    只保留内部文字。空的中文圆括号（填空位）读作"什么"，其余空括号直接去除。
+    //    注意：先处理"有内容"再处理"空括号"，避免空括号被有内容分支吃掉。
+    const bracketPairs = <List<String>>[
+      ['（', '）'], // 全角圆括号
+      ['(', ')'], // 半角圆括号
+      ['《', '》'], // 书名号（文档/法规名，题目解析中极常见）
+      ['【', '】'], // 实心方头括号
+      ['[', ']'], // 半角方括号
+      ['〔', '〕'], // 龟甲括号
+      ['〈', '〉'], // 单角括号
+      ['「', '」'], // 直角引号
+      ['『', '』'], // 双角引号
+      ['﹙', '﹚'], // 全角小圆括号
+      ['〖', '〗'], // 空心方头括号
+    ];
+    for (final pair in bracketPairs) {
+      final open = RegExp.escape(pair[0]);
+      final close = RegExp.escape(pair[1]);
+      // 有内容的括号：去掉括号、保留内部文字
+      result = result.replaceAll(RegExp('$open([^$close]+)$close'), r'$1');
+      // 空括号：中文/半角圆括号读作"什么"，其余括号直接去除
+      final emptyReplacement = (pair[0] == '（' || pair[0] == '(') ? '什么' : '');
+      result = result.replaceAll(RegExp('$open\\s*$close'), emptyReplacement);
+    }
 
     // 4. 连续下划线（填空横线）→ "什么"
     result = result.replaceAll(RegExp(r'_{2,}'), '什么');
@@ -722,6 +741,24 @@ class TtsService {
     _isSpeaking = false;
     _isAvailable = false;
     _onComplete = null;
+  }
+
+  /// App 从后台回到前台时调用：系统可能已回收 TTS 引擎进程，
+  /// 而静态缓存的 _isAvailable / _initFuture 仍为"成功"，导致后续 speak()
+  /// 误以为引擎就绪却不发声。这里只让缓存失效（不调用可能挂起的 stop()），
+  /// 使下一次 speak() 重新走初始化流程重新绑定引擎。
+  ///
+  /// 与 [reset] 的区别：本方法不主动 stop()（被系统回收的引擎 stop 可能抛错/挂起），
+  /// 仅使初始化缓存失效，更适配"后台清理后恢复"场景。
+  static void onAppResumed() {
+    _speakGeneration++;
+    _initFuture = null;
+    _isSpeaking = false;
+    _isAvailable = false;
+    _onComplete = null;
+    _currentCompletionCompleter = null;
+    // 重新预热，提升回到前台后首次朗读的成功率（非阻塞）
+    initialize();
   }
 
   /// 释放资源

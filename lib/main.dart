@@ -8,6 +8,7 @@ import 'providers/app_provider.dart';
 import 'services/tts_service.dart';
 import 'services/web_chat_bridge.dart';
 import 'widgets/deepseek_login_controls.dart';
+import 'widgets/update_dialog.dart';
 
 void main() {
   // 预热 TTS 引擎，不阻塞应用启动
@@ -36,19 +37,54 @@ class _AppRoot extends StatefulWidget {
   State<_AppRoot> createState() => _AppRootState();
 }
 
-class _AppRootState extends State<_AppRoot> {
+class _AppRootState extends State<_AppRoot> with WidgetsBindingObserver {
   bool _isInitialized = false;
+  // 本次会话是否已自动弹出过更新对话框，避免重复打扰
+  bool _updateDialogShown = false;
 
   @override
   void initState() {
     super.initState();
+    // 监听 App 生命周期：从后台回到前台时重建可能被系统回收的 TTS 引擎
+    WidgetsBinding.instance.addObserver(this);
     _initializeApp();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // 系统清理后台后返回 App，TTS 引擎进程可能已被回收，语音会失效。
+    // 回到前台时使 TTS 缓存失效并重新预热，确保下次朗读可用。
+    if (state == AppLifecycleState.resumed) {
+      TtsService.onAppResumed();
+    }
   }
 
   Future<void> _initializeApp() async {
     final provider = Provider.of<AppProvider>(context, listen: false);
     await provider.initialize();
     if (mounted) setState(() => _isInitialized = true);
+    // 启动后自动检测更新（不阻塞首屏）；发现新版本时本次会话弹一次更新对话框
+    provider.checkForUpdate(manual: false).then((_) {
+      if (mounted && provider.updateAvailable && !_updateDialogShown) {
+        _updateDialogShown = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && provider.latestUpdate != null) {
+            UpdateDialog.showUpdateDialog(
+              context,
+              provider.latestUpdate!,
+              auto: true,
+            );
+          }
+        });
+      }
+    }).catchError((e) => debugPrint('自动检查更新失败: $e'));
   }
 
   ThemeMode _parseThemeMode(String mode) {
