@@ -510,6 +510,10 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
   String get _readingKey =>
       '${widget.subject.name}|${widget.chapterNumber}|${widget.subsection.number}';
 
+  // 「从当前位置朗读」：用于按可见位置定位当前小节（不参与自动滚动）
+  final GlobalKey _knowledgeListKey = GlobalKey();
+  final List<GlobalKey> _sectionKeys = [];
+
   @override
   List<KnowledgeSection> get playbackSections => _knowledgeSections;
 
@@ -570,6 +574,79 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
       final max = _knowledgeScrollController.position.maxScrollExtent;
       _knowledgeScrollController.jumpTo(offset.clamp(0.0, max));
     });
+  }
+
+  GlobalKey _sectionKey(int index) {
+    while (_sectionKeys.length <= index) {
+      _sectionKeys.add(GlobalKey());
+    }
+    return _sectionKeys[index];
+  }
+
+  /// 计算"当前页面位置"所在的小节下标（视口顶部所在/最近的小节）。
+  int _currentSectionIndex() {
+    if (_sectionKeys.isEmpty) return 0;
+    final listBox = _knowledgeListKey.currentContext?.findRenderObject();
+    if (listBox is! RenderBox) return 0;
+    final viewportTop = listBox.localToGlobal(Offset.zero).dy;
+
+    var best = -1;
+    var bestDy = double.negativeInfinity;
+    var firstBuilt = -1;
+    for (var i = 0; i < _sectionKeys.length; i++) {
+      final ro = _sectionKeys[i].currentContext?.findRenderObject();
+      if (ro is! RenderBox) continue;
+      if (firstBuilt < 0) firstBuilt = i;
+      final dy = ro.localToGlobal(Offset.zero).dy;
+      // 选取"顶部位于视口顶部或略上方"的最大者 → 即当前屏幕顶部所在小节
+      if (dy <= viewportTop + 40 && dy > bestDy) {
+        bestDy = dy;
+        best = i;
+      }
+    }
+    if (best >= 0) return best;
+    return firstBuilt >= 0 ? firstBuilt : 0;
+  }
+
+  /// 从当前页面位置开始连续朗读
+  void _playFromCurrentPosition() {
+    playFromSection(_currentSectionIndex());
+  }
+
+  /// 「从当前位置朗读」紧凑按钮
+  Widget _buildPlayFromCurrentButton(ThemeData theme, Color color) {
+    final isDark = theme.brightness == Brightness.dark;
+    return Material(
+      color: isDark ? theme.colorScheme.surface : Colors.white,
+      elevation: 4,
+      borderRadius: BorderRadius.circular(28),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(28),
+        onTap: _playFromCurrentPosition,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 6, 16, 6),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: color.withValues(alpha: 0.35)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.my_location_rounded, color: color, size: 20),
+              const SizedBox(width: 6),
+              Text(
+                '从当前位置',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _loadData() async {
@@ -697,34 +774,45 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     return Stack(
       children: [
         ListView.builder(
+          key: _knowledgeListKey,
           controller: _knowledgeScrollController,
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
           itemCount: _knowledgeSections.length,
           itemBuilder: (context, index) {
             final section = _knowledgeSections[index];
             final isThisPlaying = isPlayingKnowledge && playingSectionIndex == index;
-            return _KnowledgeSectionCard(
-              section: section,
-              color: color,
-              subject: widget.subject,
-              chapterNumber: widget.chapterNumber,
-              isPlaying: isThisPlaying,
-              playingParagraphIndex: isThisPlaying ? playingParagraphIndex : -1,
-              activeSentence: isThisPlaying ? currentSentence : null,
-              onPlayTap: () => playSection(index),
-              onPlayFromHere: () => playFromSection(index),
-              onAskAi: (text) => _askAiAboutSection(section, selectedText: text),
-              onAskAiWhole: () => _askAiAboutSection(section),
-              onAnnotate: (text) => _annotateSection(section, text),
-              onAnnotationsChanged: () => setState(() {}),
+            return KeyedSubtree(
+              key: _sectionKey(index),
+              child: _KnowledgeSectionCard(
+                section: section,
+                color: color,
+                subject: widget.subject,
+                chapterNumber: widget.chapterNumber,
+                isPlaying: isThisPlaying,
+                playingParagraphIndex: isThisPlaying ? playingParagraphIndex : -1,
+                activeSentence: isThisPlaying ? currentSentence : null,
+                onPlayTap: () => playSection(index),
+                onPlayFromHere: () => playFromSection(index),
+                onAskAi: (text) => _askAiAboutSection(section, selectedText: text),
+                onAskAiWhole: () => _askAiAboutSection(section),
+                onAnnotate: (text) => _annotateSection(section, text),
+                onAnnotationsChanged: () => setState(() {}),
+              ),
             );
           },
         ),
-        // 右下角紧凑播放按钮（不占整行）
+        // 右下角悬浮：从当前位置朗读 + 播放全部（紧凑，不占整行）
         Positioned(
           right: 16,
           bottom: 16,
-          child: buildKnowledgePlaybackBar(theme, color),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildPlayFromCurrentButton(theme, color),
+              const SizedBox(width: 10),
+              buildKnowledgePlaybackBar(theme, color),
+            ],
+          ),
         ),
       ],
     );
@@ -1692,6 +1780,10 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
   String get _readingKey =>
       '${widget.subject.name}|${widget.chapterNumber}|__chapter__';
 
+  // 「从当前位置朗读」：用于按可见位置定位当前小节（不参与自动滚动）
+  final GlobalKey _knowledgeListKey = GlobalKey();
+  final List<GlobalKey> _sectionKeys = [];
+
   @override
   List<KnowledgeSection> get playbackSections => _sections;
 
@@ -1749,6 +1841,78 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
     });
   }
 
+  GlobalKey _sectionKey(int index) {
+    while (_sectionKeys.length <= index) {
+      _sectionKeys.add(GlobalKey());
+    }
+    return _sectionKeys[index];
+  }
+
+  /// 计算"当前页面位置"所在的小节下标（视口顶部所在/最近的小节）。
+  int _currentSectionIndex() {
+    if (_sectionKeys.isEmpty) return 0;
+    final listBox = _knowledgeListKey.currentContext?.findRenderObject();
+    if (listBox is! RenderBox) return 0;
+    final viewportTop = listBox.localToGlobal(Offset.zero).dy;
+
+    var best = -1;
+    var bestDy = double.negativeInfinity;
+    var firstBuilt = -1;
+    for (var i = 0; i < _sectionKeys.length; i++) {
+      final ro = _sectionKeys[i].currentContext?.findRenderObject();
+      if (ro is! RenderBox) continue;
+      if (firstBuilt < 0) firstBuilt = i;
+      final dy = ro.localToGlobal(Offset.zero).dy;
+      if (dy <= viewportTop + 40 && dy > bestDy) {
+        bestDy = dy;
+        best = i;
+      }
+    }
+    if (best >= 0) return best;
+    return firstBuilt >= 0 ? firstBuilt : 0;
+  }
+
+  /// 从当前页面位置开始连续朗读
+  void _playFromCurrentPosition() {
+    playFromSection(_currentSectionIndex());
+  }
+
+  /// 「从当前位置朗读」紧凑按钮
+  Widget _buildPlayFromCurrentButton(ThemeData theme, Color color) {
+    final isDark = theme.brightness == Brightness.dark;
+    return Material(
+      color: isDark ? theme.colorScheme.surface : Colors.white,
+      elevation: 4,
+      borderRadius: BorderRadius.circular(28),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(28),
+        onTap: _playFromCurrentPosition,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 6, 16, 6),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: color.withValues(alpha: 0.35)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.my_location_rounded, color: color, size: 20),
+              const SizedBox(width: 6),
+              Text(
+                '从当前位置',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _loadData() async {
     try {
       final sections = await KnowledgeService.getSectionsBySubsection(
@@ -1786,37 +1950,50 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
               : Stack(
                   children: [
                     ListView.builder(
+                      key: _knowledgeListKey,
                       controller: _knowledgeScrollController,
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
                       itemCount: _sections.length,
                       itemBuilder: (context, index) {
                         final isThisPlaying =
                             isPlayingKnowledge && playingSectionIndex == index;
-                        return _KnowledgeSectionCard(
-                          section: _sections[index],
-                          color: color,
-                          subject: widget.subject,
-                          chapterNumber: widget.chapterNumber,
-                          isPlaying: isThisPlaying,
-                          playingParagraphIndex:
-                              isThisPlaying ? playingParagraphIndex : -1,
-                          activeSentence: isThisPlaying ? currentSentence : null,
-                          onPlayTap: () => playSection(index),
-                          onPlayFromHere: () => playFromSection(index),
-                          onAskAi: (text) => _askAiAboutSection(_sections[index],
-                              selectedText: text),
-                          onAskAiWhole: () =>
-                              _askAiAboutSection(_sections[index]),
-                          onAnnotate: (text) =>
-                              _annotateSection(_sections[index], text),
-                          onAnnotationsChanged: () => setState(() {}),
+                        return KeyedSubtree(
+                          key: _sectionKey(index),
+                          child: _KnowledgeSectionCard(
+                            section: _sections[index],
+                            color: color,
+                            subject: widget.subject,
+                            chapterNumber: widget.chapterNumber,
+                            isPlaying: isThisPlaying,
+                            playingParagraphIndex:
+                                isThisPlaying ? playingParagraphIndex : -1,
+                            activeSentence:
+                                isThisPlaying ? currentSentence : null,
+                            onPlayTap: () => playSection(index),
+                            onPlayFromHere: () => playFromSection(index),
+                            onAskAi: (text) => _askAiAboutSection(
+                                _sections[index],
+                                selectedText: text),
+                            onAskAiWhole: () =>
+                                _askAiAboutSection(_sections[index]),
+                            onAnnotate: (text) =>
+                                _annotateSection(_sections[index], text),
+                            onAnnotationsChanged: () => setState(() {}),
+                          ),
                         );
                       },
                     ),
                     Positioned(
                       right: 16,
                       bottom: 16,
-                      child: buildKnowledgePlaybackBar(theme, color),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildPlayFromCurrentButton(theme, color),
+                          const SizedBox(width: 10),
+                          buildKnowledgePlaybackBar(theme, color),
+                        ],
+                      ),
                     ),
                   ],
                 ),
