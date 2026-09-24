@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -501,6 +503,16 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
   // 知识点练习状态：key = 知识点名称, value = 统计数据
   Map<String, KnowledgePointStats> _kpStats = {};
 
+  // 考点阅读进度（滚动位置）记忆
+  final ScrollController _knowledgeScrollController = ScrollController();
+  Timer? _readingOffsetTimer;
+  bool _readingOffsetRestored = false;
+  String get _readingKey =>
+      '${widget.subject.name}|${widget.chapterNumber}|${widget.subsection.number}';
+
+  // 朗读时用于自动滚动到当前小节
+  final List<GlobalKey> _sectionKeys = [];
+
   @override
   List<KnowledgeSection> get playbackSections => _knowledgeSections;
 
@@ -513,6 +525,8 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     initKnowledgePlayback();
     // 确保用户批注已从本地加载到内存
     AnnotationStore.ensureLoaded();
+    // 监听滚动以记录考点阅读进度
+    _knowledgeScrollController.addListener(_onKnowledgeScroll);
     // 记录"上次阅读"，用于教材页"继续阅读"
     StorageService.saveLastRead(
       widget.subject.name,
@@ -525,8 +539,62 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
   @override
   void dispose() {
     disposeKnowledgePlayback();
+    // 保存最后的阅读位置
+    _readingOffsetTimer?.cancel();
+    if (_knowledgeScrollController.hasClients) {
+      StorageService.saveReadingOffset(
+          _readingKey, _knowledgeScrollController.offset);
+    }
+    _knowledgeScrollController.removeListener(_onKnowledgeScroll);
+    _knowledgeScrollController.dispose();
     _tabController.dispose();
     super.dispose();
+  }
+
+  /// 滚动时（防抖 500ms）记录阅读位置
+  void _onKnowledgeScroll() {
+    _readingOffsetTimer?.cancel();
+    _readingOffsetTimer = Timer(const Duration(milliseconds: 500), () {
+      if (!mounted || !_knowledgeScrollController.hasClients) return;
+      StorageService.saveReadingOffset(
+          _readingKey, _knowledgeScrollController.offset);
+    });
+  }
+
+  /// 恢复上次阅读的滚动位置
+  Future<void> _restoreReadingOffset() async {
+    if (_readingOffsetRestored) return;
+    _readingOffsetRestored = true;
+    final offset = await StorageService.loadReadingOffset(_readingKey);
+    if (offset == null || offset <= 0) return;
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_knowledgeScrollController.hasClients) return;
+      final max = _knowledgeScrollController.position.maxScrollExtent;
+      _knowledgeScrollController.jumpTo(offset.clamp(0.0, max));
+    });
+  }
+
+  /// 朗读时自动滚动，使当前小节保持可见
+  @override
+  void onPlaybackPositionChanged() {
+    final i = playingSectionIndex;
+    if (i < 0 || i >= _sectionKeys.length) return;
+    final ctx = _sectionKeys[i].currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      alignment: 0.2,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeInOut,
+    );
+  }
+
+  GlobalKey _sectionKey(int index) {
+    while (_sectionKeys.length <= index) {
+      _sectionKeys.add(GlobalKey());
+    }
+    return _sectionKeys[index];
   }
   Future<void> _loadData() async {
     // 并行加载题目数据、考点知识和知识点统计
@@ -549,6 +617,8 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
         _kpStats = kpStats;
         _isLoading = false;
       });
+      // 载入完成后恢复上次的阅读位置
+      await _restoreReadingOffset();
     }
   }
 
@@ -651,22 +721,29 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     return Stack(
       children: [
         ListView.builder(
+          controller: _knowledgeScrollController,
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
           itemCount: _knowledgeSections.length,
           itemBuilder: (context, index) {
             final section = _knowledgeSections[index];
             final isThisPlaying = isPlayingKnowledge && playingSectionIndex == index;
-            return _KnowledgeSectionCard(
-              section: section,
-              color: color,
-              subject: widget.subject,
-              chapterNumber: widget.chapterNumber,
-              isPlaying: isThisPlaying,
-              onPlayTap: () => playSection(index),
-              onAskAi: (text) => _askAiAboutSection(section, selectedText: text),
-              onAskAiWhole: () => _askAiAboutSection(section),
-              onAnnotate: (text) => _annotateSection(section, text),
-              onAnnotationsChanged: () => setState(() {}),
+            return KeyedSubtree(
+              key: _sectionKey(index),
+              child: _KnowledgeSectionCard(
+                section: section,
+                color: color,
+                subject: widget.subject,
+                chapterNumber: widget.chapterNumber,
+                isPlaying: isThisPlaying,
+                playingParagraphIndex:
+                    isThisPlaying ? playingParagraphIndex : -1,
+                activeSentence: isThisPlaying ? currentSentence : null,
+                onPlayTap: () => playSection(index),
+                onAskAi: (text) => _askAiAboutSection(section, selectedText: text),
+                onAskAiWhole: () => _askAiAboutSection(section),
+                onAnnotate: (text) => _annotateSection(section, text),
+                onAnnotationsChanged: () => setState(() {}),
+              ),
             );
           },
         ),
@@ -1147,6 +1224,8 @@ class _KnowledgeSectionCard extends StatelessWidget {
     required this.subject,
     required this.chapterNumber,
     this.isPlaying = false,
+    this.playingParagraphIndex = -1,
+    this.activeSentence,
     this.onPlayTap,
     this.onAskAi,
     this.onAskAiWhole,
@@ -1159,6 +1238,13 @@ class _KnowledgeSectionCard extends StatelessWidget {
   final QuestionSubject subject;
   final String chapterNumber;
   final bool isPlaying;
+
+  /// 当前正在朗读的段落下标（-1 表示无），用于高亮"当前所读内容"
+  final int playingParagraphIndex;
+
+  /// 当前正在朗读的句子文本
+  final String? activeSentence;
+
   final VoidCallback? onPlayTap;
 
   /// 选中部分段落后点击"问 AI"的回调，参数为选中文本
@@ -1347,10 +1433,85 @@ class _KnowledgeSectionCard extends StatelessWidget {
     }
   }
 
+  /// 段落基础文字样式（按标题/子标题/加粗区分）
+  TextStyle _paragraphTextStyle(KnowledgeParagraph p, bool isDark) {
+    if (p.isHeading) {
+      return TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.bold,
+        color: isDark ? Colors.blue.shade200 : color,
+      );
+    }
+    if (p.isSubheading) {
+      return TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+        color: isDark ? Colors.teal.shade200 : color.withValues(alpha: 0.8),
+      );
+    }
+    if (p.isBold) {
+      return TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+        color: isDark ? Colors.orange.shade200 : Colors.red.shade700,
+      );
+    }
+    return TextStyle(
+      fontSize: 14,
+      height: 1.5,
+      color: isDark ? Colors.white70 : Colors.black87,
+    );
+  }
+
+  /// 正在朗读的段落：整段浅底 + 当前句强高亮，实现"一句话一段一段显示"
+  Widget _buildActiveParagraph(KnowledgeParagraph p, bool isDark) {
+    final sentences = splitSentences(p.text);
+    final baseStyle = _paragraphTextStyle(p, isDark);
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: isDark ? 0.16 : 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border(left: BorderSide(color: color, width: 3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: (sentences.isEmpty ? [p.text] : sentences).map((s) {
+          final isActive = activeSentence != null && s == activeSentence;
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Container(
+              padding: isActive
+                  ? const EdgeInsets.symmetric(horizontal: 6, vertical: 3)
+                  : EdgeInsets.zero,
+              decoration: isActive
+                  ? BoxDecoration(
+                      color: color.withValues(alpha: isDark ? 0.38 : 0.22),
+                      borderRadius: BorderRadius.circular(6),
+                    )
+                  : null,
+              child: Text(
+                s,
+                style: baseStyle.copyWith(
+                  fontWeight: isActive ? FontWeight.bold : null,
+                  color: isActive
+                      ? (isDark ? Colors.white : color)
+                      : baseStyle.color,
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
   Widget _buildParagraphs(BuildContext context, ThemeData theme, bool isDark) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: section.paragraphs.map((p) {
+      children: List.generate(section.paragraphs.length, (i) {
+        final p = section.paragraphs[i];
         // 图片段落
         if (p.imagePath != null) {
           final imagePath = p.imagePath!;
@@ -1405,6 +1566,10 @@ class _KnowledgeSectionCard extends StatelessWidget {
               ),
             ),
           );
+        }
+        // 当前正在朗读的段落 → 逐句高亮（"一句话一段一段显示"）
+        if (isPlaying && playingParagraphIndex == i) {
+          return _buildActiveParagraph(p, isDark);
         }
         if (p.isHeading) {
           return Padding(
@@ -1464,7 +1629,7 @@ class _KnowledgeSectionCard extends StatelessWidget {
             onAnnotationsChanged: onAnnotationsChanged,
           ),
         );
-      }).toList(),
+      }),
     );
   }
 }
@@ -1523,6 +1688,16 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
   bool _isLoading = true;
   List<KnowledgeSection> _sections = [];
 
+  // 考点阅读进度（滚动位置）记忆
+  final ScrollController _knowledgeScrollController = ScrollController();
+  Timer? _readingOffsetTimer;
+  bool _readingOffsetRestored = false;
+  String get _readingKey =>
+      '${widget.subject.name}|${widget.chapterNumber}|__chapter__';
+
+  // 朗读时用于自动滚动到当前小节
+  final List<GlobalKey> _sectionKeys = [];
+
   @override
   List<KnowledgeSection> get playbackSections => _sections;
 
@@ -1534,6 +1709,8 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
     initKnowledgePlayback();
     // 确保用户批注已从本地加载到内存
     AnnotationStore.ensureLoaded();
+    // 监听滚动以记录考点阅读进度
+    _knowledgeScrollController.addListener(_onKnowledgeScroll);
     // 记录"上次阅读"（章节级），用于教材页"继续阅读"
     StorageService.saveLastRead(
       widget.subject.name,
@@ -1546,7 +1723,57 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
   @override
   void dispose() {
     disposeKnowledgePlayback();
+    _readingOffsetTimer?.cancel();
+    if (_knowledgeScrollController.hasClients) {
+      StorageService.saveReadingOffset(
+          _readingKey, _knowledgeScrollController.offset);
+    }
+    _knowledgeScrollController.removeListener(_onKnowledgeScroll);
+    _knowledgeScrollController.dispose();
     super.dispose();
+  }
+
+  void _onKnowledgeScroll() {
+    _readingOffsetTimer?.cancel();
+    _readingOffsetTimer = Timer(const Duration(milliseconds: 500), () {
+      if (!mounted || !_knowledgeScrollController.hasClients) return;
+      StorageService.saveReadingOffset(
+          _readingKey, _knowledgeScrollController.offset);
+    });
+  }
+
+  Future<void> _restoreReadingOffset() async {
+    if (_readingOffsetRestored) return;
+    _readingOffsetRestored = true;
+    final offset = await StorageService.loadReadingOffset(_readingKey);
+    if (offset == null || offset <= 0) return;
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_knowledgeScrollController.hasClients) return;
+      final max = _knowledgeScrollController.position.maxScrollExtent;
+      _knowledgeScrollController.jumpTo(offset.clamp(0.0, max));
+    });
+  }
+
+  @override
+  void onPlaybackPositionChanged() {
+    final i = playingSectionIndex;
+    if (i < 0 || i >= _sectionKeys.length) return;
+    final ctx = _sectionKeys[i].currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      alignment: 0.2,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeInOut,
+    );
+  }
+
+  GlobalKey _sectionKey(int index) {
+    while (_sectionKeys.length <= index) {
+      _sectionKeys.add(GlobalKey());
+    }
+    return _sectionKeys[index];
   }
 
   Future<void> _loadData() async {
@@ -1560,6 +1787,7 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
           _sections = sections;
           _isLoading = false;
         });
+        await _restoreReadingOffset();
       }
     } catch (_) {
       if (mounted) {
@@ -1585,26 +1813,34 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
               : Stack(
                   children: [
                     ListView.builder(
+                      controller: _knowledgeScrollController,
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
                       itemCount: _sections.length,
                       itemBuilder: (context, index) {
                         final isThisPlaying =
                             isPlayingKnowledge && playingSectionIndex == index;
-                        return _KnowledgeSectionCard(
-                          section: _sections[index],
-                          color: color,
-                          subject: widget.subject,
-                          chapterNumber: widget.chapterNumber,
-                          isPlaying: isThisPlaying,
-                          onPlayTap: () => playSection(index),
-                          onAskAi: (text) =>
-                              _askAiAboutSection(_sections[index],
-                                  selectedText: text),
-                          onAskAiWhole: () =>
-                              _askAiAboutSection(_sections[index]),
-                          onAnnotate: (text) =>
-                              _annotateSection(_sections[index], text),
-                          onAnnotationsChanged: () => setState(() {}),
+                        return KeyedSubtree(
+                          key: _sectionKey(index),
+                          child: _KnowledgeSectionCard(
+                            section: _sections[index],
+                            color: color,
+                            subject: widget.subject,
+                            chapterNumber: widget.chapterNumber,
+                            isPlaying: isThisPlaying,
+                            playingParagraphIndex:
+                                isThisPlaying ? playingParagraphIndex : -1,
+                            activeSentence:
+                                isThisPlaying ? currentSentence : null,
+                            onPlayTap: () => playSection(index),
+                            onAskAi: (text) =>
+                                _askAiAboutSection(_sections[index],
+                                    selectedText: text),
+                            onAskAiWhole: () =>
+                                _askAiAboutSection(_sections[index]),
+                            onAnnotate: (text) =>
+                                _annotateSection(_sections[index], text),
+                            onAnnotationsChanged: () => setState(() {}),
+                          ),
                         );
                       },
                     ),

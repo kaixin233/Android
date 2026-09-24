@@ -13,6 +13,7 @@ import '../services/storage_service.dart';
 import '../services/tts_service.dart';
 import '../services/ai_mnemonic_service.dart';
 import '../services/ai_service.dart';
+import '../services/review_service.dart';
 import '../utils/animations.dart';
 import '../utils/ai_assistant_launcher.dart';
 import '../widgets/ask_ai_selection_area.dart';
@@ -32,6 +33,7 @@ class PracticeConfig {
     this.chapterNumber,
     this.subsection,
     this.keyword,
+    this.questionKeys,
   });
 
   final QuestionSubject? subject;
@@ -46,6 +48,10 @@ class PracticeConfig {
   final String? chapterNumber;
   final String? subsection;
   final String? keyword;
+
+  /// 显式指定要练习的题目唯一键集合（用于艾宾浩斯复习等场景）。
+  /// 非空时优先于其它筛选条件，直接按 key 精确加载这些题目。
+  final List<String>? questionKeys;
 }
 
 /// 答题记录，用于恢复已回答题目的选择状态
@@ -141,6 +147,10 @@ class _PracticePageState extends State<PracticePage> {
             .toList();
       }
       _questions = await QuestionService.getByKeys(wrongKeys);
+    } else if (widget.config.questionKeys != null &&
+        widget.config.questionKeys!.isNotEmpty) {
+      // 显式指定的题目集合（如艾宾浩斯到期复习题）
+      _questions = await QuestionService.getByKeys(widget.config.questionKeys!);
     } else {
       _questions = await QuestionService.filter(
         subject: widget.config.subject,
@@ -269,10 +279,21 @@ class _PracticePageState extends State<PracticePage> {
     return answer.toLowerCase().replaceAll(RegExp(r'[\s\p{Punct}]'), '');
   }
 
+  /// 记录本题到艾宾浩斯复习计划（失败不影响答题流程）。
+  Future<void> _recordReview(String uniqueKey, bool isCorrect) async {
+    try {
+      await ReviewService.recordAnswer(uniqueKey, isCorrect: isCorrect);
+    } catch (e) {
+      debugPrint('记录复习进度失败: $e');
+    }
+  }
+
   void _submitAnswer() {
     if (!_isAnswerSubmitted()) return;
     final correct = _checkAnswer();
     final uniqueKey = _questions[_currentIndex].uniqueKey;
+    // 纳入艾宾浩斯遗忘曲线复习计划：做过的题都进入，答对推进阶段、答错回到第一阶段
+    unawaited(_recordReview(uniqueKey, correct));
     final previous = _questionResults[uniqueKey];
     final app = context.read<AppProvider>();
     setState(() {
@@ -684,6 +705,8 @@ class _PracticePageState extends State<PracticePage> {
         return '${widget.config.subject?.label ?? '综合'} 考试';
       case PracticeMode.wrong:
         return '错题重做';
+      case PracticeMode.review:
+        return '艾宾浩斯复习';
     }
   }
 

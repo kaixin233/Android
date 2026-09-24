@@ -54,6 +54,9 @@ class AppProvider extends ChangeNotifier {
   // AI 考点记忆口诀（答题后自动生成，可开关）
   bool _aiMnemonicEnabled = false;
 
+  // 艾宾浩斯复习提醒（到期时按天提醒，可开关）
+  bool _reviewReminderEnabled = true;
+
   // 更新检查
   String? _appVersion;
   String? _appBuildNumber;
@@ -87,6 +90,7 @@ class AppProvider extends ChangeNotifier {
   bool get ttsSkipExplanationOnCorrect => _ttsEnabled && _ttsSkipExplanationOnCorrect;
   double get ttsSpeechRate => _ttsSpeechRate;
   bool get aiMnemonicEnabled => _aiMnemonicEnabled;
+  bool get reviewReminderEnabled => _reviewReminderEnabled;
   double get ttsPitch => _ttsPitch;
   double get ttsVolume => _ttsVolume;
 
@@ -114,6 +118,7 @@ class AppProvider extends ChangeNotifier {
         _loadAllQuestions().catchError((e) => debugPrint('loadAllQuestions error: $e')),
         _loadTtsSettings().catchError((e) => debugPrint('loadTtsSettings error: $e')),
         _loadAiMnemonicEnabled().catchError((e) => debugPrint('loadAiMnemonicEnabled error: $e')),
+        _loadReviewReminderEnabled().catchError((e) => debugPrint('loadReviewReminder error: $e')),
         _loadUpdatePrefs().catchError((e) => debugPrint('loadUpdatePrefs error: $e')),
         _loadAppVersion().catchError((e) => debugPrint('loadAppVersion error: $e')),
       ]);
@@ -315,6 +320,10 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> _loadAiMnemonicEnabled() async {
     _aiMnemonicEnabled = await StorageService.loadAiMnemonicEnabled();
+  }
+
+  Future<void> _loadReviewReminderEnabled() async {
+    _reviewReminderEnabled = await StorageService.loadReviewReminderEnabled();
   }
 
   // ========== 历史记录 ==========
@@ -527,6 +536,14 @@ class AppProvider extends ChangeNotifier {
     _aiMnemonicEnabled = enabled;
     notifyListeners();
     await StorageService.saveAiMnemonicEnabled(enabled);
+  }
+
+  // ========== 艾宾浩斯复习 ==========
+
+  Future<void> saveReviewReminderEnabled(bool enabled) async {
+    _reviewReminderEnabled = enabled;
+    notifyListeners();
+    await StorageService.saveReviewReminderEnabled(enabled);
   }
 
   Future<void> refresh() async {

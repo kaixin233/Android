@@ -5,10 +5,11 @@ import '../providers/app_provider.dart';
 import '../services/knowledge_service.dart';
 import '../services/tts_service.dart';
 
-/// 考点知识 TTS 连续播放能力
+/// 考点知识 TTS 连续播放能力（逐句朗读 + 当前句高亮）
 ///
 /// 为展示 [KnowledgeSection] 列表的页面提供统一的播放/停止/进度跟踪逻辑
-/// 与底部播放控制栏 UI，避免各页面重复维护同一份 TTS 代码。
+/// 与底部播放控制栏 UI。播放按"句子"为单位推进，并对外暴露当前正在朗读的
+/// 段落下标与句子文本，便于页面在正文中高亮"当前所读内容"。
 ///
 /// 使用方式：
 /// ```dart
@@ -17,23 +18,18 @@ import '../services/tts_service.dart';
 ///   List<KnowledgeSection> get playbackSections => _sections;
 ///
 ///   @override
-///   void initState() {
-///     super.initState();
-///     initKnowledgePlayback(); // 预热 TTS 引擎
-///   }
-///
-///   @override
-///   void dispose() {
-///     disposeKnowledgePlayback();
-///     super.dispose();
+///   void onPlaybackPositionChanged() {
+///     // 可选：滚动到当前朗读的段落
 ///   }
 /// }
 /// ```
 mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
   bool _isPlayingKnowledge = false;
   int _playingSectionIndex = -1; // -1 = 未播放
-  int _currentChunkIndex = 0;
-  int _currentChunkCount = 0;
+  int _playingParagraphIndex = -1; // 当前段落下标（-1 = 标题/未播放）
+  String? _currentSentence; // 当前正在朗读的句子
+  int _currentUnitIndex = 0;
+  int _currentUnitCount = 0;
 
   /// 防止重复调用 [playAllKnowledge]
   bool _isStartingPlayback = false;
@@ -46,6 +42,19 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
 
   /// 正在播放的小节下标，-1 表示未播放
   int get playingSectionIndex => _playingSectionIndex;
+
+  /// 正在播放的小节内段落下标；-1 表示未播放或正在读标题
+  int get playingParagraphIndex => _playingParagraphIndex;
+
+  /// 当前正在朗读的句子文本（用于在正文中高亮）
+  String? get currentSentence => _currentSentence;
+
+  /// 当前句序号（从 1 开始）与总句数
+  int get currentUnitIndex => _currentUnitIndex;
+  int get currentUnitCount => _currentUnitCount;
+
+  /// 播放位置（小节/句子）变化时回调，页面可据此自动滚动。默认空实现。
+  void onPlaybackPositionChanged() {}
 
   /// 预热 TTS 引擎，避免首次点击朗读时出现明显延迟
   void initKnowledgePlayback() {
@@ -81,38 +90,30 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
     if (!mounted) return;
     if (!await _ensureTtsReady()) return;
 
-    final chunks = TtsService.cleanAndChunk(
-        playbackSections[index].toSpeechText());
+    final units = playbackSections[index].speechUnits();
+    if (units.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('该小节暂无可朗读内容')),
+        );
+      }
+      return;
+    }
 
     setState(() {
       _isPlayingKnowledge = true;
       _playingSectionIndex = index;
-      _currentChunkCount = chunks.length;
-      _currentChunkIndex = 0;
+      _currentUnitCount = units.length;
+      _currentUnitIndex = 0;
+      _playingParagraphIndex = units.first.paragraphIndex;
+      _currentSentence = units.first.text;
     });
+    onPlaybackPositionChanged();
 
-    var overallSuccess = true;
-
-    for (var i = 0; i < chunks.length; i++) {
-      if (!_isPlayingKnowledge || !mounted) {
-        overallSuccess = false;
-        break;
-      }
-      if (mounted) {
-        setState(() => _currentChunkIndex = i);
-      }
-      final success = await TtsService.speak(chunks[i], waitForCompletion: true);
-      if (!success) {
-        overallSuccess = false;
-        break;
-      }
-      // 小段间短暂停顿，避免句子连读
-      await Future.delayed(const Duration(milliseconds: 180));
-    }
+    final ok = await _speakUnits(units, index);
 
     _resetPlaybackState();
-
-    if (!overallSuccess && mounted) {
+    if (!ok && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('语音播报失败，请重试')),
       );
@@ -156,33 +157,9 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
 
       for (var i = 0; i < playbackSections.length; i++) {
         if (!_isPlayingKnowledge || !mounted) break;
-
-        final chunks = TtsService.cleanAndChunk(
-            playbackSections[i].toSpeechText());
-
-        setState(() {
-          _playingSectionIndex = i;
-          _currentChunkCount = chunks.length;
-          _currentChunkIndex = 0;
-        });
-
-        var ok = true;
-        for (var j = 0; j < chunks.length; j++) {
-          if (!_isPlayingKnowledge || !mounted) {
-            ok = false;
-            break;
-          }
-          if (mounted) {
-            setState(() => _currentChunkIndex = j);
-          }
-          final success =
-              await TtsService.speak(chunks[j], waitForCompletion: true);
-          if (!success) {
-            ok = false;
-            break;
-          }
-          await Future.delayed(const Duration(milliseconds: 160));
-        }
+        final units = playbackSections[i].speechUnits();
+        if (units.isEmpty) continue;
+        final ok = await _speakUnits(units, i);
         if (!ok || !_isPlayingKnowledge || !mounted) break;
       }
     } catch (e, stackTrace) {
@@ -199,6 +176,29 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
+  /// 逐句朗读一组单元；返回整体是否成功。
+  Future<bool> _speakUnits(
+      List<KnowledgeSpeechUnit> units, int sectionIndex) async {
+    for (var i = 0; i < units.length; i++) {
+      if (!_isPlayingKnowledge || !mounted) return false;
+      if (_playingSectionIndex != sectionIndex) return false;
+      if (mounted) {
+        setState(() {
+          _currentUnitIndex = i;
+          _playingParagraphIndex = units[i].paragraphIndex;
+          _currentSentence = units[i].text;
+        });
+        onPlaybackPositionChanged();
+      }
+      final success =
+          await TtsService.speak(units[i].text, waitForCompletion: true);
+      if (!success) return false;
+      // 句间短暂停顿，避免句子连读
+      await Future.delayed(const Duration(milliseconds: 120));
+    }
+    return true;
+  }
+
   /// 停止播放
   Future<void> stopKnowledgePlayback() async {
     _isPlayingKnowledge = false;
@@ -211,9 +211,12 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
       setState(() {
         _isPlayingKnowledge = false;
         _playingSectionIndex = -1;
-        _currentChunkIndex = 0;
-        _currentChunkCount = 0;
+        _playingParagraphIndex = -1;
+        _currentSentence = null;
+        _currentUnitIndex = 0;
+        _currentUnitCount = 0;
       });
+      onPlaybackPositionChanged();
     }
   }
 
@@ -253,7 +256,7 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
 
   /// 底部播放控制栏
   ///
-  /// [showChunkProgress] 为 true 时在播放中显示"第 x/y 节 · 当前段 m/n"
+  /// [showChunkProgress] 为 true 时在播放中显示"第 x/y 节 · 当前句 m/n"
   /// 与分段进度条。
   Widget buildKnowledgePlaybackBar(
     ThemeData theme,
@@ -309,7 +312,7 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  _isPlayingKnowledge ? '正在播放' : '点击播放全部',
+                  _isPlayingKnowledge ? '正在朗读' : '点击播放全部',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
@@ -328,11 +331,11 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        if (showChunkProgress && _currentChunkCount > 0) ...[
+                        if (showChunkProgress && _currentUnitCount > 0) ...[
                           const SizedBox(height: 4),
                           Text(
                             '第 ${_playingSectionIndex + 1} / ${playbackSections.length} 节 · '
-                            '当前段 ${_currentChunkIndex + 1} / $_currentChunkCount',
+                            '当前句 ${_currentUnitIndex + 1} / $_currentUnitCount',
                             style: TextStyle(
                               fontSize: 11,
                               color: color.withValues(alpha: 0.8),
@@ -342,8 +345,8 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
                           ClipRRect(
                             borderRadius: BorderRadius.circular(6),
                             child: LinearProgressIndicator(
-                              value: (_currentChunkIndex + 1) /
-                                  _currentChunkCount,
+                              value: (_currentUnitIndex + 1) /
+                                  _currentUnitCount,
                               minHeight: 6,
                               backgroundColor: color.withValues(alpha: 0.14),
                               valueColor: AlwaysStoppedAnimation<Color>(color),

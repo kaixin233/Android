@@ -9,10 +9,77 @@ import 'practice_page.dart';
 import 'textbook_page.dart';
 import 'wrong_questions_page.dart';
 import 'stats_page.dart';
+import 'review_page.dart';
+import '../services/review_service.dart';
+import '../services/storage_service.dart';
 
 /// 学习首页
-class LearnPage extends StatelessWidget {
+class LearnPage extends StatefulWidget {
   const LearnPage({super.key});
+
+  @override
+  State<LearnPage> createState() => _LearnPageState();
+}
+
+class _LearnPageState extends State<LearnPage> {
+  ReviewStats _reviewStats = const ReviewStats(
+    total: 0,
+    due: 0,
+    dueToday: 0,
+    within3Days: 0,
+    within7Days: 0,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _loadReviewStats();
+  }
+
+  Future<void> _loadReviewStats() async {
+    final items = await StorageService.loadReviewItems();
+    final stats = ReviewService.summarize(items);
+    if (!mounted) return;
+    setState(() => _reviewStats = stats);
+    await _maybeRemind(stats);
+  }
+
+  /// 有到期题目时按天提醒一次（可在「我的 → 复习提醒」关闭）。
+  Future<void> _maybeRemind(ReviewStats stats) async {
+    if (!stats.hasDue) return;
+    if (!mounted) return;
+    final app = context.read<AppProvider>();
+    if (!app.reviewReminderEnabled) return;
+    final today = _todayKey();
+    final last = await StorageService.loadReviewReminderDate();
+    if (last == today) return;
+    await StorageService.saveReviewReminderDate(today);
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('有 ${stats.due} 道题到了复习时间，别让记忆溜走～'),
+          action: SnackBarAction(label: '去复习', onPressed: _openReview),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    });
+  }
+
+  String _todayKey() {
+    final now = DateTime.now();
+    final m = now.month.toString().padLeft(2, '0');
+    final d = now.day.toString().padLeft(2, '0');
+    return '${now.year}-$m-$d';
+  }
+
+  Future<void> _openReview() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ReviewPage()),
+    );
+    if (mounted) await _loadReviewStats();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -88,6 +155,9 @@ class LearnPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
+          // 艾宾浩斯复习入口（含到期提醒）
+          _buildReviewCard(theme, colorScheme),
+          const SizedBox(height: 16),
           // 快速入口
           Row(
             children: [
@@ -158,6 +228,81 @@ class LearnPage extends StatelessWidget {
                 },
               )),
         ],
+      ),
+    );
+  }
+
+  /// 艾宾浩斯复习入口卡片：展示到期数量，点击进入复习训练。
+  Widget _buildReviewCard(ThemeData theme, ColorScheme colorScheme) {
+    final due = _reviewStats.due;
+    final hasDue = due > 0;
+    final accent = hasDue ? Colors.deepOrange : colorScheme.primary;
+    return Material(
+      color: theme.brightness == Brightness.dark
+          ? theme.colorScheme.surface
+          : Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: _openReview,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: accent.withValues(alpha: 0.35)),
+            color: hasDue ? accent.withValues(alpha: 0.06) : null,
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: accent.withValues(alpha: 0.14),
+                child: Icon(Icons.psychology_alt_rounded, color: accent),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text('复习训练',
+                            style: theme.textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w700)),
+                        if (hasDue) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                                color: accent,
+                                borderRadius: BorderRadius.circular(10)),
+                            child: Text('$due 待复习',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _reviewStats.total == 0
+                          ? '做过的题会按遗忘曲线安排复习'
+                          : (hasDue
+                              ? '按艾宾浩斯遗忘曲线，有 $due 道题该复习了'
+                              : '今天没有到期题目，共 ${_reviewStats.total} 题在计划中'),
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: Colors.grey.shade600),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: accent),
+            ],
+          ),
+        ),
       ),
     );
   }

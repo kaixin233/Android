@@ -42,6 +42,39 @@ class KnowledgeParagraph {
   });
 }
 
+/// 将一段文本按句末标点拆分为句子（保留标点）。
+///
+/// 用于考点知识的"逐句朗读 + 当前句高亮"。句子拆分与渲染端共用同一函数，
+/// 保证高亮的句子与正在朗读的句子一致。
+List<String> splitSentences(String text) {
+  final trimmed = text.trim();
+  if (trimmed.isEmpty) return const <String>[];
+  const enders = '。！？!?…';
+  final parts = <String>[];
+  final buffer = StringBuffer();
+  for (final rune in trimmed.runes) {
+    final ch = String.fromCharCode(rune);
+    buffer.write(ch);
+    if (enders.contains(ch)) {
+      final s = buffer.toString().trim();
+      if (s.isNotEmpty) parts.add(s);
+      buffer.clear();
+    }
+  }
+  final rest = buffer.toString().trim();
+  if (rest.isNotEmpty) parts.add(rest);
+  return parts;
+}
+
+/// 朗读单元：一条待朗读的句子及其所属段落在 [KnowledgeSection.paragraphs] 中的下标。
+///
+/// [paragraphIndex] 为 -1 表示不属于任何段落（如小节标题），不参与正文高亮。
+class KnowledgeSpeechUnit {
+  final int paragraphIndex;
+  final String text;
+  const KnowledgeSpeechUnit(this.paragraphIndex, this.text);
+}
+
 /// 章节考点知识
 class KnowledgeSection {
   final String number;
@@ -79,6 +112,28 @@ class KnowledgeSection {
         .map((p) => p.text)
         .where((t) => t.trim().isNotEmpty)
         .join('\n');
+  }
+
+  /// 生成"逐句朗读单元"：标题 + 每个非图片非空段落按句拆分。
+  ///
+  /// [KnowledgeSpeechUnit.paragraphIndex] 与 [KnowledgeParagraph] 下标一一对应，
+  /// 便于朗读时在正文中高亮当前所读的句子/段落。
+  List<KnowledgeSpeechUnit> speechUnits() {
+    final units = <KnowledgeSpeechUnit>[];
+    // 小节标题先读（paragraphIndex = -1，不参与正文高亮）
+    if (title.trim().isNotEmpty) {
+      units.add(KnowledgeSpeechUnit(-1, title.trim()));
+    }
+    for (var i = 0; i < paragraphs.length; i++) {
+      final p = paragraphs[i];
+      if (p.imagePath != null) continue;
+      final text = p.text.trim();
+      if (text.isEmpty) continue;
+      for (final s in splitSentences(text)) {
+        units.add(KnowledgeSpeechUnit(i, s));
+      }
+    }
+    return units;
   }
 }
 

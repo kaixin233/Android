@@ -7,6 +7,7 @@ import '../models/history_item.dart';
 import '../models/study_plan.dart';
 import '../models/note.dart';
 import '../models/knowledge_point.dart';
+import '../models/review_item.dart';
 import '../services/ai_qa_storage_service.dart';
 
 /// 持久化存储服务 - 封装 SharedPreferences 操作
@@ -332,6 +333,110 @@ class StorageService {
     } catch (e) {
       return {};
     }
+  }
+
+  // ========== 考点阅读进度（滚动位置） ==========
+
+  static const String _readingOffsetsKey = 'knowledgeReadingOffsets';
+
+  /// 读取所有"考点阅读滚动位置"（key -> 像素偏移）。
+  static Future<Map<String, double>> loadReadingOffsets() async {
+    final prefs = await _instance;
+    final raw = prefs.getString(_readingOffsetsKey);
+    if (raw == null) return {};
+    try {
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      return map.map((k, v) => MapEntry(k, (v as num).toDouble()));
+    } catch (e) {
+      return {};
+    }
+  }
+
+  /// 读取某个考点页面的上次阅读滚动位置（无记录返回 null）。
+  static Future<double?> loadReadingOffset(String key) async {
+    final all = await loadReadingOffsets();
+    return all[key];
+  }
+
+  /// 保存某个考点页面的阅读滚动位置。
+  static Future<void> saveReadingOffset(String key, double offset) async {
+    final prefs = await _instance;
+    final all = await loadReadingOffsets();
+    // 容差：小于 8px 视为顶部，清理记录，避免"回到顶部"仍被恢复
+    if (offset <= 8) {
+      if (!all.containsKey(key)) return;
+      all.remove(key);
+    } else {
+      if (all[key] != null && (all[key]! - offset).abs() < 4) return; // 无明显变化则跳过写盘
+      all[key] = offset;
+    }
+    await prefs.setString(
+      _readingOffsetsKey,
+      jsonEncode(all.map((k, v) => MapEntry(k, v))),
+    );
+  }
+
+  // ========== 艾宾浩斯复习 ==========
+
+  static const String _reviewItemsKey = 'reviewItems';
+
+  /// 读取全部复习条目（questionKey -> ReviewItem）。
+  static Future<Map<String, ReviewItem>> loadReviewItems() async {
+    final prefs = await _instance;
+    final raw = prefs.getString(_reviewItemsKey);
+    if (raw == null) return {};
+    try {
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      return map.map((k, v) => MapEntry(
+            k,
+            ReviewItem.fromJson(Map<String, dynamic>.from(v as Map)),
+          ));
+    } catch (e) {
+      return {};
+    }
+  }
+
+  /// 保存全部复习条目。
+  static Future<void> saveReviewItems(Map<String, ReviewItem> items) async {
+    final prefs = await _instance;
+    await prefs.setString(
+      _reviewItemsKey,
+      jsonEncode(items.map((k, v) => MapEntry(k, v.toJson()))),
+    );
+  }
+
+  static Future<void> clearReviewItems() async {
+    final prefs = await _instance;
+    await prefs.remove(_reviewItemsKey);
+  }
+
+  // ========== 复习提醒（按天去重，避免频繁弹提示） ==========
+
+  static const String _reviewReminderDateKey = 'reviewReminderDate';
+
+  /// 上次弹出复习提醒的日期（yyyy-MM-dd）。
+  static Future<String?> loadReviewReminderDate() async {
+    final prefs = await _instance;
+    return prefs.getString(_reviewReminderDateKey);
+  }
+
+  static Future<void> saveReviewReminderDate(String date) async {
+    final prefs = await _instance;
+    await prefs.setString(_reviewReminderDateKey, date);
+  }
+
+  // ========== 复习设置 ==========
+
+  static const String _reviewReminderEnabledKey = 'reviewReminderEnabled';
+
+  static Future<bool> loadReviewReminderEnabled() async {
+    final prefs = await _instance;
+    return prefs.getBool(_reviewReminderEnabledKey) ?? true;
+  }
+
+  static Future<void> saveReviewReminderEnabled(bool enabled) async {
+    final prefs = await _instance;
+    await prefs.setBool(_reviewReminderEnabledKey, enabled);
   }
 
   // ========== 震动反馈 ==========

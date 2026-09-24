@@ -70,6 +70,7 @@ enum PracticeMode {
   practice, // 普通练习
   exam,     // 考试模式
   wrong,    // 错题重做
+  review,   // 艾宾浩斯复习
 }
 
 extension PracticeModeExtension on PracticeMode {
@@ -81,6 +82,8 @@ extension PracticeModeExtension on PracticeMode {
         return 'exam';
       case PracticeMode.wrong:
         return 'wrong';
+      case PracticeMode.review:
+        return 'review';
     }
   }
 
@@ -92,6 +95,8 @@ extension PracticeModeExtension on PracticeMode {
         return '考试';
       case PracticeMode.wrong:
         return '错题重做';
+      case PracticeMode.review:
+        return '复习';
     }
   }
 
@@ -103,6 +108,8 @@ extension PracticeModeExtension on PracticeMode {
         return PracticeMode.exam;
       case 'wrong':
         return PracticeMode.wrong;
+      case 'review':
+        return PracticeMode.review;
       default:
         return PracticeMode.practice;
     }

@@ -450,6 +450,16 @@ class _ProfilePageState extends State<ProfilePage> {
                   },
                 ),
                 const Divider(height: 1),
+                SwitchListTile(
+                  secondary: const Icon(Icons.psychology_alt_rounded, color: Colors.deepOrange),
+                  title: const Text('复习提醒'),
+                  subtitle: const Text('有题目到达遗忘曲线复习时间时，按天提醒一次'),
+                  value: app.reviewReminderEnabled,
+                  onChanged: (value) {
+                    context.read<AppProvider>().saveReviewReminderEnabled(value);
+                  },
+                ),
+                const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.sticky_note_2_rounded, color: Colors.yellow),
                   title: const Text('学习笔记'),
@@ -626,7 +636,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 ListTile(
                   leading: const Icon(Icons.info_outline_rounded),
                   title: const Text('关于'),
-                  subtitle: const Text('二级建造师学习助手 v1.0.10'),
+                  subtitle: const Text('二级建造师学习助手 v1.0.11'),
                   onTap: () {
                     showAboutDialog(
                       context: context,
