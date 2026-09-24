@@ -51,6 +51,9 @@ class AppProvider extends ChangeNotifier {
   double _ttsVolume = 1.0;
   bool _ttsEnabled = true;
 
+  // AI 考点记忆口诀（答题后自动生成，可开关）
+  bool _aiMnemonicEnabled = false;
+
   // 更新检查
   String? _appVersion;
   String? _appBuildNumber;
@@ -83,6 +86,7 @@ class AppProvider extends ChangeNotifier {
   bool get ttsAutoReadQuestion => _ttsEnabled && _ttsAutoReadQuestion;
   bool get ttsSkipExplanationOnCorrect => _ttsEnabled && _ttsSkipExplanationOnCorrect;
   double get ttsSpeechRate => _ttsSpeechRate;
+  bool get aiMnemonicEnabled => _aiMnemonicEnabled;
   double get ttsPitch => _ttsPitch;
   double get ttsVolume => _ttsVolume;
 
@@ -109,6 +113,7 @@ class AppProvider extends ChangeNotifier {
         _loadPracticeSettings().catchError((e) => debugPrint('loadPracticeSettings error: $e')),
         _loadAllQuestions().catchError((e) => debugPrint('loadAllQuestions error: $e')),
         _loadTtsSettings().catchError((e) => debugPrint('loadTtsSettings error: $e')),
+        _loadAiMnemonicEnabled().catchError((e) => debugPrint('loadAiMnemonicEnabled error: $e')),
         _loadUpdatePrefs().catchError((e) => debugPrint('loadUpdatePrefs error: $e')),
         _loadAppVersion().catchError((e) => debugPrint('loadAppVersion error: $e')),
       ]);
@@ -306,6 +311,10 @@ class AppProvider extends ChangeNotifier {
       pitch: _ttsPitch,
       volume: _ttsVolume,
     );
+  }
+
+  Future<void> _loadAiMnemonicEnabled() async {
+    _aiMnemonicEnabled = await StorageService.loadAiMnemonicEnabled();
   }
 
   // ========== 历史记录 ==========
@@ -510,6 +519,14 @@ class AppProvider extends ChangeNotifier {
     _ttsEnabled = enabled;
     notifyListeners();
     await StorageService.saveTtsEnabled(enabled);
+  }
+
+  // ========== AI 考点记忆口诀 ==========
+
+  Future<void> saveAiMnemonicEnabled(bool enabled) async {
+    _aiMnemonicEnabled = enabled;
+    notifyListeners();
+    await StorageService.saveAiMnemonicEnabled(enabled);
   }
 
   Future<void> refresh() async {

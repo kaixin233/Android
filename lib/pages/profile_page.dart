@@ -440,6 +440,16 @@ class _ProfilePageState extends State<ProfilePage> {
                   padding: const EdgeInsets.all(16),
                   child: Text('学习工具', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                 ),
+                SwitchListTile(
+                  secondary: const Icon(Icons.auto_awesome_rounded, color: Colors.indigo),
+                  title: const Text('AI 考点记忆口诀'),
+                  subtitle: const Text('答题完成后自动生成易记口诀（使用 AI 学习助手）'),
+                  value: app.aiMnemonicEnabled,
+                  onChanged: (value) {
+                    context.read<AppProvider>().saveAiMnemonicEnabled(value);
+                  },
+                ),
+                const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.sticky_note_2_rounded, color: Colors.yellow),
                   title: const Text('学习笔记'),
@@ -616,7 +626,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 ListTile(
                   leading: const Icon(Icons.info_outline_rounded),
                   title: const Text('关于'),
-                  subtitle: const Text('二级建造师学习助手 v1.0.8'),
+                  subtitle: const Text('二级建造师学习助手 v1.0.9'),
                   onTap: () {
                     showAboutDialog(
                       context: context,

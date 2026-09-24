@@ -134,7 +134,17 @@ class TtsService {
         final defaultEngine = await _flutterTts.getDefaultEngine;
         debugPrint('TTS: 系统默认引擎: $defaultEngine');
 
-        if (defaultEngine == null || defaultEngine.toString().isEmpty) {
+        if (defaultEngine != null && defaultEngine.toString().isNotEmpty) {
+          // 始终显式重新绑定默认引擎：后台清理 / 系统回收 TTS 引擎进程后，
+          // 直接 speak 往往返回 0（不发声）。重新 setEngine 可强制系统重绑
+          // TextToSpeech 服务，修复「回到前台语音播报不可用」的问题。
+          try {
+            final result = await _flutterTts.setEngine(defaultEngine.toString());
+            debugPrint('TTS: 已重新绑定默认引擎($defaultEngine) => $result');
+          } catch (e) {
+            debugPrint('TTS: 重新绑定默认引擎失败: $e');
+          }
+        } else {
           final engineBound = await _tryBindEngine();
           if (!engineBound) {
             debugPrint('TTS: 无法绑定推荐引擎，继续初始化并尝试用系统默认配置');
@@ -741,6 +751,42 @@ class TtsService {
     _isSpeaking = false;
     _isAvailable = false;
     _onComplete = null;
+  }
+
+  // ========== 「语音播报不可用」弹窗节流 ==========
+  /// 记录上次展示该弹窗的时间，用于避免后台恢复 / 连续失败时频繁弹出。
+  static DateTime? _lastTtsErrorDialogShownAt;
+
+  /// 当前是否有「语音播报不可用」弹窗正在显示（防止重复叠加）。
+  static bool _ttsErrorDialogVisible = false;
+
+  /// 两次弹窗之间的最小间隔，期间改为轻量 SnackBar 提示。
+  static const Duration _ttsErrorDialogMinInterval = Duration(seconds: 30);
+
+  /// 是否应展示「语音播报不可用」弹窗。
+  ///
+  /// 返回 false 的两种情形：
+  /// ① 已有同弹窗在显示（去重，避免叠加）；
+  /// ② 距上次展示不足 [_ttsErrorDialogMinInterval]（节流，避免频繁弹出）。
+  static bool shouldShowTtsErrorDialog() {
+    if (_ttsErrorDialogVisible) return false;
+    final now = DateTime.now();
+    if (_lastTtsErrorDialogShownAt != null &&
+        now.difference(_lastTtsErrorDialogShownAt!) < _ttsErrorDialogMinInterval) {
+      return false;
+    }
+    return true;
+  }
+
+  /// 标记弹窗已展示（记录时间并置为可见）。
+  static void markTtsErrorDialogShown() {
+    _lastTtsErrorDialogShownAt = DateTime.now();
+    _ttsErrorDialogVisible = true;
+  }
+
+  /// 标记弹窗已关闭（恢复可展示状态）。
+  static void markTtsErrorDialogClosed() {
+    _ttsErrorDialogVisible = false;
   }
 
   /// App 从后台回到前台时调用：系统可能已回收 TTS 引擎进程，

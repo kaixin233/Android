@@ -11,6 +11,8 @@ import '../providers/app_provider.dart';
 import '../services/question_service.dart';
 import '../services/storage_service.dart';
 import '../services/tts_service.dart';
+import '../services/ai_mnemonic_service.dart';
+import '../services/ai_service.dart';
 import '../utils/animations.dart';
 import '../utils/ai_assistant_launcher.dart';
 import '../widgets/ask_ai_selection_area.dart';
@@ -99,6 +101,12 @@ class _PracticePageState extends State<PracticePage> {
   // 完成流程幂等守卫：避免"自动下一题"定时器与手动点击"完成"竞态导致重复弹窗，
   // 也避免 onCompleted 抛错时结果弹窗不弹出
   bool _hasFinished = false;
+
+  // AI 考点记忆口诀状态（按当前题目 key 区分，避免切题后残留上一题口诀）
+  String? _mnemonicKey;
+  String? _mnemonicText;
+  bool _mnemonicLoading = false;
+  String? _mnemonicError;
 
   @override
   void initState() {
@@ -326,6 +334,11 @@ class _PracticePageState extends State<PracticePage> {
       _speakExplanation(correct, skipExplanation: skipExplanation);
     }
 
+    // 答题完成后自动生成 AI 考点记忆口诀（开关开启时）
+    if (app.aiMnemonicEnabled && mounted) {
+      _generateMnemonic(_questions[_currentIndex]);
+    }
+
     // 提交后自动进入下一题（练习/错题模式，且设置开启）
     if (app.practiceAutoNext &&
         widget.config.mode != PracticeMode.exam &&
@@ -449,6 +462,11 @@ class _PracticePageState extends State<PracticePage> {
       _submitted = false;
       _isCorrect = false;
     }
+    // 重置记忆口诀状态，避免残留上一题的口诀
+    _mnemonicKey = null;
+    _mnemonicText = null;
+    _mnemonicError = null;
+    _mnemonicLoading = false;
   }
 
   Future<void> _finishPractice() async {
@@ -753,7 +771,27 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   /// 显示 TTS 错误引导对话框（增强版，含诊断信息和操作按钮）
+  ///
+  /// 通过 [TtsService.shouldShowTtsErrorDialog] 节流：后台恢复 / 连续失败时
+  /// 避免频繁弹出模态弹窗——被抑制时降级为轻量 SnackBar 提示。
   void _showTtsErrorDialog() {
+    if (!TtsService.shouldShowTtsErrorDialog()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('语音播报暂时不可用，可在「我的 → 语音播报」中重设引擎或重试'),
+            duration: const Duration(seconds: 2),
+            action: SnackBarAction(
+              label: '设置',
+              onPressed: () => TtsService.openTtsSettings(),
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    TtsService.markTtsErrorDialogShown();
+
     String? diagInfo;
     bool isDiagnosing = false;
     showDialog<void>(
@@ -858,12 +896,16 @@ class _PracticePageState extends State<PracticePage> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                TtsService.markTtsErrorDialogClosed();
+              },
               child: const Text('关闭'),
             ),
             FilledButton(
               onPressed: () {
                 Navigator.of(ctx).pop();
+                TtsService.markTtsErrorDialogClosed();
                 // 重置 TTS 状态后重试
                 TtsService.reset().then((_) {
                   if (mounted) _speakQuestion();
@@ -1546,6 +1588,8 @@ class _PracticePageState extends State<PracticePage> {
               question,
             ),
           ],
+          // AI 考点记忆口诀（开关开启时显示）
+          _buildMnemonicCard(question, theme),
         ],
       ),
     );
@@ -1567,5 +1611,230 @@ class _PracticePageState extends State<PracticePage> {
       submitted: _submitted,
       selectedText: selectedText,
     );
+  }
+
+  // ========== AI 考点记忆口诀 ==========
+
+  /// 构造发送给 AI 的考点上下文（题干 + 选项 + 正确答案 + 解析 + 关联考点）。
+  String _buildMnemonicContext(Question question) {
+    final buf = StringBuffer();
+    buf.writeln('【题干】${question.prompt}');
+    if (question.options.isNotEmpty) {
+      buf.writeln('【选项】');
+      for (var i = 0; i < question.options.length; i++) {
+        final label = String.fromCharCode('A'.codeUnitAt(0) + i);
+        buf.writeln('$label. ${question.options[i]}');
+      }
+    }
+    buf.writeln('【正确答案】${AiAssistantLauncher.correctAnswerTextOf(question)}');
+    buf.writeln('【解析】${question.explanation}');
+    if (question.knowledgePoints.isNotEmpty) {
+      buf.writeln('【关联考点】${question.knowledgePoints.join('、')}');
+    }
+    return buf.toString();
+  }
+
+  /// 为指定题目生成 AI 考点记忆口诀。
+  ///
+  /// 通过题目标识 [Question.uniqueKey] 防重：已生成或正在生成则跳过。
+  Future<void> _generateMnemonic(Question question) async {
+    final app = context.read<AppProvider>();
+    if (!app.aiMnemonicEnabled) return;
+    if (question.explanation.isEmpty) return;
+    final key = question.uniqueKey;
+    // 已为本题生成或正在生成则跳过，避免重复请求
+    if (_mnemonicKey == key && (_mnemonicText != null || _mnemonicLoading)) return;
+    if (!mounted) return;
+    setState(() {
+      _mnemonicKey = key;
+      _mnemonicLoading = true;
+      _mnemonicText = null;
+      _mnemonicError = null;
+    });
+    try {
+      final text = await AiMnemonicService.generateMnemonic(
+        knowledgeContext: _buildMnemonicContext(question),
+        onProgress: null,
+      );
+      if (!mounted || _mnemonicKey != key) return;
+      setState(() {
+        _mnemonicText = text.trim();
+        _mnemonicLoading = false;
+      });
+    } on AiApiException catch (e) {
+      if (!mounted || _mnemonicKey != key) return;
+      setState(() {
+        _mnemonicError = e.message;
+        _mnemonicLoading = false;
+      });
+    } catch (e) {
+      if (!mounted || _mnemonicKey != key) return;
+      setState(() {
+        _mnemonicError = '生成记忆口诀失败，请重试';
+        _mnemonicLoading = false;
+      });
+    }
+  }
+
+  /// 重新生成当前题目的记忆口诀（先清后生成）。
+  void _regenerateMnemonic(Question question) {
+    if (_mnemonicKey == question.uniqueKey) {
+      _mnemonicText = null;
+      _mnemonicError = null;
+    }
+    _generateMnemonic(question);
+  }
+
+  /// 记忆口诀卡片：根据开关与生成状态展示对应 UI。
+  Widget _buildMnemonicCard(Question question, ThemeData theme) {
+    final app = context.watch<AppProvider>();
+    if (!app.aiMnemonicEnabled) return const SizedBox.shrink();
+    // 仅当与当前题目匹配时才展示，避免切题残留
+    final isCurrent = _mnemonicKey == question.uniqueKey;
+
+    if (!isCurrent) {
+      // 本题尚未生成：提供手动生成入口
+      return Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: OutlinedButton.icon(
+          icon: const Icon(Icons.auto_awesome, size: 18),
+          label: const Text('生成考点记忆口诀'),
+          onPressed: () => _generateMnemonic(question),
+        ),
+      );
+    }
+
+    if (_mnemonicLoading) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Row(
+          children: [
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'AI 正在生成记忆口诀…',
+              style: TextStyle(
+                fontSize: 13,
+                color: theme.brightness == Brightness.dark
+                    ? Colors.white70
+                    : Colors.black54,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_mnemonicError != null) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.red.shade50,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.red.shade200),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _mnemonicError!,
+                style: const TextStyle(fontSize: 13, color: Colors.red),
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => _regenerateMnemonic(question),
+                  child: const Text('重试'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_mnemonicText != null) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: theme.brightness == Brightness.dark
+                ? Colors.indigo.withValues(alpha: 0.16)
+                : Colors.indigo.shade50,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: theme.brightness == Brightness.dark
+                  ? Colors.indigo.withValues(alpha: 0.5)
+                  : Colors.indigo.shade200,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.auto_awesome,
+                      size: 16, color: Colors.indigo.shade400),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'AI 记忆口诀',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      color: Colors.indigo,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SelectableText(
+                _mnemonicText!,
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 1.6,
+                  color: theme.brightness == Brightness.dark
+                      ? Colors.white
+                      : Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton.icon(
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('重新生成'),
+                    onPressed: () => _regenerateMnemonic(question),
+                  ),
+                  TextButton.icon(
+                    icon: const Icon(Icons.copy, size: 16),
+                    label: const Text('复制'),
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: _mnemonicText!));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('已复制记忆口诀'),
+                          duration: Duration(seconds: 1),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
   }
 }

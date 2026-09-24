@@ -51,4 +51,25 @@ void main() {
       expect(out, '根据规范第三条附则要求');
     });
   });
+
+  group('TtsService.shouldShowTtsErrorDialog 节流（Bug3 弹窗频繁修复）', () {
+    test('初始可展示；展示后置为不可见；关闭后 30s 内仍抑制', () {
+      // 初始状态：从未展示过，应允许展示
+      expect(TtsService.shouldShowTtsErrorDialog(), isTrue);
+
+      // 标记已展示 -> 去重，不应再次弹出模态弹窗
+      TtsService.markTtsErrorDialogShown();
+      expect(TtsService.shouldShowTtsErrorDialog(), isFalse);
+
+      // 用户关闭弹窗 -> 仍在 30s 间隔内，应继续抑制（降级为轻量提示）
+      TtsService.markTtsErrorDialogClosed();
+      expect(TtsService.shouldShowTtsErrorDialog(), isFalse);
+    });
+
+    test('展示中再次查询被去重抑制', () {
+      TtsService.markTtsErrorDialogShown();
+      expect(TtsService.shouldShowTtsErrorDialog(), isFalse);
+      TtsService.markTtsErrorDialogClosed();
+    });
+  });
 }

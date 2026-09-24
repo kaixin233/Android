@@ -396,6 +396,20 @@ class StorageService {
     await prefs.setBool(_ttsSkipExplanationOnCorrectKey, enabled);
   }
 
+  // ========== AI 考点记忆口诀 ==========
+
+  static const String _aiMnemonicEnabledKey = 'aiMnemonicEnabled';
+
+  static Future<bool> loadAiMnemonicEnabled() async {
+    final prefs = await _instance;
+    return prefs.getBool(_aiMnemonicEnabledKey) ?? false;
+  }
+
+  static Future<void> saveAiMnemonicEnabled(bool enabled) async {
+    final prefs = await _instance;
+    await prefs.setBool(_aiMnemonicEnabledKey, enabled);
+  }
+
   static Future<double> loadTtsSpeechRate() async {
     final prefs = await _instance;
     return prefs.getDouble(_ttsSpeechRateKey) ?? 0.5;
