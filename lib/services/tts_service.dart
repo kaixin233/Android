@@ -369,8 +369,14 @@ class TtsService {
     for (final pair in bracketPairs) {
       final open = RegExp.escape(pair[0]);
       final close = RegExp.escape(pair[1]);
-      // 有内容的括号：去掉括号、保留内部文字
-      result = result.replaceAll(RegExp('$open([^$close]+)$close'), r'$1');
+      // 有内容的括号：去掉括号、保留内部文字。
+      // 注意：必须用 replaceAllMapped 展开捕获组——Dart 的 String.replaceAll
+      // 不会把替换串里的 $1 当作分组引用，会原样输出字面量 "$1"，而语音引擎
+      // 会把 "$1" 读成"一美元"，这正是括号被读成"一美元"的真实根因。
+      result = result.replaceAllMapped(
+        RegExp('$open([^$close]+)$close'),
+        (m) => m.group(1) ?? '',
+      );
       // 空括号：中文/半角圆括号读作"什么"，其余括号直接去除
       final emptyReplacement = (pair[0] == '（' || pair[0] == '(') ? '什么' : '';
       result = result.replaceAll(RegExp('$open\\s*$close'), emptyReplacement);
@@ -401,9 +407,15 @@ class TtsService {
     // 10. 清除特殊符号
     result = result.replaceAll(RegExp(r'[※§★☆◆●○■□△▲▽▼]'), '');
 
+    // 10.5 兜底：清除残留的 "$" 记号（如分组未展开产生的 "$1"）。
+    //      部分中文语音引擎会把 "$" 读成"美元"，导致"一美元"之类的误读。
+    //      题库为建造师考试内容，不使用 "$" 货币符号，移除是安全的。
+    result = result.replaceAll(RegExp(r'\$\d*'), '');
+
     // 11. 清理 Markdown 加粗标记
     result = result.replaceAll('**', '');
-    result = result.replaceAll(RegExp(r'`([^`]+)`'), r'$1');
+    result = result.replaceAllMapped(
+        RegExp(r'`([^`]+)`'), (m) => m.group(1) ?? '');
 
     // 12. 清理 Markdown 标题标记
     result = result.replaceAll(RegExp(r'^#+\s*'), '');
@@ -413,16 +425,19 @@ class TtsService {
     result = result.replaceAll(RegExp(r'^\s*[-*+]\s+', multiLine: true), '');
 
     // 14. 连续相同标点合并（如。。。→。）
-    result = result.replaceAll(RegExp(r'([，。！？、；：])\1+'), r'$1');
+    result = result.replaceAllMapped(
+        RegExp(r'([，。！？、；：])\1+'), (m) => m.group(1) ?? '');
 
     // 15. 多余空白合并
     result = result.replaceAll(RegExp(r'\s{2,}'), ' ');
 
     // 16. 标点前的空格清除
-    result = result.replaceAll(RegExp(r'\s+([，。！？、；：）」』])'), r'$1');
+    result = result.replaceAllMapped(
+        RegExp(r'\s+([，。！？、；：）」』])'), (m) => m.group(1) ?? '');
 
     // 17. 标点后的多余空格清除
-    result = result.replaceAll(RegExp(r'([（「『])\s+'), r'$1');
+    result = result.replaceAllMapped(
+        RegExp(r'([（「『])\s+'), (m) => m.group(1) ?? '');
 
     return result.trim();
   }

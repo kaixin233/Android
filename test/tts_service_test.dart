@@ -50,6 +50,15 @@ void main() {
       final out = TtsService.preprocessText('根据《规范》第（三）条〔附则〕要求');
       expect(out, '根据规范第三条附则要求');
     });
+
+    test('回归：替换结果不得残留字面量美元记号（会被语音引擎读成"美元"）', () {
+      // 历史 bug：String.replaceAll(RegExp, r'$1') 不展开捕获组，会原样输出 "$1"，
+      // 语音引擎把 "$" 读成"美元"→ 出现"一美元"。修复为 replaceAllMapped。
+      final out = TtsService.preprocessText('根据（甲乙丙）的规定，应该（）。');
+      expect(out, isNot(contains(r'$')));
+      expect(out, contains('甲乙丙'));
+      expect(out, contains('什么'));
+    });
   });
 
   group('TtsService.shouldShowTtsErrorDialog 节流（Bug3 弹窗频繁修复）', () {
