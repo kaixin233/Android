@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../services/update_service.dart';
 
 /// 更新提示对话框：展示新版本信息，支持一键下载并安装。
 ///
 /// [auto] 为 true 表示由"启动自动检测"触发；此时仍允许用户关闭（稍后处理）。
+///
+/// 安装说明：下载后调用原生安装通道（系统安装器）。**不再**在安装失败时自动打开
+/// GitHub 发布页——那会被已安装的 GitHub app 接管，导致"点安装却打开 GitHub"。
+/// 改为：权限不足时引导授权，失败时提供「重试安装」与「复制下载链接」。
 class UpdateDialog {
   const UpdateDialog._();
 
@@ -36,6 +41,9 @@ class _UpdateDialogContentState extends State<_UpdateDialogContent> {
   bool _downloading = false;
   String? _error;
 
+  /// 最近一次下载成功的 APK 路径，用于失败后"重试安装"（避免重新下载）
+  String? _lastApkPath;
+
   UpdateInfo get info => widget.info;
 
   Future<void> _downloadAndInstall() async {
@@ -48,7 +56,10 @@ class _UpdateDialogContentState extends State<_UpdateDialogContent> {
     try {
       final apkUrl = info.apkUrl;
       if (apkUrl == null || apkUrl.isEmpty) {
-        await _openBrowser();
+        setState(() {
+          _downloading = false;
+          _error = '该版本未提供 APK 下载地址';
+        });
         return;
       }
       final path = await UpdateService.downloadApk(
@@ -58,17 +69,9 @@ class _UpdateDialogContentState extends State<_UpdateDialogContent> {
         },
       );
       if (!mounted) return;
+      _lastApkPath = path;
       setState(() => _downloading = false);
-
-      final installed = await UpdateService.installApk(path);
-      if (!mounted) return;
-      if (installed) {
-        // 系统安装器已拉起，关闭本弹窗
-        Navigator.of(context).pop();
-      } else {
-        // 安装未成功启动（常见于未授予"允许安装未知应用"权限），引导去浏览器
-        await _openBrowser();
-      }
+      await _install(path);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -79,14 +82,72 @@ class _UpdateDialogContentState extends State<_UpdateDialogContent> {
     }
   }
 
-  Future<void> _openBrowser() async {
-    final url = info.htmlUrl ?? 'https://github.com/kaixin233/Android/releases';
-    final ok = await UpdateService.openReleasePage(url);
-    if (!ok && mounted) {
-      setState(() => _error = '无法打开浏览器，请前往发布页手动更新');
-    } else if (mounted) {
-      Navigator.of(context).pop();
+  /// 调用系统安装器安装已下载的 APK
+  Future<void> _install(String path) async {
+    final result = await UpdateService.installApk(path);
+    if (!mounted) return;
+    switch (result) {
+      case AppInstallResult.ok:
+        // 系统安装器已拉起，关闭本弹窗
+        Navigator.of(context).pop();
+        break;
+      case AppInstallResult.permissionRequired:
+        await _showPermissionDialog();
+        break;
+      case AppInstallResult.failed:
+        setState(() => _error =
+            '无法启动系统安装程序。可点击「重试安装」；若仍失败，请复制下载链接在浏览器中下载安装。');
+        break;
     }
+  }
+
+  /// 引导用户授予"安装未知应用"权限（Android 8+）
+  Future<void> _showPermissionDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.security_rounded, color: Colors.orange),
+            SizedBox(width: 8),
+            Expanded(child: Text('需要授权安装')),
+          ],
+        ),
+        content: const Text(
+          '系统要求先允许本应用「安装未知应用」。\n\n'
+          '点击「去授权」后，打开开关「允许来自此来源的应用」，'
+          '再返回本页面点击「重试安装」即可。',
+          style: TextStyle(fontSize: 14, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('稍后'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await UpdateService.openInstallPermissionSettings();
+            },
+            child: const Text('去授权'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 复制下载链接（替代"打开 GitHub 页"——避免被 GitHub app 接管）
+  Future<void> _copyDownloadLink() async {
+    final url = (info.apkUrl ?? '').isNotEmpty
+        ? info.apkUrl!
+        : (info.htmlUrl ?? '');
+    if (url.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: url));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已复制下载链接，可在浏览器中打开下载安装')),
+    );
   }
 
   @override
@@ -155,11 +216,15 @@ class _UpdateDialogContentState extends State<_UpdateDialogContent> {
           onPressed: _downloading ? null : () => Navigator.of(context).pop(),
           child: const Text('稍后'),
         ),
-        if (_error != null)
+        if (_error != null && _lastApkPath != null)
           TextButton(
-            onPressed: _downloading ? null : _openBrowser,
-            child: const Text('去浏览器下载'),
+            onPressed: _downloading ? null : () => _install(_lastApkPath!),
+            child: const Text('重试安装'),
           ),
+        TextButton(
+          onPressed: _downloading ? null : _copyDownloadLink,
+          child: const Text('复制下载链接'),
+        ),
         FilledButton(
           onPressed: _downloading ? null : _downloadAndInstall,
           child: Text(_downloading ? '下载中...' : '立即更新'),

@@ -2,11 +2,23 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter_app_installer/flutter_app_installer.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+/// APK 安装结果
+enum AppInstallResult {
+  /// 已成功拉起系统安装器
+  ok,
+
+  /// Android 8+ 未授予"安装未知应用"权限（已跳转授权页）
+  permissionRequired,
+
+  /// 启动安装失败（文件缺失/无可用安装器/异常）
+  failed,
+}
 
 /// GitHub 发布版本更新信息
 class UpdateInfo {
@@ -53,7 +65,7 @@ class UpdateCheckResult {
 ///   而本项目的 CI 默认打 prerelease，用 /latest 会 404）。
 /// - 只接受 tag 可解析为语义化版本（vX.Y.Z）的发布，自动跳过旧的 build-N 等非语义化 tag。
 /// - 版本比较基于 versionName 的语义化三段；若版本相同再用 buildNumber 兜底。
-/// - 下载走 http 流式读取以报告进度；安装走 flutter_app_installer（需
+/// - 下载走 http 流式读取以报告进度；安装走原生通道 AppInstallerPlugin（需
 ///   REQUEST_INSTALL_PACKAGES 权限，插件自带 FileProvider）。
 class UpdateService {
   UpdateService._();
@@ -256,16 +268,46 @@ class UpdateService {
     }
   }
 
+  /// 原生安装通道（AppInstallerPlugin）：用系统安装器安装本地 APK。
+  static const MethodChannel _installerChannel =
+      MethodChannel('com.example.android_app/app_installer');
+
   /// 调用系统安装器安装 APK（非静默，会弹出系统安装界面）。
-  /// 需要 Android 8+ 已授予"允许安装未知应用"权限。
-  /// 成功返回 true；失败（如权限未授予、文件无效）返回 false。
-  static Future<bool> installApk(String path) async {
+  ///
+  /// 走原生通道直接构造 `Intent.ACTION_VIEW`（MIME=application/vnd.android.package-archive）
+  /// + FileProvider content URI，确保由系统安装器处理——修复此前"弹 GitHub app"的问题
+  /// （旧实现依赖第三方插件，失败后兜底打开 GitHub 链接被 GitHub app 接管）。
+  ///
+  /// Android 8+ 若未授予"安装未知应用"权限，会跳转授权页并返回
+  /// [AppInstallResult.permissionRequired]。
+  static Future<AppInstallResult> installApk(String path) async {
+    if (kIsWeb || !Platform.isAndroid) return AppInstallResult.failed;
     try {
-      final installer = FlutterAppInstaller();
-      await installer.installApk(filePath: path);
-      return true;
+      final res =
+          await _installerChannel.invokeMethod<String>('installApk', {'path': path});
+      switch (res) {
+        case 'ok':
+          return AppInstallResult.ok;
+        case 'permission':
+          return AppInstallResult.permissionRequired;
+        default:
+          return AppInstallResult.failed;
+      }
     } catch (e) {
       debugPrint('安装 APK 失败: $e');
+      return AppInstallResult.failed;
+    }
+  }
+
+  /// 打开系统「安装未知应用」授权页（针对本应用）。返回是否成功跳转。
+  static Future<bool> openInstallPermissionSettings() async {
+    if (kIsWeb || !Platform.isAndroid) return false;
+    try {
+      return await _installerChannel
+              .invokeMethod<bool>('openInstallPermissionSettings') ??
+          false;
+    } catch (e) {
+      debugPrint('打开安装权限设置失败: $e');
       return false;
     }
   }

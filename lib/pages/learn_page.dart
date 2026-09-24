@@ -30,10 +30,36 @@ class _LearnPageState extends State<LearnPage> {
     within7Days: 0,
   );
 
+  /// 首页励志名言（每天自动轮换，也可手动"换一句"）
+  static const List<List<String>> _quotes = <List<String>>[
+    ['宝剑锋从磨砺出，梅花香自苦寒来。', '古训'],
+    ['书山有路勤为径，学海无涯苦作舟。', '韩愈'],
+    ['千里之行，始于足下。', '老子'],
+    ['业精于勤，荒于嬉；行成于思，毁于随。', '韩愈'],
+    ['锲而不舍，金石可镂。', '荀子'],
+    ['不积跬步，无以至千里；不积小流，无以成江海。', '荀子'],
+    ['天行健，君子以自强不息。', '《周易》'],
+    ['有志者，事竟成。', '《后汉书》'],
+    ['路虽远，行则将至；事虽难，做则必成。', '古训'],
+    ['学而不思则罔，思而不学则殆。', '孔子'],
+    ['温故而知新，可以为师矣。', '孔子'],
+    ['少壮不努力，老大徒伤悲。', '《长歌行》'],
+  ];
+
+  int _quoteIndex = 0;
+
   @override
   void initState() {
     super.initState();
+    _quoteIndex = _initialQuoteIndex();
     _loadReviewStats();
+  }
+
+  /// 以"一年中的第几天"为种子，每天自动换一句
+  int _initialQuoteIndex() {
+    final now = DateTime.now();
+    final dayOfYear = now.difference(DateTime(now.year, 1, 1)).inDays.abs();
+    return dayOfYear % _quotes.length;
   }
 
   Future<void> _loadReviewStats() async {
@@ -98,62 +124,8 @@ class _LearnPageState extends State<LearnPage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
-          // 今日练习卡片
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(28),
-              gradient: LinearGradient(
-                colors: [colorScheme.primary, colorScheme.primaryContainer],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('今日练习',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                        color: colorScheme.onPrimary, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 8),
-                Text('选择科目开始你的学习之旅',
-                    style: theme.textTheme.bodyLarge?.copyWith(color: colorScheme.onPrimary)),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: () => _startPractice(context, subject: null),
-                        icon: const Icon(Icons.play_arrow_rounded),
-                        label: const Text('综合练习'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: colorScheme.onPrimary,
-                          foregroundColor: colorScheme.primary,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: colorScheme.onPrimary.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.local_fire_department_rounded, color: Colors.white),
-                          const SizedBox(width: 6),
-                          Text('${app.streakDays} 天',
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+          // 励志名言卡片（原"今日练习"卡片已按需求替换）
+          _buildQuoteCard(theme, colorScheme, app),
           const SizedBox(height: 16),
           // 艾宾浩斯复习入口（含到期提醒）
           _buildReviewCard(theme, colorScheme),
@@ -210,11 +182,28 @@ class _LearnPageState extends State<LearnPage> {
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _StatCard(
+                  title: '综合练习',
+                  value: '开始',
+                  icon: Icons.play_arrow_rounded,
+                  onTap: () => _startPractice(context, subject: null),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 20),
-          // 科目列表
+          // 科目列表（顺序按需求：实务 → 法规 → 管理）
           Text('选择科目练习', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
           const SizedBox(height: 12),
-          ...QuestionSubject.values.map((subject) => _SubjectCard(
+          ...const [
+            QuestionSubject.practice, // 实务
+            QuestionSubject.law, // 法规
+            QuestionSubject.management, // 管理
+          ].map((subject) => _SubjectCard(
                 subject: subject,
                 onTap: () => _startPractice(context, subject: subject),
                 onBookTap: () {
@@ -227,6 +216,90 @@ class _LearnPageState extends State<LearnPage> {
                   );
                 },
               )),
+        ],
+      ),
+    );
+  }
+
+  /// 励志名言卡片（替代原"今日练习"卡片）
+  Widget _buildQuoteCard(
+      ThemeData theme, ColorScheme colorScheme, AppProvider app) {
+    final quote = _quotes[_quoteIndex % _quotes.length];
+    final onPrimary = colorScheme.onPrimary;
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        gradient: LinearGradient(
+          colors: [colorScheme.primary, colorScheme.primaryContainer],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.format_quote_rounded, color: onPrimary, size: 20),
+              const SizedBox(width: 8),
+              Text('今日励志',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                      color: onPrimary, fontWeight: FontWeight.w700)),
+              const Spacer(),
+              // 连续学习天数
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: onPrimary.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.local_fire_department_rounded,
+                        color: Colors.white, size: 16),
+                    const SizedBox(width: 4),
+                    Text('${app.streakDays} 天',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            '“${quote[0]}”',
+            style: TextStyle(
+              color: onPrimary,
+              fontSize: 16,
+              height: 1.6,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Text('—— ${quote[1]}',
+                  style: TextStyle(
+                      color: onPrimary.withValues(alpha: 0.85), fontSize: 12)),
+              const Spacer(),
+              GestureDetector(
+                onTap: () => setState(
+                    () => _quoteIndex = (_quoteIndex + 1) % _quotes.length),
+                child: Row(
+                  children: [
+                    Icon(Icons.refresh_rounded, size: 15, color: onPrimary),
+                    const SizedBox(width: 4),
+                    Text('换一句',
+                        style: TextStyle(color: onPrimary, fontSize: 12)),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );

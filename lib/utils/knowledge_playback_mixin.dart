@@ -120,9 +120,41 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
-  /// 顺序播放全部考点内容；播放中再次调用则停止
+  /// 从第一个小节开始连续播放全部；播放中再次调用则停止。
   Future<void> playAllKnowledge() async {
-    // 防止重复点击
+    if (_isPlayingKnowledge) {
+      await stopKnowledgePlayback();
+      return;
+    }
+    await playFromSection(0);
+  }
+
+  /// 从指定小节开始，连续播放到末尾（用于"从指定位置开始播放"）。
+  Future<void> playFromSection(int startIndex) async {
+    if (startIndex < 0 || startIndex >= playbackSections.length) return;
+    if (_isPlayingKnowledge) {
+      await TtsService.stop();
+      _resetPlaybackState();
+    }
+    await _playRange(startIndex);
+  }
+
+  /// 从上一小节开始播放（当前在第一小节或未播放时从头开始）。
+  Future<void> playPreviousSection() async {
+    final idx = _playingSectionIndex > 0 ? _playingSectionIndex - 1 : 0;
+    await playFromSection(idx);
+  }
+
+  /// 从下一小节开始播放。
+  Future<void> playNextSection() async {
+    final idx = _playingSectionIndex >= 0 ? _playingSectionIndex + 1 : 0;
+    if (idx >= playbackSections.length) return;
+    await playFromSection(idx);
+  }
+
+  /// 从 [startIndex] 起连续播放到末尾的内部实现。
+  Future<void> _playRange(int startIndex) async {
+    // 防止重复触发
     if (_isStartingPlayback) return;
     _isStartingPlayback = true;
 
@@ -136,12 +168,6 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
         return;
       }
 
-      // 如果正在播放，则停止
-      if (_isPlayingKnowledge) {
-        await stopKnowledgePlayback();
-        return;
-      }
-
       await _applySpeechParams();
       if (!mounted) return;
 
@@ -152,10 +178,10 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
 
       setState(() {
         _isPlayingKnowledge = true;
-        _playingSectionIndex = 0;
+        _playingSectionIndex = startIndex;
       });
 
-      for (var i = 0; i < playbackSections.length; i++) {
+      for (var i = startIndex; i < playbackSections.length; i++) {
         if (!_isPlayingKnowledge || !mounted) break;
         final units = playbackSections[i].speechUnits();
         if (units.isEmpty) continue;
@@ -163,7 +189,7 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
         if (!ok || !_isPlayingKnowledge || !mounted) break;
       }
     } catch (e, stackTrace) {
-      debugPrint('playAllKnowledge 异常: $e');
+      debugPrint('连续播放异常: $e');
       debugPrintStack(stackTrace: stackTrace);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -359,8 +385,34 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
               ],
             ),
           ),
-          // 停止按钮（仅播放时显示）
-          if (_isPlayingKnowledge)
+          // 播放中：上一节 / 下一节 / 停止（支持"从指定位置开始播放"）
+          if (_isPlayingKnowledge) ...[
+            GestureDetector(
+              onTap: playPreviousSection,
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.skip_previous_rounded, color: color, size: 20),
+              ),
+            ),
+            const SizedBox(width: 6),
+            GestureDetector(
+              onTap: playNextSection,
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.skip_next_rounded, color: color, size: 20),
+              ),
+            ),
+            const SizedBox(width: 6),
             GestureDetector(
               onTap: stopKnowledgePlayback,
               child: Container(
@@ -377,6 +429,7 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
                 ),
               ),
             ),
+          ],
         ],
       ),
     );

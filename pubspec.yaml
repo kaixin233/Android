@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.11+12
+version: 1.0.12+13
 
 environment:
   sdk: ^3.2.0
@@ -43,8 +43,6 @@ dependencies:
   flutter_tts: ^4.2.1
   webview_flutter: ^4.10.0
   flutter_markdown: ^0.7.1
-  # GitHub 自动更新：安装 APK（需 REQUEST_INSTALL_PACKAGES 权限）
-  flutter_app_installer: ^2.0.0
   # 读取当前安装版本号（versionName / versionCode），用于更新比较
   package_info_plus: ^8.0.0
   # 检查更新与下载 APK（流式进度）

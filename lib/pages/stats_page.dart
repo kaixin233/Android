@@ -310,14 +310,20 @@ class StatsPage extends StatelessWidget {
     }
     final bars = <BarChartGroupData>[];
     const modes = PracticeMode.values;
-    final colors = [Colors.blue, Colors.orange, Colors.red];
+    // 用 Map 按模式取色，避免新增 PracticeMode（如 review）后下标越界导致整页崩溃（灰屏）
+    final modeColors = <PracticeMode, Color>{
+      PracticeMode.practice: Colors.blue,
+      PracticeMode.exam: Colors.orange,
+      PracticeMode.wrong: Colors.red,
+      PracticeMode.review: Colors.teal,
+    };
     for (var i = 0; i < modes.length; i++) {
       bars.add(BarChartGroupData(
         x: i,
         barRods: [
           BarChartRodData(
             toY: (modeCount[modes[i]] ?? 0).toDouble(),
-            color: colors[i],
+            color: modeColors[modes[i]] ?? Colors.grey,
             width: 32,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
           ),

@@ -8,5 +8,7 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         // 注册 TTS 辅助插件（原生通道：打开设置、安装语音数据、诊断）
         flutterEngine.plugins.add(TtsHelperPlugin())
+        // 注册应用安装插件（原生通道：用系统安装器安装下载的 APK）
+        flutterEngine.plugins.add(AppInstallerPlugin())
     }
 }

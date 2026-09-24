@@ -1,4 +1,4 @@
-import 'dart:math' show cos, sin;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -51,16 +51,49 @@ class _KnowledgeAssessmentPageState extends State<KnowledgeAssessmentPage> {
     return const Color(0xFFEF4444);
   }
 
+  /// 雷达图：只取"有练习记录"的知识点，且最多 8 个（练习最多的优先）。
+  /// 之前用全部知识点（可能数十个）导致轴密布、标签重叠、图形溢出，看起来"显示异常"。
   Widget _buildRadarChart(ThemeData theme) {
-    if (_stats.isEmpty) {
-      return const Center(child: Text('暂无知识点数据'));
+    final practiced = _stats
+        .where((s) => s.point.totalQuestions > 0)
+        .toList()
+      ..sort((a, b) => b.point.totalQuestions.compareTo(a.point.totalQuestions));
+    final selected = practiced.take(8).toList();
+
+    if (selected.length < 3) {
+      return SizedBox(
+        height: 160,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              selected.isEmpty
+                  ? '暂无练习数据，做题后即可看到掌握度雷达图'
+                  : '练习过的知识点不足 3 个，暂无法绘制雷达图',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey.shade600, height: 1.6),
+            ),
+          ),
+        ),
+      );
     }
 
-    return SizedBox(
-      height: 300,
-      child: CustomPaint(
-        painter: RadarChartPainter(_stats, theme),
-      ),
+    return Column(
+      children: [
+        SizedBox(
+          height: 320,
+          child: CustomPaint(
+            painter: RadarChartPainter(selected, theme),
+          ),
+        ),
+        if (practiced.length > selected.length) ...[
+          const SizedBox(height: 8),
+          Text(
+            '仅显示练习最多的 ${selected.length} 个知识点',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+        ],
+      ],
     );
   }
 
@@ -256,81 +289,122 @@ class RadarChartPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (stats.isEmpty) return;
-
-    final centerX = size.width / 2;
-    final centerY = size.height / 2;
-    final radius = size.width / 2 - 40;
     final count = stats.length;
-    final angleStep = (2 * 3.14159) / count;
+    if (count < 3) return;
+
+    final center = Offset(size.width / 2, size.height / 2);
+    // 预留标签空间：用宽高的较小值计算半径，并把标签收拢在画布内，避免溢出/被裁
+    const labelMargin = 50.0;
+    final radius = (math.min(size.width, size.height) / 2) - labelMargin;
+    if (radius <= 0) return;
+    final angleStep = 2 * math.pi / count;
+    const startAngle = -math.pi / 2;
 
     final gridPaint = Paint()
       ..color = theme.colorScheme.outlineVariant
       ..strokeWidth = 1
       ..style = PaintingStyle.stroke;
 
+    // 同心多边形网格
     for (int level = 1; level <= 5; level++) {
       final r = radius * level / 5;
       final path = Path();
       for (int i = 0; i < count; i++) {
-        final angle = angleStep * i - 3.14159 / 2;
-        final x = centerX + r * cos(angle);
-        final y = centerY + r * sin(angle);
+        final a = startAngle + angleStep * i;
+        final p = Offset(center.dx + r * math.cos(a), center.dy + r * math.sin(a));
         if (i == 0) {
-          path.moveTo(x, y);
+          path.moveTo(p.dx, p.dy);
         } else {
-          path.lineTo(x, y);
+          path.lineTo(p.dx, p.dy);
         }
       }
       path.close();
       canvas.drawPath(path, gridPaint);
     }
 
+    // 轴线
     for (int i = 0; i < count; i++) {
-      final angle = angleStep * i - 3.14159 / 2;
-      final x = centerX + radius * cos(angle);
-      final y = centerY + radius * sin(angle);
-      canvas.drawLine(Offset(centerX, centerY), Offset(x, y), gridPaint);
+      final a = startAngle + angleStep * i;
+      canvas.drawLine(
+        center,
+        Offset(center.dx + radius * math.cos(a), center.dy + radius * math.sin(a)),
+        gridPaint,
+      );
     }
 
-    final dataPaint = Paint()
-      ..color = theme.colorScheme.primary
-      ..strokeWidth = 2
-      ..style = PaintingStyle.stroke;
+    double valueOf(int i) => stats[i].point.masteryLevel.clamp(0.0, 1.0);
 
+    // 数据多边形
     final dataPath = Path();
     for (int i = 0; i < count; i++) {
-      final angle = angleStep * i - 3.14159 / 2;
-      final value = stats[i].point.masteryLevel;
-      final r = radius * value;
-      final x = centerX + r * cos(angle);
-      final y = centerY + r * sin(angle);
+      final a = startAngle + angleStep * i;
+      final v = valueOf(i);
+      final p = Offset(
+        center.dx + radius * v * math.cos(a),
+        center.dy + radius * v * math.sin(a),
+      );
       if (i == 0) {
-        dataPath.moveTo(x, y);
+        dataPath.moveTo(p.dx, p.dy);
       } else {
-        dataPath.lineTo(x, y);
+        dataPath.lineTo(p.dx, p.dy);
       }
     }
     dataPath.close();
-    canvas.drawPath(dataPath, dataPaint);
+    canvas.drawPath(
+      dataPath,
+      Paint()
+        ..color = theme.colorScheme.primary.withValues(alpha: 0.22)
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawPath(
+      dataPath,
+      Paint()
+        ..color = theme.colorScheme.primary
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke,
+    );
 
-    final dataFillPaint = Paint()
-      ..color = theme.colorScheme.primary.withValues(alpha: 0.2)
+    // 数据点
+    final dotPaint = Paint()
+      ..color = theme.colorScheme.primary
       ..style = PaintingStyle.fill;
-    canvas.drawPath(dataPath, dataFillPaint);
-
-    final textStyle = theme.textTheme.labelSmall;
-    final textPainter = TextPainter(textDirection: TextDirection.ltr);
-
     for (int i = 0; i < count; i++) {
-      final angle = angleStep * i - 3.14159 / 2;
-      final r = radius + 20;
-      final x = centerX + r * cos(angle);
-      final y = centerY + r * sin(angle);
+      final a = startAngle + angleStep * i;
+      final v = valueOf(i);
+      canvas.drawCircle(
+        Offset(
+          center.dx + radius * v * math.cos(a),
+          center.dy + radius * v * math.sin(a),
+        ),
+        3,
+        dotPaint,
+      );
+    }
 
-      textPainter.text = TextSpan(text: stats[i].point.name, style: textStyle);
-      textPainter.layout();
-      textPainter.paint(canvas, Offset(x - textPainter.width / 2, y - textPainter.height / 2));
+    // 标签：限制宽度、多行省略、收拢到画布内
+    final baseStyle = theme.textTheme.labelSmall ?? const TextStyle(fontSize: 11);
+    final textStyle = baseStyle.copyWith(fontSize: 10);
+    final maxLabelWidth = math.max(48.0, radius * 0.95);
+    final labelRadius = radius + 14;
+    for (int i = 0; i < count; i++) {
+      final a = startAngle + angleStep * i;
+      final anchor = Offset(
+        center.dx + labelRadius * math.cos(a),
+        center.dy + labelRadius * math.sin(a),
+      );
+      final tp = TextPainter(
+        text: TextSpan(text: stats[i].point.name, style: textStyle),
+        textDirection: TextDirection.ltr,
+        maxLines: 2,
+        ellipsis: '…',
+      )..layout(maxWidth: maxLabelWidth);
+      final dx = (anchor.dx - tp.width / 2)
+          .clamp(0.0, math.max(0.0, size.width - tp.width))
+          .toDouble();
+      final dy = (anchor.dy - tp.height / 2)
+          .clamp(0.0, math.max(0.0, size.height - tp.height))
+          .toDouble();
+      tp.paint(canvas, Offset(dx, dy));
     }
   }
 

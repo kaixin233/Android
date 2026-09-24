@@ -510,9 +510,6 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
   String get _readingKey =>
       '${widget.subject.name}|${widget.chapterNumber}|${widget.subsection.number}';
 
-  // 朗读时用于自动滚动到当前小节
-  final List<GlobalKey> _sectionKeys = [];
-
   @override
   List<KnowledgeSection> get playbackSections => _knowledgeSections;
 
@@ -575,27 +572,6 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     });
   }
 
-  /// 朗读时自动滚动，使当前小节保持可见
-  @override
-  void onPlaybackPositionChanged() {
-    final i = playingSectionIndex;
-    if (i < 0 || i >= _sectionKeys.length) return;
-    final ctx = _sectionKeys[i].currentContext;
-    if (ctx == null) return;
-    Scrollable.ensureVisible(
-      ctx,
-      alignment: 0.2,
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeInOut,
-    );
-  }
-
-  GlobalKey _sectionKey(int index) {
-    while (_sectionKeys.length <= index) {
-      _sectionKeys.add(GlobalKey());
-    }
-    return _sectionKeys[index];
-  }
   Future<void> _loadData() async {
     // 并行加载题目数据、考点知识和知识点统计
     final results = await Future.wait([
@@ -727,23 +703,20 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
           itemBuilder: (context, index) {
             final section = _knowledgeSections[index];
             final isThisPlaying = isPlayingKnowledge && playingSectionIndex == index;
-            return KeyedSubtree(
-              key: _sectionKey(index),
-              child: _KnowledgeSectionCard(
-                section: section,
-                color: color,
-                subject: widget.subject,
-                chapterNumber: widget.chapterNumber,
-                isPlaying: isThisPlaying,
-                playingParagraphIndex:
-                    isThisPlaying ? playingParagraphIndex : -1,
-                activeSentence: isThisPlaying ? currentSentence : null,
-                onPlayTap: () => playSection(index),
-                onAskAi: (text) => _askAiAboutSection(section, selectedText: text),
-                onAskAiWhole: () => _askAiAboutSection(section),
-                onAnnotate: (text) => _annotateSection(section, text),
-                onAnnotationsChanged: () => setState(() {}),
-              ),
+            return _KnowledgeSectionCard(
+              section: section,
+              color: color,
+              subject: widget.subject,
+              chapterNumber: widget.chapterNumber,
+              isPlaying: isThisPlaying,
+              playingParagraphIndex: isThisPlaying ? playingParagraphIndex : -1,
+              activeSentence: isThisPlaying ? currentSentence : null,
+              onPlayTap: () => playSection(index),
+              onPlayFromHere: () => playFromSection(index),
+              onAskAi: (text) => _askAiAboutSection(section, selectedText: text),
+              onAskAiWhole: () => _askAiAboutSection(section),
+              onAnnotate: (text) => _annotateSection(section, text),
+              onAnnotationsChanged: () => setState(() {}),
             );
           },
         ),
@@ -1227,6 +1200,7 @@ class _KnowledgeSectionCard extends StatelessWidget {
     this.playingParagraphIndex = -1,
     this.activeSentence,
     this.onPlayTap,
+    this.onPlayFromHere,
     this.onAskAi,
     this.onAskAiWhole,
     this.onAnnotate,
@@ -1246,6 +1220,9 @@ class _KnowledgeSectionCard extends StatelessWidget {
   final String? activeSentence;
 
   final VoidCallback? onPlayTap;
+
+  /// 点击"从本节开始播放"回调（从指定位置连续播放到末尾）
+  final VoidCallback? onPlayFromHere;
 
   /// 选中部分段落后点击"问 AI"的回调，参数为选中文本
   final ValueChanged<String>? onAskAi;
@@ -1344,6 +1321,27 @@ class _KnowledgeSectionCard extends StatelessWidget {
                         isPlaying ? Icons.stop_rounded : Icons.volume_up_rounded,
                         color: isPlaying ? Colors.white : color,
                         size: 20,
+                      ),
+                    ),
+                  ),
+                // 从本节开始连续播放（指定位置开始播放）
+                if (onPlayFromHere != null)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Tooltip(
+                      message: '从本节开始连续播放',
+                      child: GestureDetector(
+                        onTap: onPlayFromHere,
+                        child: Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: color.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(Icons.playlist_play_rounded,
+                              color: color, size: 20),
+                        ),
                       ),
                     ),
                   ),
@@ -1695,9 +1693,6 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
   String get _readingKey =>
       '${widget.subject.name}|${widget.chapterNumber}|__chapter__';
 
-  // 朗读时用于自动滚动到当前小节
-  final List<GlobalKey> _sectionKeys = [];
-
   @override
   List<KnowledgeSection> get playbackSections => _sections;
 
@@ -1755,27 +1750,6 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
     });
   }
 
-  @override
-  void onPlaybackPositionChanged() {
-    final i = playingSectionIndex;
-    if (i < 0 || i >= _sectionKeys.length) return;
-    final ctx = _sectionKeys[i].currentContext;
-    if (ctx == null) return;
-    Scrollable.ensureVisible(
-      ctx,
-      alignment: 0.2,
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeInOut,
-    );
-  }
-
-  GlobalKey _sectionKey(int index) {
-    while (_sectionKeys.length <= index) {
-      _sectionKeys.add(GlobalKey());
-    }
-    return _sectionKeys[index];
-  }
-
   Future<void> _loadData() async {
     try {
       final sections = await KnowledgeService.getSectionsBySubsection(
@@ -1819,28 +1793,24 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
                       itemBuilder: (context, index) {
                         final isThisPlaying =
                             isPlayingKnowledge && playingSectionIndex == index;
-                        return KeyedSubtree(
-                          key: _sectionKey(index),
-                          child: _KnowledgeSectionCard(
-                            section: _sections[index],
-                            color: color,
-                            subject: widget.subject,
-                            chapterNumber: widget.chapterNumber,
-                            isPlaying: isThisPlaying,
-                            playingParagraphIndex:
-                                isThisPlaying ? playingParagraphIndex : -1,
-                            activeSentence:
-                                isThisPlaying ? currentSentence : null,
-                            onPlayTap: () => playSection(index),
-                            onAskAi: (text) =>
-                                _askAiAboutSection(_sections[index],
-                                    selectedText: text),
-                            onAskAiWhole: () =>
-                                _askAiAboutSection(_sections[index]),
-                            onAnnotate: (text) =>
-                                _annotateSection(_sections[index], text),
-                            onAnnotationsChanged: () => setState(() {}),
-                          ),
+                        return _KnowledgeSectionCard(
+                          section: _sections[index],
+                          color: color,
+                          subject: widget.subject,
+                          chapterNumber: widget.chapterNumber,
+                          isPlaying: isThisPlaying,
+                          playingParagraphIndex:
+                              isThisPlaying ? playingParagraphIndex : -1,
+                          activeSentence: isThisPlaying ? currentSentence : null,
+                          onPlayTap: () => playSection(index),
+                          onPlayFromHere: () => playFromSection(index),
+                          onAskAi: (text) => _askAiAboutSection(_sections[index],
+                              selectedText: text),
+                          onAskAiWhole: () =>
+                              _askAiAboutSection(_sections[index]),
+                          onAnnotate: (text) =>
+                              _annotateSection(_sections[index], text),
+                          onAnnotationsChanged: () => setState(() {}),
                         );
                       },
                     ),
