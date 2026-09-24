@@ -34,6 +34,19 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- 内置更新：flutter_app_installer 通过系统安装器安装下载的 APK 需要 FileProvider
+             共享 APK 文件（Android 7+ 禁止 file:// 暴露，否则抛 FileUriExposedException）。
+             authority 必须与 file_paths.xml 中保持一致。 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

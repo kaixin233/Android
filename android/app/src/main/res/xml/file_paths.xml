@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 下载的更新 APK 存放于应用私有外部存储（getExternalStorageDirectory，即
+         /storage/emulated/0/Android/data/com.example.android_app/...），
+         通过 external-path 暴露给系统安装器。 -->
+    <external-path
+        name="external_files"
+        path="." />
+    <!-- 兜底：部分机型/目录走 external-files-path -->
+    <external-files-path
+        name="external_app_files"
+        path="." />
+    <!-- 兜底：临时目录（getTemporaryDirectory） -->
+    <external-cache-path
+        name="external_cache"
+        path="." />
+    <cache-path
+        name="internal_cache"
+        path="." />
+</paths>
