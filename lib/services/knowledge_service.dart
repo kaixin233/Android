@@ -241,8 +241,21 @@ class KnowledgeService {
       // 目录列表项跳过
       if (inToc) continue;
       if (trimmed.isEmpty) continue;
-      if (trimmed.startsWith('- ')) continue;
       if (current == null) continue;
+
+      // 无序列表项（非目录区）：去掉项目符号后作为普通段落。
+      // 原实现会直接丢弃所有 "- " 行（本意只跳目录），改为仅跳目录区，
+      // 其余列表内容正常渲染，提升 Markdown 兼容性。
+      if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+        final content = trimmed.substring(2).trim();
+        if (content.isEmpty) continue;
+        final parsed = _parseInlineAnnotations(content);
+        current.paragraphs.add(KnowledgeParagraph(
+          text: parsed.$1,
+          segments: parsed.$2,
+        ));
+        continue;
+      }
 
       // 图片
       final imgMatch = imgRegex.firstMatch(trimmed);

@@ -139,19 +139,6 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
     await _playRange(startIndex);
   }
 
-  /// 从上一小节开始播放（当前在第一小节或未播放时从头开始）。
-  Future<void> playPreviousSection() async {
-    final idx = _playingSectionIndex > 0 ? _playingSectionIndex - 1 : 0;
-    await playFromSection(idx);
-  }
-
-  /// 从下一小节开始播放。
-  Future<void> playNextSection() async {
-    final idx = _playingSectionIndex >= 0 ? _playingSectionIndex + 1 : 0;
-    if (idx >= playbackSections.length) return;
-    await playFromSection(idx);
-  }
-
   /// 从 [startIndex] 起连续播放到末尾的内部实现。
   Future<void> _playRange(int startIndex) async {
     // 防止重复触发
@@ -280,157 +267,61 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
     return false;
   }
 
-  /// 底部播放控制栏
+  /// 底部播放控制：**紧凑胶囊按钮**（不占整行，点击播放/停止全部）。
   ///
-  /// [showChunkProgress] 为 true 时在播放中显示"第 x/y 节 · 当前句 m/n"
-  /// 与分段进度条。
-  Widget buildKnowledgePlaybackBar(
-    ThemeData theme,
-    Color color, {
-    bool showChunkProgress = false,
-  }) {
+  /// 仅保留"播放/停止 + 简短状态"，已移除左右朗读切换与进度条，避免遮挡内容。
+  Widget buildKnowledgePlaybackBar(ThemeData theme, Color color) {
     final isDark = theme.brightness == Brightness.dark;
-    final playingLabel =
-        _playingSectionIndex >= 0 && _playingSectionIndex < playbackSections.length
-            ? playbackSections[_playingSectionIndex].title
-            : '考点知识';
+    final playing = _isPlayingKnowledge;
+    final label = playing
+        ? (playbackSections.isNotEmpty &&
+                _playingSectionIndex >= 0 &&
+                _playingSectionIndex < playbackSections.length
+            ? '正在朗读 ${_playingSectionIndex + 1}/${playbackSections.length}'
+            : '正在朗读')
+        : '播放全部考点';
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: isDark ? theme.colorScheme.surface : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.12),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+    return Material(
+      color: isDark ? theme.colorScheme.surface : Colors.white,
+      elevation: 4,
+      borderRadius: BorderRadius.circular(28),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(28),
+        onTap: playAllKnowledge,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(8, 6, 14, 6),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: color.withValues(alpha: 0.35)),
           ),
-        ],
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          // 播放/停止按钮
-          GestureDetector(
-            onTap: playAllKnowledge,
-            child: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: _isPlayingKnowledge ? Colors.red : color,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                _isPlayingKnowledge
-                    ? Icons.stop_rounded
-                    : Icons.playlist_play_rounded,
-                color: Colors.white,
-                size: 24,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          // 播放状态文字
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _isPlayingKnowledge ? '正在朗读' : '点击播放全部',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : Colors.black87,
-                  ),
-                ),
-                if (_isPlayingKnowledge)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          playingLabel,
-                          style: TextStyle(fontSize: 12, color: color),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (showChunkProgress && _currentUnitCount > 0) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            '第 ${_playingSectionIndex + 1} / ${playbackSections.length} 节 · '
-                            '当前句 ${_currentUnitIndex + 1} / $_currentUnitCount',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: color.withValues(alpha: 0.8),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(6),
-                            child: LinearProgressIndicator(
-                              value: (_currentUnitIndex + 1) /
-                                  _currentUnitCount,
-                              minHeight: 6,
-                              backgroundColor: color.withValues(alpha: 0.14),
-                              valueColor: AlwaysStoppedAnimation<Color>(color),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          // 播放中：上一节 / 下一节 / 停止（支持"从指定位置开始播放"）
-          if (_isPlayingKnowledge) ...[
-            GestureDetector(
-              onTap: playPreviousSection,
-              child: Container(
-                width: 36,
-                height: 36,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(Icons.skip_previous_rounded, color: color, size: 20),
-              ),
-            ),
-            const SizedBox(width: 6),
-            GestureDetector(
-              onTap: playNextSection,
-              child: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(Icons.skip_next_rounded, color: color, size: 20),
-              ),
-            ),
-            const SizedBox(width: 6),
-            GestureDetector(
-              onTap: stopKnowledgePlayback,
-              child: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: Colors.grey.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
+                  color: playing ? Colors.red : color,
+                  shape: BoxShape.circle,
                 ),
                 child: Icon(
-                  Icons.close_rounded,
-                  color: isDark ? Colors.white70 : Colors.black54,
-                  size: 20,
+                  playing ? Icons.stop_rounded : Icons.play_arrow_rounded,
+                  color: Colors.white,
+                  size: 22,
                 ),
               ),
-            ),
-          ],
-        ],
+              const SizedBox(width: 10),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

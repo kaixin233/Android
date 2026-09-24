@@ -720,9 +720,8 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
             );
           },
         ),
-        // 底部播放控制栏
+        // 右下角紧凑播放按钮（不占整行）
         Positioned(
-          left: 16,
           right: 16,
           bottom: 16,
           child: buildKnowledgePlaybackBar(theme, color),
@@ -1815,13 +1814,9 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
                       },
                     ),
                     Positioned(
-                      left: 16,
                       right: 16,
                       bottom: 16,
-                      child: buildKnowledgePlaybackBar(
-                        theme, color,
-                        showChunkProgress: true,
-                      ),
+                      child: buildKnowledgePlaybackBar(theme, color),
                     ),
                   ],
                 ),

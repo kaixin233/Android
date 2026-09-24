@@ -636,7 +636,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 ListTile(
                   leading: const Icon(Icons.info_outline_rounded),
                   title: const Text('关于'),
-                  subtitle: const Text('二级建造师学习助手 v1.0.12'),
+                  subtitle: const Text('二级建造师学习助手 v1.0.13'),
                   onTap: () {
                     showAboutDialog(
                       context: context,
