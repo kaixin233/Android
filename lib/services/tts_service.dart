@@ -362,7 +362,7 @@ class TtsService {
       // 有内容的括号：去掉括号、保留内部文字
       result = result.replaceAll(RegExp('$open([^$close]+)$close'), r'$1');
       // 空括号：中文/半角圆括号读作"什么"，其余括号直接去除
-      final emptyReplacement = (pair[0] == '（' || pair[0] == '(') ? '什么' : '');
+      final emptyReplacement = (pair[0] == '（' || pair[0] == '(') ? '什么' : '';
       result = result.replaceAll(RegExp('$open\\s*$close'), emptyReplacement);
     }
 
