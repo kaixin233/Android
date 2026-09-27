@@ -519,8 +519,14 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
   /// 当前朗读段落所用的 GlobalKey（跟随滚动用，同一时刻仅一个段落持有）
   final GlobalKey _activeParagraphKey = GlobalKey();
 
+  /// 用于从 AppBar 打开目录抽屉
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
   @override
   List<KnowledgeSection> get playbackSections => _knowledgeSections;
+
+  /// 目录高亮用：当前所处小节号
+  String? get _tocCurrentSubsection => widget.subsection.number;
 
   @override
   void initState() {
@@ -657,129 +663,66 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     _scrollToSection(playingSectionIndex, alignment: 0.08);
   }
 
-  /// 目录导航：底部弹出全部小节，点击跳转
-  Future<void> _showTocSheet(ThemeData theme, Color color) async {
-    if (playbackSections.isEmpty) return;
-    final current = _currentSectionIndex();
-    final picked = await showModalBottomSheet<int>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-              child: Row(
-                children: [
-                  Icon(Icons.list_alt_rounded, color: color),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '目录（共 ${playbackSections.length} 节）',
-                      style: const TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  TextButton.icon(
-                    icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                    label: const Text('继续朗读'),
-                    onPressed: () => Navigator.of(ctx).pop(-2),
-                  ),
-                ],
-              ),
-            ),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: playbackSections.length,
-                itemBuilder: (c, i) {
-                  final s = playbackSections[i];
-                  final isCur = i == current;
-                  return ListTile(
-                    dense: true,
-                    leading: CircleAvatar(
-                      radius: 14,
-                      backgroundColor:
-                          isCur ? color : color.withValues(alpha: 0.12),
-                      child: Text(
-                        '${i + 1}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: isCur ? Colors.white : color,
-                        ),
-                      ),
-                    ),
-                    title: Text(
-                      s.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontWeight:
-                              isCur ? FontWeight.bold : FontWeight.normal),
-                    ),
-                    trailing: isCur
-                        ? Icon(Icons.volume_up_rounded, size: 18, color: color)
-                        : null,
-                    onTap: () => Navigator.of(ctx).pop(i),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
+  /// 播放起始位置 = 当前可见小节（"从当前位置朗读"）
+  @override
+  int get playbackStartSectionIndex => _currentSectionIndex();
+
+  /// 全量考点目录抽屉（科目 → 章 → 节）；支持从屏幕左侧向右滑动打开
+  Widget _buildTocDrawer() {
+    final book = Textbooks.all.firstWhere(
+      (b) => b.subject == widget.subject,
+      orElse: () => Textbooks.all.first,
     );
-    if (!mounted || picked == null) return;
-    if (picked == -2) {
-      // "继续朗读"：从当前可见位置开始
-      await playFromSection(_currentSectionIndex());
+    return _KnowledgeTocDrawer(
+      book: book,
+      color: Color(widget.bookColor),
+      currentChapter: widget.chapterNumber,
+      currentSubsection: _tocCurrentSubsection,
+      onPick: _openFromToc,
+      onPlayFromHere: toggleKnowledgePlayPause,
+      onPlayFromStart: playAllFromStart,
+    );
+  }
+
+  /// 目录导航跳转：[subsectionNumber] 为 null 表示进入该章总览
+  void _openFromToc(String chapterNumber, String? subsectionNumber) {
+    final book = Textbooks.all.firstWhere(
+      (b) => b.subject == widget.subject,
+      orElse: () => Textbooks.all.first,
+    );
+    final chapter = book.chapters.firstWhere(
+      (c) => c.number == chapterNumber,
+      orElse: () => book.chapters.first,
+    );
+    if (subsectionNumber == null) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => ChapterKnowledgePage(
+            subject: book.subject,
+            chapterNumber: chapterNumber,
+            chapterTitle: chapter.title,
+            bookColor: widget.bookColor,
+            bookTitle: widget.bookTitle,
+          ),
+        ),
+      );
       return;
     }
-    await Future.delayed(const Duration(milliseconds: 60));
-    if (mounted) _scrollToSection(picked);
-  }
-
-  /// 从当前页面位置开始连续朗读
-  void _playFromCurrentPosition() {
-    setKnowledgeAnchor(_currentSectionIndex());
-    playFromSection(_currentSectionIndex());
-  }
-
-  /// 「从当前位置朗读」紧凑按钮
-  Widget _buildPlayFromCurrentButton(ThemeData theme, Color color) {
-    final isDark = theme.brightness == Brightness.dark;
-    return Material(
-      color: isDark ? theme.colorScheme.surface : Colors.white,
-      elevation: 4,
-      borderRadius: BorderRadius.circular(28),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(28),
-        onTap: _playFromCurrentPosition,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(14, 6, 16, 6),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: color.withValues(alpha: 0.35)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.my_location_rounded, color: color, size: 20),
-              const SizedBox(width: 6),
-              Text(
-                '从当前位置',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.white : Colors.black87,
-                ),
-              ),
-            ],
-          ),
+    final subs = chapter.subsections;
+    final target = subs.firstWhere(
+      (s) => s.number == subsectionNumber,
+      orElse: () => subs.isEmpty
+          ? TextbookChapter(number: subsectionNumber, title: '', page: 0)
+          : subs.first,
+    );
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => SubsectionDetailPage(
+          subsection: target,
+          chapterNumber: chapterNumber,
+          subject: book.subject,
+          bookColor: widget.bookColor,
+          bookTitle: widget.bookTitle,
         ),
       ),
     );
@@ -878,14 +821,16 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     final color = Color(widget.bookColor);
 
     return Scaffold(
+      key: _scaffoldKey,
+      drawer: _buildTocDrawer(),
       appBar: AppBar(
         title: Text('${widget.subsection.number} ${widget.subsection.title}'),
         centerTitle: false,
         actions: [
           IconButton(
             icon: const Icon(Icons.list_alt_rounded),
-            tooltip: '目录导航',
-            onPressed: () => _showTocSheet(theme, color),
+            tooltip: '目录导航（也可从左侧向右滑动打开）',
+            onPressed: () => _scaffoldKey.currentState?.openDrawer(),
           ),
           IconButton(
             icon: const Icon(Icons.auto_awesome_rounded),
@@ -988,14 +933,7 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
         Positioned(
           right: 16,
           bottom: 16,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildPlayFromCurrentButton(theme, color),
-              const SizedBox(width: 10),
-              buildKnowledgePlaybackBar(theme, color),
-            ],
-          ),
+          child: buildKnowledgePlaybackBar(theme, color),
         ),
       ],
     );
@@ -1983,8 +1921,14 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
   /// 当前朗读段落所用的 GlobalKey（跟随滚动用，同一时刻仅一个段落持有）
   final GlobalKey _activeParagraphKey = GlobalKey();
 
+  /// 用于从 AppBar 打开目录抽屉
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
   @override
   List<KnowledgeSection> get playbackSections => _sections;
+
+  /// 目录高亮用：本章总览（无具体小节）
+  String? get _tocCurrentSubsection => null;
 
   @override
   void initState() {
@@ -2047,28 +1991,34 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
     return _sectionKeys[index];
   }
 
-  /// 计算"当前页面位置"所在的小节下标（视口顶部所在/最近的小节）。
+  /// 计算"当前页面位置"所在的小节下标。
+  ///
+  /// 优先取"覆盖视口顶部"的小节（即屏幕上正在显示的那一节）；否则取顶部距
+  /// 视口顶部最近者。比原先的启发式更稳，且自动跳过尚未构建（已滚出缓存区）
+  /// 的小节，从而保证"从当前位置朗读"确实从当前可见处开始。
   int _currentSectionIndex() {
     if (_sectionKeys.isEmpty) return 0;
     final listBox = _knowledgeListKey.currentContext?.findRenderObject();
     if (listBox is! RenderBox) return 0;
     final viewportTop = listBox.localToGlobal(Offset.zero).dy;
 
-    var best = -1;
-    var bestDy = double.negativeInfinity;
-    var firstBuilt = -1;
+    var nearest = -1;
+    var nearestDist = double.infinity;
     for (var i = 0; i < _sectionKeys.length; i++) {
       final ro = _sectionKeys[i].currentContext?.findRenderObject();
       if (ro is! RenderBox) continue;
-      if (firstBuilt < 0) firstBuilt = i;
-      final dy = ro.localToGlobal(Offset.zero).dy;
-      if (dy <= viewportTop + 40 && dy > bestDy) {
-        bestDy = dy;
-        best = i;
+      final top = ro.localToGlobal(Offset.zero).dy;
+      final bottom = top + ro.size.height;
+      if (top <= viewportTop && bottom > viewportTop) {
+        return i; // 视口顶部正落在该小节内
+      }
+      final dist = (top - viewportTop).abs();
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearest = i;
       }
     }
-    if (best >= 0) return best;
-    return firstBuilt >= 0 ? firstBuilt : 0;
+    return nearest >= 0 ? nearest : 0;
   }
 
   /// 滚动到指定小节（目录导航与跟随朗读共用）
@@ -2115,129 +2065,66 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
     _scrollToSection(playingSectionIndex, alignment: 0.08);
   }
 
-  /// 目录导航：底部弹出全部小节，点击跳转
-  Future<void> _showTocSheet(ThemeData theme, Color color) async {
-    if (playbackSections.isEmpty) return;
-    final current = _currentSectionIndex();
-    final picked = await showModalBottomSheet<int>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-              child: Row(
-                children: [
-                  Icon(Icons.list_alt_rounded, color: color),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '目录（共 ${playbackSections.length} 节）',
-                      style: const TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  TextButton.icon(
-                    icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                    label: const Text('继续朗读'),
-                    onPressed: () => Navigator.of(ctx).pop(-2),
-                  ),
-                ],
-              ),
-            ),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: playbackSections.length,
-                itemBuilder: (c, i) {
-                  final s = playbackSections[i];
-                  final isCur = i == current;
-                  return ListTile(
-                    dense: true,
-                    leading: CircleAvatar(
-                      radius: 14,
-                      backgroundColor:
-                          isCur ? color : color.withValues(alpha: 0.12),
-                      child: Text(
-                        '${i + 1}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: isCur ? Colors.white : color,
-                        ),
-                      ),
-                    ),
-                    title: Text(
-                      s.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontWeight:
-                              isCur ? FontWeight.bold : FontWeight.normal),
-                    ),
-                    trailing: isCur
-                        ? Icon(Icons.volume_up_rounded, size: 18, color: color)
-                        : null,
-                    onTap: () => Navigator.of(ctx).pop(i),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
+  /// 播放起始位置 = 当前可见小节（"从当前位置朗读"）
+  @override
+  int get playbackStartSectionIndex => _currentSectionIndex();
+
+  /// 全量考点目录抽屉（科目 → 章 → 节）；支持从屏幕左侧向右滑动打开
+  Widget _buildTocDrawer() {
+    final book = Textbooks.all.firstWhere(
+      (b) => b.subject == widget.subject,
+      orElse: () => Textbooks.all.first,
     );
-    if (!mounted || picked == null) return;
-    if (picked == -2) {
-      // "继续朗读"：从当前可见位置开始
-      await playFromSection(_currentSectionIndex());
+    return _KnowledgeTocDrawer(
+      book: book,
+      color: Color(widget.bookColor),
+      currentChapter: widget.chapterNumber,
+      currentSubsection: _tocCurrentSubsection,
+      onPick: _openFromToc,
+      onPlayFromHere: toggleKnowledgePlayPause,
+      onPlayFromStart: playAllFromStart,
+    );
+  }
+
+  /// 目录导航跳转：[subsectionNumber] 为 null 表示进入该章总览
+  void _openFromToc(String chapterNumber, String? subsectionNumber) {
+    final book = Textbooks.all.firstWhere(
+      (b) => b.subject == widget.subject,
+      orElse: () => Textbooks.all.first,
+    );
+    final chapter = book.chapters.firstWhere(
+      (c) => c.number == chapterNumber,
+      orElse: () => book.chapters.first,
+    );
+    if (subsectionNumber == null) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => ChapterKnowledgePage(
+            subject: book.subject,
+            chapterNumber: chapterNumber,
+            chapterTitle: chapter.title,
+            bookColor: widget.bookColor,
+            bookTitle: widget.bookTitle,
+          ),
+        ),
+      );
       return;
     }
-    await Future.delayed(const Duration(milliseconds: 60));
-    if (mounted) _scrollToSection(picked);
-  }
-
-  /// 从当前页面位置开始连续朗读
-  void _playFromCurrentPosition() {
-    setKnowledgeAnchor(_currentSectionIndex());
-    playFromSection(_currentSectionIndex());
-  }
-
-  /// 「从当前位置朗读」紧凑按钮
-  Widget _buildPlayFromCurrentButton(ThemeData theme, Color color) {
-    final isDark = theme.brightness == Brightness.dark;
-    return Material(
-      color: isDark ? theme.colorScheme.surface : Colors.white,
-      elevation: 4,
-      borderRadius: BorderRadius.circular(28),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(28),
-        onTap: _playFromCurrentPosition,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(14, 6, 16, 6),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: color.withValues(alpha: 0.35)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.my_location_rounded, color: color, size: 20),
-              const SizedBox(width: 6),
-              Text(
-                '从当前位置',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.white : Colors.black87,
-                ),
-              ),
-            ],
-          ),
+    final subs = chapter.subsections;
+    final target = subs.firstWhere(
+      (s) => s.number == subsectionNumber,
+      orElse: () => subs.isEmpty
+          ? TextbookChapter(number: subsectionNumber, title: '', page: 0)
+          : subs.first,
+    );
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => SubsectionDetailPage(
+          subsection: target,
+          chapterNumber: chapterNumber,
+          subject: book.subject,
+          bookColor: widget.bookColor,
+          bookTitle: widget.bookTitle,
         ),
       ),
     );
@@ -2271,14 +2158,16 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
     final color = Color(widget.bookColor);
 
     return Scaffold(
+      key: _scaffoldKey,
+      drawer: _buildTocDrawer(),
       appBar: AppBar(
         title: Text('第${widget.chapterNumber}章 考点知识'),
         centerTitle: false,
         actions: [
           IconButton(
             icon: const Icon(Icons.list_alt_rounded),
-            tooltip: '目录导航',
-            onPressed: () => _showTocSheet(theme, color),
+            tooltip: '目录导航（也可从左侧向右滑动打开）',
+            onPressed: () => _scaffoldKey.currentState?.openDrawer(),
           ),
           IconButton(
             icon: const Icon(Icons.auto_awesome_rounded),
@@ -2340,14 +2229,7 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
                     Positioned(
                       right: 16,
                       bottom: 16,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _buildPlayFromCurrentButton(theme, color),
-                          const SizedBox(width: 10),
-                          buildKnowledgePlaybackBar(theme, color),
-                        ],
-                      ),
+                      child: buildKnowledgePlaybackBar(theme, color),
                     ),
                   ],
                 ),
@@ -3109,6 +2991,183 @@ class _QuestionBankCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// 全量考点目录抽屉：按「科目 → 章 → 节」展示，当前章/节高亮。
+///
+/// 由 `Scaffold.drawer` 承载，因此**从屏幕左侧向右滑动即可划出目录**，
+/// 也可通过 AppBar 的目录按钮打开。
+class _KnowledgeTocDrawer extends StatelessWidget {
+  const _KnowledgeTocDrawer({
+    required this.book,
+    required this.color,
+    required this.currentChapter,
+    required this.currentSubsection,
+    required this.onPick,
+    required this.onPlayFromHere,
+    required this.onPlayFromStart,
+  });
+
+  final Textbook book;
+  final Color color;
+  final String currentChapter;
+  final String? currentSubsection;
+  final void Function(String chapterNumber, String? subsectionNumber) onPick;
+  final VoidCallback onPlayFromHere;
+  final VoidCallback onPlayFromStart;
+
+  @override
+  Widget build(BuildContext context) {
+    return Drawer(
+      child: SafeArea(
+        child: Column(
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
+              color: color.withValues(alpha: 0.10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.account_tree_rounded, color: color),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '${book.subject.label} · 考点目录',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: color,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '共 ${book.chapters.length} 章',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).pop();
+                            onPlayFromHere();
+                          },
+                          icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                          label: const Text('从当前位置朗读',
+                              style: TextStyle(fontSize: 12)),
+                          style: OutlinedButton.styleFrom(foregroundColor: color),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).pop();
+                            onPlayFromStart();
+                          },
+                          icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                          label: const Text('从头播放',
+                              style: TextStyle(fontSize: 12)),
+                          style: OutlinedButton.styleFrom(foregroundColor: color),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.only(bottom: 16),
+                children: [
+                  for (final ch in book.chapters) _buildChapter(context, ch),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChapter(BuildContext context, TextbookChapter ch) {
+    final isCurChapter = ch.number == currentChapter;
+    return ExpansionTile(
+      key: PageStorageKey<String>('toc_ch_${ch.number}'),
+      initiallyExpanded: isCurChapter,
+      tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+      childrenPadding: EdgeInsets.zero,
+      leading: CircleAvatar(
+        radius: 13,
+        backgroundColor: isCurChapter ? color : color.withValues(alpha: 0.12),
+        child: Text(
+          ch.number,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            color: isCurChapter ? Colors.white : color,
+          ),
+        ),
+      ),
+      title: Text(
+        ch.title,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: isCurChapter ? FontWeight.bold : FontWeight.w500,
+        ),
+      ),
+      subtitle: Text(
+        '${ch.subsections.length} 节',
+        style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+      ),
+      children: [
+        ListTile(
+          dense: true,
+          contentPadding: const EdgeInsets.only(left: 26, right: 12),
+          leading: Icon(Icons.article_outlined, size: 18, color: color),
+          title: const Text('本章考点总览', style: TextStyle(fontSize: 12.5)),
+          selected: isCurChapter && currentSubsection == null,
+          onTap: () {
+            Navigator.of(context).pop();
+            onPick(ch.number, null);
+          },
+        ),
+        for (final ss in ch.subsections)
+          ListTile(
+            dense: true,
+            contentPadding: const EdgeInsets.only(left: 26, right: 12),
+            title: Text(
+              '${ss.number} ${ss.title}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: ss.number == currentSubsection
+                    ? FontWeight.bold
+                    : FontWeight.normal,
+              ),
+            ),
+            selected: ss.number == currentSubsection,
+            trailing: ss.number == currentSubsection
+                ? Icon(Icons.volume_up_rounded, size: 16, color: color)
+                : null,
+            onTap: () {
+              Navigator.of(context).pop();
+              onPick(ch.number, ss.number);
+            },
+          ),
+      ],
     );
   }
 }

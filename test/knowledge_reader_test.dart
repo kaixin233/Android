@@ -151,4 +151,27 @@ void main() {
     reader.setAnchorSection(1);
     expect(reader.currentSectionIndex, 1);
   });
+
+  test('从指定小节开始朗读：首句必须是该小节的内容（而非从头）', () async {
+    reader.loadSections(sections);
+    final f = reader.startFrom(1); // 从第二节开始
+    await _tick();
+    expect(spoken.first, '第二节'); // 不是"第一节"
+    expect(reader.currentSectionIndex, 1);
+    await reader.stop();
+    gates.last.complete(false);
+    await _tick();
+    await f;
+  });
+
+  test('playAllFromStart 语义：startFrom(0) 从第一节开始', () async {
+    reader.loadSections(sections);
+    final f = reader.startFrom(0);
+    await _tick();
+    expect(spoken.first, '第一节');
+    await reader.stop();
+    gates.last.complete(false);
+    await _tick();
+    await f;
+  });
 }

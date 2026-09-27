@@ -117,6 +117,10 @@ class _PracticePageState extends State<PracticePage> {
   final Map<String, _AnswerRecord> _questionResults = {};
   bool _isSpeaking = false;
   bool _isSpeakingExplanation = false;
+
+  /// 朗读"代际"：每次切题自增，使在途的朗读流程（含延迟回调）立即失效，
+  /// 避免"已进入下一题却还在朗读上一题内容"。
+  int _speechEpoch = 0;
   // 完成流程幂等守卫：避免"自动下一题"定时器与手动点击"完成"竞态导致重复弹窗，
   // 也避免 onCompleted 抛错时结果弹窗不弹出
   bool _hasFinished = false;
@@ -484,11 +488,13 @@ class _PracticePageState extends State<PracticePage> {
   /// - **多选题少选**：播报"少选，得部分分"，不再播报"回答错误"。
   Future<void> _speakExplanation(AnswerOutcome outcome,
       {bool skipExplanation = false}) async {
+    final epoch = _speechEpoch;
     // 先停止当前朗读
     if (_isSpeaking) {
       await TtsService.stop();
       if (mounted) setState(() => _isSpeaking = false);
     }
+    if (!mounted || epoch != _speechEpoch) return; // 期间已切题
 
     final question = _questions[_currentIndex];
     final negative = AnswerEvaluator.isNegativeQuestion(question);
@@ -523,7 +529,10 @@ class _PracticePageState extends State<PracticePage> {
     await TtsService.speak(
       buffer.toString(),
       onComplete: () {
-        if (mounted) setState(() => _isSpeakingExplanation = false);
+        // 已切题则不改动新题的状态标志
+        if (mounted && epoch == _speechEpoch) {
+          setState(() => _isSpeakingExplanation = false);
+        }
       },
     );
   }
@@ -534,7 +543,8 @@ class _PracticePageState extends State<PracticePage> {
       _finishPractice();
       return;
     }
-    _stopSpeakingIfNeeded();
+    // 切题：强制停止上一题的朗读（含在途的延时朗读）
+    _invalidateSpeech();
     setState(() {
       _currentIndex++;
       _restoreQuestionState();
@@ -551,7 +561,8 @@ class _PracticePageState extends State<PracticePage> {
   void _previousQuestion() {
     _autoNextTimer?.cancel();
     if (_currentIndex == 0) return;
-    _stopSpeakingIfNeeded();
+    // 切题：强制停止上一题的朗读（含在途的延时朗读）
+    _invalidateSpeech();
     setState(() {
       _currentIndex--;
       _restoreQuestionState();
@@ -571,6 +582,15 @@ class _PracticePageState extends State<PracticePage> {
       _isSpeaking = false;
       _isSpeakingExplanation = false;
     }
+  }
+
+  /// 切题时强制终止所有朗读：无条件停止引擎并使在途流程失效。
+  /// 与 [_stopSpeakingIfNeeded] 不同，这里不依赖状态标志，避免竞态漏停。
+  void _invalidateSpeech() {
+    _speechEpoch++;
+    TtsService.stop();
+    _isSpeaking = false;
+    _isSpeakingExplanation = false;
   }
 
   /// 恢复当前题目的已答状态
@@ -843,32 +863,35 @@ class _PracticePageState extends State<PracticePage> {
   /// 避免题目和选项混在一起无法分辨。
   Future<void> _speakQuestion() async {
     if (_questions.isEmpty || _currentIndex >= _questions.length) return;
-    // 如果正在播报解析，先停止
-    if (_isSpeakingExplanation) {
-      await TtsService.stop();
-    }
+    final epoch = _speechEpoch;
+    // 无条件停止任何在途朗读，确保不会与上一题内容叠加
+    await TtsService.stop();
+    if (!mounted || epoch != _speechEpoch) return;
     setState(() {
       _isSpeaking = true;
       _isSpeakingExplanation = false;
     });
 
     final question = _questions[_currentIndex];
+    final index = _currentIndex;
     final hasOptions = question.options.isNotEmpty;
 
     // 阶段1：只朗读题目
-    final promptText = question.prompt;
     final success = await TtsService.speak(
-      promptText,
+      question.prompt,
       onComplete: () {
+        // 已切题/已停止 → 丢弃回调，避免读到上一题或错位内容
+        if (!mounted || epoch != _speechEpoch || index != _currentIndex) return;
         // 题目朗读完成后，如果有选项，等待后继续朗读选项
-        if (hasOptions && mounted) {
-          _speakOptions();
-        } else if (mounted) {
+        if (hasOptions) {
+          _speakOptions(question, epoch: epoch);
+        } else {
           setState(() => _isSpeaking = false);
         }
       },
     );
 
+    if (epoch != _speechEpoch) return; // 已切题，忽略
     // 朗读启动失败时，重置状态并引导用户
     if (!success && mounted) {
       setState(() => _isSpeaking = false);
@@ -877,15 +900,17 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   /// 朗读选项（题目朗读完成后的第二阶段）
-  Future<void> _speakOptions() async {
-    if (!mounted || _questions.isEmpty || _currentIndex >= _questions.length) return;
-    final question = _questions[_currentIndex];
-    if (question.options.isEmpty) return;
+  ///
+  /// [question] 由阶段一按值传入，避免延迟期间切题后读到"下一题"的选项；
+  /// [epoch] 为发起时的朗读代际，切题后本次朗读直接作废。
+  Future<void> _speakOptions(Question question, {int? epoch}) async {
+    if (!mounted || question.options.isEmpty) return;
+    final myEpoch = epoch ?? _speechEpoch;
 
     // 题目与选项之间停顿，让用户消化题目内容
     await Future.delayed(const Duration(milliseconds: 1500));
     // 停顿期间用户可能按了停止按钮或切换了题目
-    if (!mounted || !_isSpeaking) return;
+    if (!mounted || myEpoch != _speechEpoch || !_isSpeaking) return;
 
     final buffer = StringBuffer();
     buffer.write('选项如下：');

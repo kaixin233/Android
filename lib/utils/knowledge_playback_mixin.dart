@@ -64,15 +64,26 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
   /// 从指定小节开始连续朗读到末尾
   Future<void> playFromSection(int index) => reader.startFrom(index);
 
-  /// 播放/暂停切换（无播放时从上次位置开始）
+  /// 播放起始小节：由页面按"当前可见位置"提供，实现"从当前位置朗读"
+  int get playbackStartSectionIndex => 0;
+
+  /// 播放/暂停切换；空闲时**从当前可见位置**开始朗读
   Future<void> toggleKnowledgePlayPause() async {
     if (reader.isPlaying) {
       await reader.pause();
     } else if (reader.isPaused) {
       await reader.resume();
     } else {
-      await reader.startFrom(reader.currentSectionIndex);
+      final start = playbackStartSectionIndex;
+      reader.setAnchorSection(start);
+      await reader.startFrom(start);
     }
+  }
+
+  /// 从头播放全部考点
+  Future<void> playAllFromStart() {
+    reader.setAnchorSection(0);
+    return reader.startFrom(0);
   }
 
   Future<void> stopKnowledgePlayback() => reader.stop();
@@ -124,7 +135,7 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
                   Text(
                     active
                         ? (reader.isPaused ? '已暂停 · $title' : '正在朗读 · $title')
-                        : '播放全部考点',
+                        : '从当前位置播放',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
