@@ -13,6 +13,7 @@ import '../services/question_service.dart';
 import '../services/storage_service.dart';
 import '../services/ai_question_service.dart';
 import '../services/knowledge_service.dart';
+import '../utils/viewport_picker.dart';
 import '../services/annotation_store.dart';
 import '../utils/ai_assistant_launcher.dart';
 import '../utils/knowledge_playback_mixin.dart';
@@ -594,31 +595,6 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     return _sectionKeys[index];
   }
 
-  /// 计算"当前页面位置"所在的小节下标（视口顶部所在/最近的小节）。
-  int _currentSectionIndex() {
-    if (_sectionKeys.isEmpty) return 0;
-    final listBox = _knowledgeListKey.currentContext?.findRenderObject();
-    if (listBox is! RenderBox) return 0;
-    final viewportTop = listBox.localToGlobal(Offset.zero).dy;
-
-    var best = -1;
-    var bestDy = double.negativeInfinity;
-    var firstBuilt = -1;
-    for (var i = 0; i < _sectionKeys.length; i++) {
-      final ro = _sectionKeys[i].currentContext?.findRenderObject();
-      if (ro is! RenderBox) continue;
-      if (firstBuilt < 0) firstBuilt = i;
-      final dy = ro.localToGlobal(Offset.zero).dy;
-      // 选取"顶部位于视口顶部或略上方"的最大者 → 即当前屏幕顶部所在小节
-      if (dy <= viewportTop + 40 && dy > bestDy) {
-        bestDy = dy;
-        best = i;
-      }
-    }
-    if (best >= 0) return best;
-    return firstBuilt >= 0 ? firstBuilt : 0;
-  }
-
   /// 滚动到指定小节（目录导航与跟随朗读共用）
   void _scrollToSection(int index, {double alignment = 0.02}) {
     if (index < 0 || index >= _sectionKeys.length) return;
@@ -663,9 +639,139 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     _scrollToSection(playingSectionIndex, alignment: 0.08);
   }
 
-  /// 播放起始位置 = 当前可见小节（"从当前位置朗读"）
+  /// 播放起始位置 = 当前可见的**段落**（"从当前位置朗读"）
   @override
-  int get playbackStartSectionIndex => _currentSectionIndex();
+  int get playbackStartSectionIndex => _currentPosition().section;
+
+  @override
+  int get playbackStartParagraphIndex => _currentPosition().paragraph;
+
+  /// 段落 GlobalKey 的键 = 小节下标 * 步长 + 段落下标
+  static const int _paragraphKeyStride = 100000;
+  final Map<int, GlobalKey> _paragraphKeys = {};
+
+  int _pKey(int sectionIndex, int paragraphIndex) =>
+      sectionIndex * _paragraphKeyStride + paragraphIndex;
+
+  GlobalKey _paragraphKey(int sectionIndex, int paragraphIndex) =>
+      _paragraphKeys.putIfAbsent(
+          _pKey(sectionIndex, paragraphIndex), () => GlobalKey());
+
+  /// 视口顶部所在的（小节, 段落），用于"从当前位置朗读"与目录跳转。
+  ({int section, int paragraph}) _currentPosition() {
+    final listBox = _knowledgeListKey.currentContext?.findRenderObject();
+    if (listBox is! RenderBox) return (section: 0, paragraph: -1);
+    final vTop = listBox.localToGlobal(Offset.zero).dy;
+
+    // 1) 小节级定位
+    final sectionRects = <Rect>[];
+    for (var i = 0; i < playbackSections.length; i++) {
+      final ro = _sectionKeys[i].currentContext?.findRenderObject();
+      if (ro is! RenderBox) {
+        sectionRects.add(Rect.zero);
+        continue;
+      }
+      final top = ro.localToGlobal(Offset.zero).dy;
+      sectionRects.add(Rect.fromLTWH(0, top, ro.size.width, ro.size.height));
+    }
+    var sec = pickIndexAtOffset(sectionRects, vTop);
+    if (sec < 0 || sec >= playbackSections.length) sec = 0;
+
+    // 2) 段落级定位（精确到"我正看到的那一段"）
+    final count = playbackSections[sec].paragraphs.length;
+    final paraRects = <Rect>[];
+    for (var p = 0; p < count; p++) {
+      final ro =
+          _paragraphKeys[_pKey(sec, p)]?.currentContext?.findRenderObject();
+      if (ro is! RenderBox) {
+        paraRects.add(Rect.zero);
+        continue;
+      }
+      final top = ro.localToGlobal(Offset.zero).dy;
+      paraRects.add(Rect.fromLTWH(0, top, ro.size.width, ro.size.height));
+    }
+    final para = pickIndexAtOffset(paraRects, vTop);
+    return (section: sec, paragraph: para);
+  }
+
+  /// 滚动到指定小节内的段落（目录跳转用）
+  void _jumpToParagraph(int sectionIndex, int paragraphIndex) {
+    if (paragraphIndex < 0) {
+      _scrollToSection(sectionIndex, alignment: 0.05);
+      return;
+    }
+    final ctx =
+        _paragraphKeys[_pKey(sectionIndex, paragraphIndex)]?.currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 0.06,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeInOut,
+      );
+      return;
+    }
+    _scrollToSection(sectionIndex, alignment: 0.05);
+  }
+
+  /// 构建"当前内容细目"：小节 → 子标题(####) → 要点(**粗体**)，覆盖到每个点
+  Map<String, List<_TocNode>> _buildDeepToc() {
+    final map = <String, List<_TocNode>>{};
+    for (var si = 0; si < playbackSections.length; si++) {
+      final sec = playbackSections[si];
+      final nodes = <_TocNode>[];
+      for (var pi = 0; pi < sec.paragraphs.length; pi++) {
+        final p = sec.paragraphs[pi];
+        if (p.isSubheading) {
+          nodes.add(_TocNode(
+            title: p.text,
+            sectionIndex: si,
+            paragraphIndex: pi,
+            level: 3,
+          ));
+        } else if (p.isBold) {
+          final node = _TocNode(
+            title: p.text,
+            sectionIndex: si,
+            paragraphIndex: pi,
+            level: 4,
+          );
+          if (nodes.isNotEmpty && nodes.last.level == 3) {
+            nodes.last.children.add(node);
+          } else {
+            nodes.add(node);
+          }
+        }
+      }
+      map[sec.number] = nodes;
+    }
+    return map;
+  }
+
+  bool _drawerSwipeArmed = false;
+
+  /// 包裹页面主体，实现"**从左向右滑动打开目录**"。
+  ///
+  /// 只要起手位置在屏幕左侧 25% 且向右拖动即打开，比默认仅最左十几像素宽容得多
+  /// （默认边缘手势会被 TabBarView 等横向滚动组件抢走，导致"滑不出来"）。
+  Widget _wrapDrawerSwipe(Widget child) {
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragStart: (d) {
+        final w = MediaQuery.of(context).size.width;
+        _drawerSwipeArmed = d.globalPosition.dx <= w * 0.25;
+      },
+      onHorizontalDragUpdate: (d) {
+        if (_drawerSwipeArmed && d.delta.dx > 0) {
+          _drawerSwipeArmed = false;
+          _scaffoldKey.currentState?.openDrawer();
+        }
+      },
+      onHorizontalDragEnd: (_) => _drawerSwipeArmed = false,
+      onHorizontalDragCancel: () => _drawerSwipeArmed = false,
+      child: child,
+    );
+  }
 
   /// 全量考点目录抽屉（科目 → 章 → 节）；支持从屏幕左侧向右滑动打开
   Widget _buildTocDrawer() {
@@ -679,6 +785,8 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
       currentChapter: widget.chapterNumber,
       currentSubsection: _tocCurrentSubsection,
       onPick: _openFromToc,
+      onJump: _jumpToParagraph,
+      deepBySubsection: _buildDeepToc(),
       onPlayFromHere: toggleKnowledgePlayPause,
       onPlayFromStart: playAllFromStart,
     );
@@ -848,15 +956,19 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
           indicatorColor: color,
         ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _buildKnowledgeTab(theme, color),
-                _buildPracticeTab(theme, color),
-              ],
-            ),
+      body: _wrapDrawerSwipe(
+        _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : TabBarView(
+                controller: _tabController,
+                // 关闭横向滑动：避免抢占"从左向右滑动打开目录"的手势
+                physics: const NeverScrollableScrollPhysics(),
+                children: [
+                  _buildKnowledgeTab(theme, color),
+                  _buildPracticeTab(theme, color),
+                ],
+              ),
+      ),
     );
   }
 
@@ -907,6 +1019,7 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
                       isActiveKnowledge && playingSectionIndex == index
                           ? _activeParagraphKey
                           : null,
+                  paragraphKeyOf: (pi) => _paragraphKey(index, pi),
                   playingParagraphIndex:
                       isActiveKnowledge && playingSectionIndex == index
                           ? playingParagraphIndex
@@ -1407,6 +1520,7 @@ class _KnowledgeSectionCard extends StatelessWidget {
     this.isPlaying = false,
     this.isSectionActive = false,
     this.activeParagraphKey,
+    this.paragraphKeyOf,
     this.playingParagraphIndex = -1,
     this.activeSentence,
     this.onPlayTap,
@@ -1428,6 +1542,9 @@ class _KnowledgeSectionCard extends StatelessWidget {
 
   /// 当前朗读段落所用的 GlobalKey（用于精确"跟随滚动"）
   final GlobalKey? activeParagraphKey;
+
+  /// 为每个段落提供 GlobalKey（段落级"从当前位置朗读"与目录跳转定位用）
+  final GlobalKey? Function(int paragraphIndex)? paragraphKeyOf;
 
   /// 当前正在朗读的段落下标（-1 表示无），用于高亮"当前所读内容"
   final int playingParagraphIndex;
@@ -1731,6 +1848,17 @@ class _KnowledgeSectionCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: List.generate(section.paragraphs.length, (i) {
         final p = section.paragraphs[i];
+        final widget = _buildOneParagraph(context, theme, isDark, i, p);
+        // 挂载段落 GlobalKey：供"从当前位置朗读"做段落级定位与目录跳转
+        final key = paragraphKeyOf?.call(i);
+        return key == null ? widget : KeyedSubtree(key: key, child: widget);
+      }),
+    );
+  }
+
+  /// 渲染单个段落
+  Widget _buildOneParagraph(BuildContext context, ThemeData theme, bool isDark,
+      int i, KnowledgeParagraph p) {
         // 图片段落
         if (p.imagePath != null) {
           final imagePath = p.imagePath!;
@@ -1848,8 +1976,6 @@ class _KnowledgeSectionCard extends StatelessWidget {
             onAnnotationsChanged: onAnnotationsChanged,
           ),
         );
-      }),
-    );
   }
 }
 
@@ -1991,36 +2117,6 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
     return _sectionKeys[index];
   }
 
-  /// 计算"当前页面位置"所在的小节下标。
-  ///
-  /// 优先取"覆盖视口顶部"的小节（即屏幕上正在显示的那一节）；否则取顶部距
-  /// 视口顶部最近者。比原先的启发式更稳，且自动跳过尚未构建（已滚出缓存区）
-  /// 的小节，从而保证"从当前位置朗读"确实从当前可见处开始。
-  int _currentSectionIndex() {
-    if (_sectionKeys.isEmpty) return 0;
-    final listBox = _knowledgeListKey.currentContext?.findRenderObject();
-    if (listBox is! RenderBox) return 0;
-    final viewportTop = listBox.localToGlobal(Offset.zero).dy;
-
-    var nearest = -1;
-    var nearestDist = double.infinity;
-    for (var i = 0; i < _sectionKeys.length; i++) {
-      final ro = _sectionKeys[i].currentContext?.findRenderObject();
-      if (ro is! RenderBox) continue;
-      final top = ro.localToGlobal(Offset.zero).dy;
-      final bottom = top + ro.size.height;
-      if (top <= viewportTop && bottom > viewportTop) {
-        return i; // 视口顶部正落在该小节内
-      }
-      final dist = (top - viewportTop).abs();
-      if (dist < nearestDist) {
-        nearestDist = dist;
-        nearest = i;
-      }
-    }
-    return nearest >= 0 ? nearest : 0;
-  }
-
   /// 滚动到指定小节（目录导航与跟随朗读共用）
   void _scrollToSection(int index, {double alignment = 0.02}) {
     if (index < 0 || index >= _sectionKeys.length) return;
@@ -2065,9 +2161,139 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
     _scrollToSection(playingSectionIndex, alignment: 0.08);
   }
 
-  /// 播放起始位置 = 当前可见小节（"从当前位置朗读"）
+  /// 播放起始位置 = 当前可见的**段落**（"从当前位置朗读"）
   @override
-  int get playbackStartSectionIndex => _currentSectionIndex();
+  int get playbackStartSectionIndex => _currentPosition().section;
+
+  @override
+  int get playbackStartParagraphIndex => _currentPosition().paragraph;
+
+  /// 段落 GlobalKey 的键 = 小节下标 * 步长 + 段落下标
+  static const int _paragraphKeyStride = 100000;
+  final Map<int, GlobalKey> _paragraphKeys = {};
+
+  int _pKey(int sectionIndex, int paragraphIndex) =>
+      sectionIndex * _paragraphKeyStride + paragraphIndex;
+
+  GlobalKey _paragraphKey(int sectionIndex, int paragraphIndex) =>
+      _paragraphKeys.putIfAbsent(
+          _pKey(sectionIndex, paragraphIndex), () => GlobalKey());
+
+  /// 视口顶部所在的（小节, 段落），用于"从当前位置朗读"与目录跳转。
+  ({int section, int paragraph}) _currentPosition() {
+    final listBox = _knowledgeListKey.currentContext?.findRenderObject();
+    if (listBox is! RenderBox) return (section: 0, paragraph: -1);
+    final vTop = listBox.localToGlobal(Offset.zero).dy;
+
+    // 1) 小节级定位
+    final sectionRects = <Rect>[];
+    for (var i = 0; i < playbackSections.length; i++) {
+      final ro = _sectionKeys[i].currentContext?.findRenderObject();
+      if (ro is! RenderBox) {
+        sectionRects.add(Rect.zero);
+        continue;
+      }
+      final top = ro.localToGlobal(Offset.zero).dy;
+      sectionRects.add(Rect.fromLTWH(0, top, ro.size.width, ro.size.height));
+    }
+    var sec = pickIndexAtOffset(sectionRects, vTop);
+    if (sec < 0 || sec >= playbackSections.length) sec = 0;
+
+    // 2) 段落级定位（精确到"我正看到的那一段"）
+    final count = playbackSections[sec].paragraphs.length;
+    final paraRects = <Rect>[];
+    for (var p = 0; p < count; p++) {
+      final ro =
+          _paragraphKeys[_pKey(sec, p)]?.currentContext?.findRenderObject();
+      if (ro is! RenderBox) {
+        paraRects.add(Rect.zero);
+        continue;
+      }
+      final top = ro.localToGlobal(Offset.zero).dy;
+      paraRects.add(Rect.fromLTWH(0, top, ro.size.width, ro.size.height));
+    }
+    final para = pickIndexAtOffset(paraRects, vTop);
+    return (section: sec, paragraph: para);
+  }
+
+  /// 滚动到指定小节内的段落（目录跳转用）
+  void _jumpToParagraph(int sectionIndex, int paragraphIndex) {
+    if (paragraphIndex < 0) {
+      _scrollToSection(sectionIndex, alignment: 0.05);
+      return;
+    }
+    final ctx =
+        _paragraphKeys[_pKey(sectionIndex, paragraphIndex)]?.currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 0.06,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeInOut,
+      );
+      return;
+    }
+    _scrollToSection(sectionIndex, alignment: 0.05);
+  }
+
+  /// 构建"当前内容细目"：小节 → 子标题(####) → 要点(**粗体**)，覆盖到每个点
+  Map<String, List<_TocNode>> _buildDeepToc() {
+    final map = <String, List<_TocNode>>{};
+    for (var si = 0; si < playbackSections.length; si++) {
+      final sec = playbackSections[si];
+      final nodes = <_TocNode>[];
+      for (var pi = 0; pi < sec.paragraphs.length; pi++) {
+        final p = sec.paragraphs[pi];
+        if (p.isSubheading) {
+          nodes.add(_TocNode(
+            title: p.text,
+            sectionIndex: si,
+            paragraphIndex: pi,
+            level: 3,
+          ));
+        } else if (p.isBold) {
+          final node = _TocNode(
+            title: p.text,
+            sectionIndex: si,
+            paragraphIndex: pi,
+            level: 4,
+          );
+          if (nodes.isNotEmpty && nodes.last.level == 3) {
+            nodes.last.children.add(node);
+          } else {
+            nodes.add(node);
+          }
+        }
+      }
+      map[sec.number] = nodes;
+    }
+    return map;
+  }
+
+  bool _drawerSwipeArmed = false;
+
+  /// 包裹页面主体，实现"**从左向右滑动打开目录**"。
+  ///
+  /// 只要起手位置在屏幕左侧 25% 且向右拖动即打开，比默认仅最左十几像素宽容得多
+  /// （默认边缘手势会被 TabBarView 等横向滚动组件抢走，导致"滑不出来"）。
+  Widget _wrapDrawerSwipe(Widget child) {
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragStart: (d) {
+        final w = MediaQuery.of(context).size.width;
+        _drawerSwipeArmed = d.globalPosition.dx <= w * 0.25;
+      },
+      onHorizontalDragUpdate: (d) {
+        if (_drawerSwipeArmed && d.delta.dx > 0) {
+          _drawerSwipeArmed = false;
+          _scaffoldKey.currentState?.openDrawer();
+        }
+      },
+      onHorizontalDragEnd: (_) => _drawerSwipeArmed = false,
+      onHorizontalDragCancel: () => _drawerSwipeArmed = false,
+      child: child,
+    );
+  }
 
   /// 全量考点目录抽屉（科目 → 章 → 节）；支持从屏幕左侧向右滑动打开
   Widget _buildTocDrawer() {
@@ -2081,6 +2307,8 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
       currentChapter: widget.chapterNumber,
       currentSubsection: _tocCurrentSubsection,
       onPick: _openFromToc,
+      onJump: _jumpToParagraph,
+      deepBySubsection: _buildDeepToc(),
       onPlayFromHere: toggleKnowledgePlayPause,
       onPlayFromStart: playAllFromStart,
     );
@@ -2176,7 +2404,8 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
           ),
         ],
       ),
-      body: _isLoading
+      body: _wrapDrawerSwipe(
+        _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _sections.isEmpty
               ? _buildEmptyState()
@@ -2204,6 +2433,7 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
                                       playingSectionIndex == index
                                   ? _activeParagraphKey
                                   : null,
+                              paragraphKeyOf: (pi) => _paragraphKey(index, pi),
                               playingParagraphIndex: isActiveKnowledge &&
                                       playingSectionIndex == index
                                   ? playingParagraphIndex
@@ -2233,6 +2463,7 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
                     ),
                   ],
                 ),
+      ),
     );
   }
   /// 打开 AI 出题（带本章上下文）
@@ -2995,7 +3226,25 @@ class _QuestionBankCard extends StatelessWidget {
   }
 }
 
-/// 全量考点目录抽屉：按「科目 → 章 → 节」展示，当前章/节高亮。
+/// 目录节点（覆盖到最细层级：#### 子标题 与 **加粗要点**）
+class _TocNode {
+  _TocNode({
+    required this.title,
+    required this.sectionIndex,
+    required this.paragraphIndex,
+    required this.level,
+  });
+
+  final String title;
+  final int sectionIndex;
+  final int paragraphIndex;
+
+  /// 3 = 子标题（#### X.Y.Z）；4 = 要点（**1. xxx**）
+  final int level;
+  final List<_TocNode> children = [];
+}
+
+/// 全量考点目录抽屉：按「科目 → 章 → 节 → 子标题 → 要点」展示，当前项高亮。
 ///
 /// 由 `Scaffold.drawer` 承载，因此**从屏幕左侧向右滑动即可划出目录**，
 /// 也可通过 AppBar 的目录按钮打开。
@@ -3006,6 +3255,8 @@ class _KnowledgeTocDrawer extends StatelessWidget {
     required this.currentChapter,
     required this.currentSubsection,
     required this.onPick,
+    required this.onJump,
+    required this.deepBySubsection,
     required this.onPlayFromHere,
     required this.onPlayFromStart,
   });
@@ -3015,6 +3266,13 @@ class _KnowledgeTocDrawer extends StatelessWidget {
   final String currentChapter;
   final String? currentSubsection;
   final void Function(String chapterNumber, String? subsectionNumber) onPick;
+
+  /// 跳转到当前已加载内容的指定小节/段落
+  final void Function(int sectionIndex, int paragraphIndex) onJump;
+
+  /// 小节号 → 该小节的细目（子标题/要点），仅当前已加载的内容有值
+  final Map<String, List<_TocNode>> deepBySubsection;
+
   final VoidCallback onPlayFromHere;
   final VoidCallback onPlayFromStart;
 
@@ -3144,30 +3402,89 @@ class _KnowledgeTocDrawer extends StatelessWidget {
           },
         ),
         for (final ss in ch.subsections)
-          ListTile(
-            dense: true,
-            contentPadding: const EdgeInsets.only(left: 26, right: 12),
-            title: Text(
-              '${ss.number} ${ss.title}',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12.5,
-                fontWeight: ss.number == currentSubsection
-                    ? FontWeight.bold
-                    : FontWeight.normal,
+          if ((deepBySubsection[ss.number] ?? const <_TocNode>[]).isEmpty)
+            ListTile(
+              dense: true,
+              contentPadding: const EdgeInsets.only(left: 26, right: 12),
+              title: Text(
+                '${ss.number} ${ss.title}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: ss.number == currentSubsection
+                      ? FontWeight.bold
+                      : FontWeight.normal,
+                ),
               ),
+              selected: ss.number == currentSubsection,
+              trailing: ss.number == currentSubsection
+                  ? Icon(Icons.volume_up_rounded, size: 16, color: color)
+                  : null,
+              onTap: () {
+                Navigator.of(context).pop();
+                onPick(ch.number, ss.number);
+              },
+            )
+          else
+            ExpansionTile(
+              initiallyExpanded: ss.number == currentSubsection,
+              tilePadding: const EdgeInsets.only(left: 26, right: 12),
+              childrenPadding: EdgeInsets.zero,
+              title: Text(
+                '${ss.number} ${ss.title}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: ss.number == currentSubsection
+                      ? FontWeight.bold
+                      : FontWeight.normal,
+                ),
+              ),
+              subtitle: Text(
+                '${deepBySubsection[ss.number]!.length} 个细目',
+                style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+              ),
+              children: [
+                _buildDeepNodes(context, deepBySubsection[ss.number]!),
+              ],
             ),
-            selected: ss.number == currentSubsection,
-            trailing: ss.number == currentSubsection
-                ? Icon(Icons.volume_up_rounded, size: 16, color: color)
-                : null,
-            onTap: () {
-              Navigator.of(context).pop();
-              onPick(ch.number, ss.number);
-            },
-          ),
       ],
     );
+  }
+
+  /// 渲染细目（子标题 / 要点），层级越深缩进越大
+  Widget _buildDeepNodes(BuildContext context, List<_TocNode> nodes) {
+    final items = <Widget>[];
+    for (final n in nodes) {
+      final isSub = n.level == 3;
+      items.add(ListTile(
+        dense: true,
+        contentPadding: EdgeInsets.only(left: isSub ? 40 : 56, right: 10),
+        title: Text(
+          n.title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: isSub ? 12 : 11.5,
+            fontWeight: isSub ? FontWeight.w600 : FontWeight.normal,
+            color: isSub ? null : Colors.grey.shade700,
+          ),
+        ),
+        leading: isSub
+            ? Icon(Icons.subdirectory_arrow_right_rounded,
+                size: 14, color: color)
+            : null,
+        onTap: () {
+          Navigator.of(context).pop();
+          onJump(n.sectionIndex, n.paragraphIndex);
+        },
+      ));
+      if (n.children.isNotEmpty) {
+        items.add(_buildDeepNodes(context, n.children));
+      }
+    }
+    return Column(children: items);
   }
 }

@@ -174,4 +174,60 @@ void main() {
     await _tick();
     await f;
   });
+
+  test('段落级起点：从指定段落开始，跳过标题与其之前的段落', () async {
+    // 第二节结构：标题 + 段落0"丙。" + 段落1"丁。" + 段落2"戊。"
+    final multi = [
+      _sec('1.1', '第一节', ['甲。']),
+      _sec('1.2', '第二节', ['丙。', '丁。', '戊。']),
+    ];
+    reader.loadSections(multi);
+    final f = reader.startFrom(1, startParagraph: 2);
+    await _tick();
+    // 必须直接读"戊。"（段落2），而不是标题/丙。/丁。
+    expect(spoken.first, '戊。');
+    expect(reader.queueStartSection, 1);
+    expect(reader.queueStartParagraph, 2);
+    await reader.stop();
+    gates.last.complete(false);
+    await _tick();
+    await f;
+  });
+
+  test('指定段落起点时不读已滚过的小节标题', () async {
+    reader.loadSections(sections);
+    final f = reader.startFrom(0, startParagraph: 0);
+    await _tick();
+    // 标题位于视口之上 → 直接读第 0 段
+    expect(spoken.first, '甲。');
+    await reader.stop();
+    gates.last.complete(false);
+    await _tick();
+    await f;
+  });
+
+  test('不指定段落（-1）时保留小节标题语音', () async {
+    reader.loadSections(sections);
+    final f = reader.startFrom(0);
+    await _tick();
+    expect(spoken.first, '第一节');
+    await reader.stop();
+    gates.last.complete(false);
+    await _tick();
+    await f;
+  });
+
+  test('isSameRange 用于"继续"与"从新位置重新开始"的判断', () async {
+    reader.loadSections(sections);
+    final f = reader.startFrom(0, untilSection: 1);
+    await _tick();
+    expect(reader.isSameRange(0, 1, -1), isTrue);
+    expect(reader.isSameRange(1, null, -1), isFalse);
+    expect(reader.isSameRange(0, 1, 3), isFalse);
+    await reader.stop();
+    gates.last.complete(false);
+    await _tick();
+    await f;
+    expect(reader.isSameRange(0, 1, -1), isFalse); // 已停止
+  });
 }

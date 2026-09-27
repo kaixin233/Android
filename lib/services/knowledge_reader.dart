@@ -101,40 +101,62 @@ class KnowledgeReaderController extends ChangeNotifier {
 
   /// 从 [startSection] 开始朗读；[untilSection] 为结束小节（不含），
   /// 省略则读到最后一节。已处于播放/暂停且同一范围时切换暂停/继续。
-  Future<void> startFrom(int startSection, {int? untilSection}) async {
+  Future<void> startFrom(
+    int startSection, {
+    int? untilSection,
+    int startParagraph = -1,
+  }) async {
     if (_sections.isEmpty) return;
     final start = startSection.clamp(0, _sections.length - 1);
     final end = (untilSection ?? _sections.length).clamp(start + 1, _sections.length);
 
-    // 与当前范围相同 → 播放/暂停切换
-    if (isActive &&
-        _queue.isNotEmpty &&
-        _queue.first.sectionIndex == start &&
-        _queue.last.sectionIndex == end - 1) {
-      if (isPlaying) {
-        await pause();
-      } else {
-        await resume();
-      }
-      return;
-    }
-
-    _buildQueue(start, end);
+    _buildQueue(start, end, startParagraph: startParagraph);
     _lastSectionIndex = start;
     _state = ReaderState.playing;
     notifyListeners();
     await _runLoop();
   }
 
-  void _buildQueue(int start, int end) {
+  /// 队列起点（供 UI 判断"继续"还是"从新位置重新开始"）
+  int get queueStartSection => _queueStartSection;
+  int get queueStartParagraph => _queueStartParagraph;
+
+  int _queueStartSection = -1;
+  int _queueStartParagraph = -1;
+  bool _queueIsSingleSection = false;
+
+  /// 该范围是否与当前队列一致
+  bool isSameRange(int startSection, int? untilSection, int startParagraph) {
+    if (!isActive || _queue.isEmpty) return false;
+    final end = untilSection ?? _sections.length;
+    final queueEnd = _queue.last.sectionIndex + 1;
+    return _queueStartSection == startSection &&
+        queueEnd == end &&
+        _queueStartParagraph == startParagraph &&
+        _queueIsSingleSection == (untilSection == startSection + 1);
+  }
+
+  /// 构建朗读队列。
+  ///
+  /// [startParagraph] >= 0 时表示"从该小节内的指定段落开始"（用于段落级
+  /// "从当前位置朗读"）：丢弃该段落之前的内容，以及小节标题语音（paragraphIndex = -1）。
+  void _buildQueue(int start, int end, {int startParagraph = -1}) {
     final q = <_QueueEntry>[];
+    final skipToParagraph = startParagraph >= 0;
     for (var i = start; i < end; i++) {
       for (final u in _sections[i].speechUnits()) {
+        if (i == start && skipToParagraph) {
+          // 标题语音（-1）与早于起点的段落一并跳过
+          if (u.paragraphIndex < startParagraph) continue;
+        }
         q.add(_QueueEntry(i, u));
       }
     }
     _queue = q;
     _cursor = 0;
+    _queueStartSection = start;
+    _queueStartParagraph = startParagraph;
+    _queueIsSingleSection = (end == start + 1);
   }
 
   /// 暂停（保留游标，可 [resume] 续读）
