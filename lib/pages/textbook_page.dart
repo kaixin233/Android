@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:provider/provider.dart';
 
 import '../data/textbooks.dart';
@@ -564,8 +565,13 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
     super.dispose();
   }
 
-  /// 滚动时（防抖 500ms）记录阅读位置
+  /// 滚动时（防抖 500ms）记录阅读位置；同时标记"用户手动滚动"时间
   void _onKnowledgeScroll() {
+    if (_knowledgeScrollController.hasClients &&
+        _knowledgeScrollController.position.userScrollDirection !=
+            ScrollDirection.idle) {
+      _lastUserScrollAt = DateTime.now();
+    }
     _readingOffsetTimer?.cancel();
     _readingOffsetTimer = Timer(const Duration(milliseconds: 500), () {
       if (!mounted || !_knowledgeScrollController.hasClients) return;
@@ -631,6 +637,9 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
   @override
   void onPlaybackPositionChanged() {
     if (!isActiveKnowledge) return;
+    // 用户刚刚手动滚动过 → 不要"跟随"，否则会把视图拉回正在朗读的旧位置，
+    // 让用户以为"从当前位置朗读"失效
+    if (_userScrollingRecently) return;
     final ctx = _activeParagraphKey.currentContext;
     if (ctx != null) {
       _ensureVisibleIfNeeded(ctx);
@@ -750,17 +759,14 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
 
   bool _drawerSwipeArmed = false;
 
-  /// 包裹页面主体，实现"**从左向右滑动打开目录**"。
+  /// 包裹页面主体，实现"**向右滑动打开目录**"。
   ///
-  /// 只要起手位置在屏幕左侧 25% 且向右拖动即打开，比默认仅最左十几像素宽容得多
-  /// （默认边缘手势会被 TabBarView 等横向滚动组件抢走，导致"滑不出来"）。
+  /// 关键：**不限制起手位置**（此前限制在左侧 25%，用户在屏幕中部右滑无效）；
+  /// 只要向右水平拖动即打开。页面内的横向滚动已关闭，故不会误触。
   Widget _wrapDrawerSwipe(Widget child) {
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onHorizontalDragStart: (d) {
-        final w = MediaQuery.of(context).size.width;
-        _drawerSwipeArmed = d.globalPosition.dx <= w * 0.25;
-      },
+      onHorizontalDragStart: (_) => _drawerSwipeArmed = true,
       onHorizontalDragUpdate: (d) {
         if (_drawerSwipeArmed && d.delta.dx > 0) {
           _drawerSwipeArmed = false;
@@ -770,6 +776,56 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
       onHorizontalDragEnd: (_) => _drawerSwipeArmed = false,
       onHorizontalDragCancel: () => _drawerSwipeArmed = false,
       child: child,
+    );
+  }
+
+  // ===== 朗读起点：从当前可见位置 =====
+
+  bool _pickStartMode = false;
+  DateTime? _lastUserScrollAt;
+
+  /// 用户是否**正在或刚刚**手动滚动过。
+  ///
+  /// 用 [ScrollPosition.userScrollDirection] 区分"手指拖动"与"程序跟随滚动"，
+  /// 避免把用户滚到的新位置又拉回正在朗读的旧位置。
+  bool get _userScrollingRecently {
+    if (_knowledgeScrollController.hasClients &&
+        _knowledgeScrollController.position.userScrollDirection !=
+            ScrollDirection.idle) {
+      return true;
+    }
+    return _lastUserScrollAt != null &&
+        DateTime.now().difference(_lastUserScrollAt!) <
+            const Duration(milliseconds: 2000);
+  }
+
+  @override
+  Future<void> Function()? get playFromCurrentPositionHandler =>
+      _playFromCurrentPosition;
+
+  /// 从"当前可见位置"重新开始朗读：先彻底停止在途朗读，再从该处起播。
+  Future<void> _playFromCurrentPosition() async {
+    final pos = _currentPosition();
+    await _playFromPosition(pos.section, pos.paragraph);
+  }
+
+  /// 从指定小节/段落开始连续朗读
+  Future<void> _playFromPosition(int section, int paragraph) async {
+    if (playbackSections.isEmpty) return;
+    final s = section.clamp(0, playbackSections.length - 1);
+    // 先停止（含在途的旧朗读与延迟回调），再起播，确保不会"接着读旧内容"
+    await stopKnowledgePlayback();
+    if (!mounted) return;
+    setKnowledgeAnchor(s);
+    await reader.startFrom(s, startParagraph: paragraph);
+    if (!mounted) return;
+    final title = playbackSections[s].title;
+    final label = paragraph >= 0 ? '第 ${paragraph + 1} 段' : '开头';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 2),
+        content: Text('从「$title」$label 开始朗读'),
+      ),
     );
   }
 
@@ -787,8 +843,13 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
       onPick: _openFromToc,
       onJump: _jumpToParagraph,
       deepBySubsection: _buildDeepToc(),
-      onPlayFromHere: toggleKnowledgePlayPause,
+      onPlayFromHere: _playFromCurrentPosition,
       onPlayFromStart: playAllFromStart,
+      pickStartMode: _pickStartMode,
+      onTogglePickStart: () {
+        Navigator.of(context).pop();
+        setState(() => _pickStartMode = !_pickStartMode);
+      },
     );
   }
 
@@ -1020,6 +1081,8 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
                           ? _activeParagraphKey
                           : null,
                   paragraphKeyOf: (pi) => _paragraphKey(index, pi),
+                  showPlayButton: _pickStartMode,
+                  onPlayFromParagraph: (pi) => _playFromPosition(index, pi),
                   playingParagraphIndex:
                       isActiveKnowledge && playingSectionIndex == index
                           ? playingParagraphIndex
@@ -1521,6 +1584,8 @@ class _KnowledgeSectionCard extends StatelessWidget {
     this.isSectionActive = false,
     this.activeParagraphKey,
     this.paragraphKeyOf,
+    this.showPlayButton = false,
+    this.onPlayFromParagraph,
     this.playingParagraphIndex = -1,
     this.activeSentence,
     this.onPlayTap,
@@ -1545,6 +1610,12 @@ class _KnowledgeSectionCard extends StatelessWidget {
 
   /// 为每个段落提供 GlobalKey（段落级"从当前位置朗读"与目录跳转定位用）
   final GlobalKey? Function(int paragraphIndex)? paragraphKeyOf;
+
+  /// 是否在每个段落前显示"从这里朗读"入口（"选择起始段"模式）
+  final bool showPlayButton;
+
+  /// 点击"从这里朗读"回调（参数为段落下标）
+  final ValueChanged<int>? onPlayFromParagraph;
 
   /// 当前正在朗读的段落下标（-1 表示无），用于高亮"当前所读内容"
   final int playingParagraphIndex;
@@ -1848,7 +1919,32 @@ class _KnowledgeSectionCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: List.generate(section.paragraphs.length, (i) {
         final p = section.paragraphs[i];
-        final widget = _buildOneParagraph(context, theme, isDark, i, p);
+        Widget widget = _buildOneParagraph(context, theme, isDark, i, p);
+        // "选择起始段"模式：每段给出"从这里朗读"入口（比自动定位更精确、可控）
+        if (showPlayButton && p.imagePath == null) {
+          widget = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              InkWell(
+                onTap: () => onPlayFromParagraph?.call(i),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 4, bottom: 2),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.play_circle_fill_rounded,
+                          size: 15, color: color),
+                      const SizedBox(width: 4),
+                      Text('从这里朗读',
+                          style: TextStyle(fontSize: 11, color: color)),
+                    ],
+                  ),
+                ),
+              ),
+              widget,
+            ],
+          );
+        }
         // 挂载段落 GlobalKey：供"从当前位置朗读"做段落级定位与目录跳转
         final key = paragraphKeyOf?.call(i);
         return key == null ? widget : KeyedSubtree(key: key, child: widget);
@@ -2153,6 +2249,9 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
   @override
   void onPlaybackPositionChanged() {
     if (!isActiveKnowledge) return;
+    // 用户刚刚手动滚动过 → 不要"跟随"，否则会把视图拉回正在朗读的旧位置，
+    // 让用户以为"从当前位置朗读"失效
+    if (_userScrollingRecently) return;
     final ctx = _activeParagraphKey.currentContext;
     if (ctx != null) {
       _ensureVisibleIfNeeded(ctx);
@@ -2272,17 +2371,14 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
 
   bool _drawerSwipeArmed = false;
 
-  /// 包裹页面主体，实现"**从左向右滑动打开目录**"。
+  /// 包裹页面主体，实现"**向右滑动打开目录**"。
   ///
-  /// 只要起手位置在屏幕左侧 25% 且向右拖动即打开，比默认仅最左十几像素宽容得多
-  /// （默认边缘手势会被 TabBarView 等横向滚动组件抢走，导致"滑不出来"）。
+  /// 关键：**不限制起手位置**（此前限制在左侧 25%，用户在屏幕中部右滑无效）；
+  /// 只要向右水平拖动即打开。页面内的横向滚动已关闭，故不会误触。
   Widget _wrapDrawerSwipe(Widget child) {
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onHorizontalDragStart: (d) {
-        final w = MediaQuery.of(context).size.width;
-        _drawerSwipeArmed = d.globalPosition.dx <= w * 0.25;
-      },
+      onHorizontalDragStart: (_) => _drawerSwipeArmed = true,
       onHorizontalDragUpdate: (d) {
         if (_drawerSwipeArmed && d.delta.dx > 0) {
           _drawerSwipeArmed = false;
@@ -2292,6 +2388,56 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
       onHorizontalDragEnd: (_) => _drawerSwipeArmed = false,
       onHorizontalDragCancel: () => _drawerSwipeArmed = false,
       child: child,
+    );
+  }
+
+  // ===== 朗读起点：从当前可见位置 =====
+
+  bool _pickStartMode = false;
+  DateTime? _lastUserScrollAt;
+
+  /// 用户是否**正在或刚刚**手动滚动过。
+  ///
+  /// 用 [ScrollPosition.userScrollDirection] 区分"手指拖动"与"程序跟随滚动"，
+  /// 避免把用户滚到的新位置又拉回正在朗读的旧位置。
+  bool get _userScrollingRecently {
+    if (_knowledgeScrollController.hasClients &&
+        _knowledgeScrollController.position.userScrollDirection !=
+            ScrollDirection.idle) {
+      return true;
+    }
+    return _lastUserScrollAt != null &&
+        DateTime.now().difference(_lastUserScrollAt!) <
+            const Duration(milliseconds: 2000);
+  }
+
+  @override
+  Future<void> Function()? get playFromCurrentPositionHandler =>
+      _playFromCurrentPosition;
+
+  /// 从"当前可见位置"重新开始朗读：先彻底停止在途朗读，再从该处起播。
+  Future<void> _playFromCurrentPosition() async {
+    final pos = _currentPosition();
+    await _playFromPosition(pos.section, pos.paragraph);
+  }
+
+  /// 从指定小节/段落开始连续朗读
+  Future<void> _playFromPosition(int section, int paragraph) async {
+    if (playbackSections.isEmpty) return;
+    final s = section.clamp(0, playbackSections.length - 1);
+    // 先停止（含在途的旧朗读与延迟回调），再起播，确保不会"接着读旧内容"
+    await stopKnowledgePlayback();
+    if (!mounted) return;
+    setKnowledgeAnchor(s);
+    await reader.startFrom(s, startParagraph: paragraph);
+    if (!mounted) return;
+    final title = playbackSections[s].title;
+    final label = paragraph >= 0 ? '第 ${paragraph + 1} 段' : '开头';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 2),
+        content: Text('从「$title」$label 开始朗读'),
+      ),
     );
   }
 
@@ -2309,8 +2455,13 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
       onPick: _openFromToc,
       onJump: _jumpToParagraph,
       deepBySubsection: _buildDeepToc(),
-      onPlayFromHere: toggleKnowledgePlayPause,
+      onPlayFromHere: _playFromCurrentPosition,
       onPlayFromStart: playAllFromStart,
+      pickStartMode: _pickStartMode,
+      onTogglePickStart: () {
+        Navigator.of(context).pop();
+        setState(() => _pickStartMode = !_pickStartMode);
+      },
     );
   }
 
@@ -2434,6 +2585,9 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
                                   ? _activeParagraphKey
                                   : null,
                               paragraphKeyOf: (pi) => _paragraphKey(index, pi),
+                              showPlayButton: _pickStartMode,
+                              onPlayFromParagraph: (pi) =>
+                                  _playFromPosition(index, pi),
                               playingParagraphIndex: isActiveKnowledge &&
                                       playingSectionIndex == index
                                   ? playingParagraphIndex
@@ -3259,6 +3413,8 @@ class _KnowledgeTocDrawer extends StatelessWidget {
     required this.deepBySubsection,
     required this.onPlayFromHere,
     required this.onPlayFromStart,
+    required this.pickStartMode,
+    required this.onTogglePickStart,
   });
 
   final Textbook book;
@@ -3275,6 +3431,10 @@ class _KnowledgeTocDrawer extends StatelessWidget {
 
   final VoidCallback onPlayFromHere;
   final VoidCallback onPlayFromStart;
+
+  /// 是否处于"选择起始段"模式
+  final bool pickStartMode;
+  final VoidCallback onTogglePickStart;
 
   @override
   Widget build(BuildContext context) {
@@ -3314,15 +3474,18 @@ class _KnowledgeTocDrawer extends StatelessWidget {
                   Row(
                     children: [
                       Expanded(
-                        child: OutlinedButton.icon(
+                        child: FilledButton.icon(
                           onPressed: () {
                             Navigator.of(context).pop();
                             onPlayFromHere();
                           },
-                          icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                          icon: const Icon(Icons.my_location_rounded, size: 17),
                           label: const Text('从当前位置朗读',
                               style: TextStyle(fontSize: 12)),
-                          style: OutlinedButton.styleFrom(foregroundColor: color),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: color,
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -3332,13 +3495,41 @@ class _KnowledgeTocDrawer extends StatelessWidget {
                             Navigator.of(context).pop();
                             onPlayFromStart();
                           },
-                          icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                          icon: const Icon(Icons.restart_alt_rounded, size: 17),
                           label: const Text('从头播放',
                               style: TextStyle(fontSize: 12)),
-                          style: OutlinedButton.styleFrom(foregroundColor: color),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: color,
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                          ),
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: onTogglePickStart,
+                      icon: Icon(
+                        pickStartMode
+                            ? Icons.check_circle_rounded
+                            : Icons.touch_app_rounded,
+                        size: 17,
+                      ),
+                      label: Text(
+                        pickStartMode
+                            ? '已开启「选择起始段」：点正文中的“从这里朗读”'
+                            : '选择起始段（更精确）',
+                        style: const TextStyle(fontSize: 12),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: pickStartMode ? Colors.teal : color,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                      ),
+                    ),
                   ),
                 ],
               ),

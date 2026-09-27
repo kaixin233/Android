@@ -16,6 +16,9 @@ import 'ai_settings_page.dart';
 import 'ai_qa_history_page.dart';
 
 /// 我的页面 - 个人中心，包含设置、数据导出等
+///
+/// 布局原则：**分组折叠 + 状态摘要**。每组卡片折叠时在副标题里直接显示当前状态
+/// （如"已开启 · 语速 1.0 · 音量 100%"），既简洁又不必逐项展开查看。
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key, required this.onThemeChanged});
 
@@ -38,7 +41,6 @@ class _ProfilePageState extends State<ProfilePage> {
 
     setState(() => _isTestingVoice = true);
 
-    // 应用当前设置的语音参数
     final app = context.read<AppProvider>();
     await TtsService.applySpeechParams(
       rate: app.ttsSpeechRate,
@@ -46,7 +48,6 @@ class _ProfilePageState extends State<ProfilePage> {
       volume: app.ttsVolume,
     );
 
-    // 试听文本：包含括号等需要预处理的场景
     const sampleText = '这是一段语音试听。当题目中出现括号时，会朗读为：什么。'
         '例如：施工项目管理中，什么是首要任务。'
         '解析：施工项目管理的首要任务是安全管理。';
@@ -76,11 +77,26 @@ class _ProfilePageState extends State<ProfilePage> {
     super.dispose();
   }
 
+  String _themeLabel(String mode) {
+    switch (mode) {
+      case 'light':
+        return '浅色';
+      case 'dark':
+        return '深色';
+      case 'eyeCare':
+        return '护眼';
+      default:
+        return '跟随系统';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final app = context.watch<AppProvider>();
-    final progress = app.totalChapters == 0 ? 0.0 : (app.completedChapters / app.totalChapters).clamp(0.0, 1.0);
+    final progress = app.totalChapters == 0
+        ? 0.0
+        : (app.completedChapters / app.totalChapters).clamp(0.0, 1.0);
     final totalAnswered = app.history.fold<int>(0, (s, h) => s + h.totalCount);
     final totalCorrect = app.history.fold<int>(0, (s, h) => s + h.correctCount);
     final accuracy = totalAnswered == 0 ? 0.0 : totalCorrect / totalAnswered;
@@ -88,9 +104,9 @@ class _ProfilePageState extends State<ProfilePage> {
     return Scaffold(
       appBar: AppBar(title: const Text('我的')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         children: [
-          // 用户卡片
+          // ===== 用户卡片 =====
           Card(
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -100,10 +116,11 @@ class _ProfilePageState extends State<ProfilePage> {
                   Row(
                     children: [
                       CircleAvatar(
-                        radius: 32,
+                        radius: 30,
                         backgroundColor: theme.colorScheme.primaryContainer,
                         child: Icon(Icons.person_rounded,
-                            size: 36, color: theme.colorScheme.onPrimaryContainer),
+                            size: 34,
+                            color: theme.colorScheme.onPrimaryContainer),
                       ),
                       const SizedBox(width: 16),
                       Expanded(
@@ -111,9 +128,11 @@ class _ProfilePageState extends State<ProfilePage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text('二建备考学员',
-                                style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                                style: theme.textTheme.titleLarge
+                                    ?.copyWith(fontWeight: FontWeight.bold)),
                             const SizedBox(height: 4),
-                            Text('已学习 ${app.completedChapters}/${app.totalChapters} 章',
+                            Text(
+                                '已学习 ${app.completedChapters}/${app.totalChapters} 章',
                                 style: TextStyle(color: Colors.grey.shade600)),
                           ],
                         ),
@@ -126,539 +145,557 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          // 统计概览
+          const SizedBox(height: 12),
+
+          // ===== 统计概览 =====
           Row(
             children: [
-              _statCard('累计答题', '$totalAnswered', Icons.quiz_rounded, Colors.blue, theme),
+              _statCard('累计答题', '$totalAnswered', Icons.quiz_rounded,
+                  Colors.blue, theme),
               const SizedBox(width: 12),
-              _statCard('正确率', '${(accuracy * 100).toStringAsFixed(0)}%', Icons.trending_up_rounded, Colors.green, theme),
+              _statCard('正确率', '${(accuracy * 100).toStringAsFixed(0)}%',
+                  Icons.trending_up_rounded, Colors.green, theme),
               const SizedBox(width: 12),
-              _statCard('练习次数', '${app.history.length}', Icons.history_rounded, Colors.orange, theme),
+              _statCard('练习次数', '${app.history.length}',
+                  Icons.history_rounded, Colors.orange, theme),
             ],
           ),
-          const SizedBox(height: 16),
-          // 外观与体验
-          Card(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text('外观与体验',
-                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.palette_rounded),
-                  title: const Text('主题模式'),
-                  subtitle: const Text('浅色 / 深色 / 护眼 / 跟随系统'),
-                  trailing: DropdownButton<String>(
-                    value: app.themeMode,
-                    underline: const SizedBox(),
-                    items: const [
-                      DropdownMenuItem(value: 'system', child: Text('跟随系统')),
-                      DropdownMenuItem(value: 'light', child: Text('浅色')),
-                      DropdownMenuItem(value: 'dark', child: Text('深色')),
-                      DropdownMenuItem(value: 'eyeCare', child: Text('护眼')),
-                    ],
-                    onChanged: (value) async {
-                      if (value == null) return;
-                      await widget.onThemeChanged(value);
-                    },
-                  ),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.text_fields_rounded, color: Colors.blue),
-                  title: const Text('阅读字号'),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('调整题目、解析与教材的全局显示大小'),
-                      Slider(
-                        value: app.fontScale,
-                        min: 0.8,
-                        max: 1.4,
-                        divisions: 12,
-                        label: '${(app.fontScale * 100).toInt()}%',
-                        onChanged: (value) {
-                          context.read<AppProvider>().saveFontScale(
-                            double.parse(value.toStringAsFixed(2)),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                  trailing: Text(
-                    '${(app.fontScale * 100).toInt()}%',
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                  ),
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.vibration_rounded),
-                  title: const Text('答题震动反馈'),
-                  subtitle: const Text('答对与答错时使用不同震动模式进行提示'),
-                  value: app.vibrationEnabled,
+          const SizedBox(height: 12),
+
+          // ===== 学习目标（常显今日进度） =====
+          _SettingsGroup(
+            title: '学习目标',
+            icon: Icons.flag_rounded,
+            color: Colors.teal,
+            summary: '目标 ${app.dailyGoalQuestions} 题/天',
+            initiallyExpanded: true,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: _buildDailyGoalProgress(app, theme),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.flag_rounded, color: Colors.teal),
+                title: const Text('每日练习目标'),
+                subtitle: Slider(
+                  value: app.dailyGoalQuestions.toDouble(),
+                  min: 10,
+                  max: 200,
+                  divisions: 19,
+                  label: '${app.dailyGoalQuestions} 题',
                   onChanged: (value) {
-                    context.read<AppProvider>().saveVibrationEnabled(value);
+                    context
+                        .read<AppProvider>()
+                        .saveDailyGoalQuestions(value.round());
                   },
                 ),
-              ],
-            ),
+                trailing: Text('${app.dailyGoalQuestions}',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 14)),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
-          // 语音播报设置（新增总开关 + 分组）
-          Card(
-            clipBehavior: Clip.antiAlias,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 总开关：开启后下方各项才生效
-                SwitchListTile(
-                  secondary: const Icon(Icons.record_voice_over_rounded, color: Colors.teal),
-                  title: const Text('语音播报'),
-                  subtitle: const Text('开启后，可在答题与学习中语音朗读题目与解析'),
-                  value: app.ttsEnabled,
+          const SizedBox(height: 12),
+
+          // ===== 外观与体验 =====
+          _SettingsGroup(
+            title: '外观与体验',
+            icon: Icons.palette_rounded,
+            color: Colors.deepPurple,
+            summary: '${_themeLabel(app.themeMode)} · '
+                '字号 ${(app.fontScale * 100).toInt()}% · '
+                '震动${app.vibrationEnabled ? '开' : '关'}',
+            children: [
+              ListTile(
+                leading: const Icon(Icons.palette_rounded),
+                title: const Text('主题模式'),
+                trailing: DropdownButton<String>(
+                  value: app.themeMode,
+                  underline: const SizedBox(),
+                  items: const [
+                    DropdownMenuItem(value: 'system', child: Text('跟随系统')),
+                    DropdownMenuItem(value: 'light', child: Text('浅色')),
+                    DropdownMenuItem(value: 'dark', child: Text('深色')),
+                    DropdownMenuItem(value: 'eyeCare', child: Text('护眼')),
+                  ],
+                  onChanged: (value) async {
+                    if (value == null) return;
+                    await widget.onThemeChanged(value);
+                  },
+                ),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.text_fields_rounded,
+                    color: Colors.blue),
+                title: const Text('阅读字号'),
+                subtitle: Slider(
+                  value: app.fontScale,
+                  min: 0.8,
+                  max: 1.4,
+                  divisions: 12,
+                  label: '${(app.fontScale * 100).toInt()}%',
                   onChanged: (value) {
-                    context.read<AppProvider>().saveTtsEnabled(value);
+                    context.read<AppProvider>().saveFontScale(
+                          double.parse(value.toStringAsFixed(2)),
+                        );
                   },
                 ),
-                const Divider(height: 1),
-                _groupLabel('播报内容', theme),
-                SwitchListTile(
-                  secondary: const Icon(Icons.record_voice_over_rounded, color: Colors.teal),
-                  title: const Text('自动播报解析'),
-                  subtitle: const Text('答题后自动朗读正确答案与解析'),
-                  value: app.ttsAutoPlayExplanation,
-                  onChanged: app.ttsEnabled
-                      ? (value) {
-                          context.read<AppProvider>().saveTtsAutoPlayExplanation(value);
-                        }
-                      : null,
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.check_circle_outline_rounded, color: Colors.green),
-                  title: const Text('答对不播报解析'),
-                  subtitle: const Text('回答正确时仅提示"回答正确"，跳过解析朗读'),
-                  value: app.ttsSkipExplanationOnCorrect,
-                  onChanged: (app.ttsEnabled && app.ttsAutoPlayExplanation)
-                      ? (value) {
-                          context.read<AppProvider>().saveTtsSkipExplanationOnCorrect(value);
-                        }
-                      : null,
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.playlist_play_rounded, color: Colors.indigo),
-                  title: const Text('自动朗读题目'),
-                  subtitle: const Text('进入题目时自动语音播报题干内容'),
-                  value: app.ttsAutoReadQuestion,
-                  onChanged: app.ttsEnabled
-                      ? (value) {
-                          context.read<AppProvider>().saveTtsAutoReadQuestion(value);
-                        }
-                      : null,
-                ),
-                const Divider(height: 1),
-                _groupLabel('声音参数', theme),
-                _speechParamTile(
-                  context: context,
-                  icon: Icons.speed_rounded,
-                  color: Colors.blue,
-                  title: '语速',
-                  value: app.ttsSpeechRate,
-                  min: 0.0,
-                  max: 1.0,
-                  divisions: 10,
-                  labelBuilder: (v) => v < 0.3
-                      ? '慢速'
-                      : v > 0.7
-                          ? '快速'
-                          : '正常',
-                  trailing: app.ttsSpeechRate.toStringAsFixed(1),
-                  onChanged: app.ttsEnabled
-                      ? (v) => context.read<AppProvider>().saveTtsSpeechRate(v)
-                      : null,
-                ),
-                const Divider(height: 1),
-                _speechParamTile(
-                  context: context,
-                  icon: Icons.graphic_eq_rounded,
-                  color: Colors.purple,
-                  title: '音调',
-                  value: app.ttsPitch,
-                  min: 0.5,
-                  max: 2.0,
-                  divisions: 15,
-                  labelBuilder: (v) => v < 0.8
-                      ? '低沉'
-                      : v > 1.2
-                          ? '高亢'
-                          : '正常',
-                  trailing: app.ttsPitch.toStringAsFixed(1),
-                  onChanged: app.ttsEnabled
-                      ? (v) => context.read<AppProvider>().saveTtsPitch(v)
-                      : null,
-                ),
-                const Divider(height: 1),
-                _speechParamTile(
-                  context: context,
-                  icon: Icons.volume_up_rounded,
-                  color: Colors.orange,
-                  title: '音量',
-                  value: app.ttsVolume,
-                  min: 0.0,
-                  max: 1.0,
-                  divisions: 10,
-                  labelBuilder: (v) => '${(v * 100).toInt()}%',
-                  trailing: '${(app.ttsVolume * 100).toInt()}%',
-                  onChanged: app.ttsEnabled
-                      ? (v) => context.read<AppProvider>().saveTtsVolume(v)
-                      : null,
-                ),
-                const Divider(height: 1),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.tonalIcon(
-                      onPressed: _testVoice,
-                      icon: Icon(_isTestingVoice
-                          ? Icons.stop_circle_rounded
-                          : Icons.play_circle_rounded),
-                      label: Text(_isTestingVoice ? '停止试听' : '试听语音效果'),
-                    ),
-                  ),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.settings_voice_rounded, color: Colors.grey),
-                  title: const Text('系统语音引擎设置'),
-                  subtitle: const Text('打开系统 TTS 设置页，可更换发音人与语言'),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () async {
-                    final success = await TtsService.openTtsSettings();
-                    if (!success && context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('无法打开系统语音设置')),
-                      );
-                    }
-                  },
-                ),
-              ],
-            ),
+                trailing: Text('${(app.fontScale * 100).toInt()}%',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 14)),
+              ),
+              const Divider(height: 1),
+              SwitchListTile(
+                secondary: const Icon(Icons.vibration_rounded),
+                title: const Text('答题震动反馈'),
+                value: app.vibrationEnabled,
+                onChanged: (value) {
+                  context.read<AppProvider>().saveVibrationEnabled(value);
+                },
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
-          // 练习与考试设置
-          Card(
-            clipBehavior: Clip.antiAlias,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text('练习与考试',
-                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+
+          // ===== 语音播报 =====
+          _SettingsGroup(
+            title: '语音播报',
+            icon: Icons.record_voice_over_rounded,
+            color: Colors.teal,
+            summary: app.ttsEnabled
+                ? '已开启 · 语速 ${app.ttsSpeechRate.toStringAsFixed(1)} · '
+                    '音量 ${(app.ttsVolume * 100).toInt()}%'
+                : '已关闭（答题与考点朗读均不发声）',
+            children: [
+              SwitchListTile(
+                secondary: const Icon(Icons.record_voice_over_rounded,
+                    color: Colors.teal),
+                title: const Text('启用语音播报'),
+                value: app.ttsEnabled,
+                onChanged: (value) {
+                  context.read<AppProvider>().saveTtsEnabled(value);
+                },
+              ),
+              const Divider(height: 1),
+              _groupLabel('播报内容', theme),
+              SwitchListTile(
+                secondary: const Icon(Icons.article_rounded,
+                    color: Colors.indigo),
+                title: const Text('自动播报解析'),
+                value: app.ttsAutoPlayExplanation,
+                onChanged: app.ttsEnabled
+                    ? (value) {
+                        context
+                            .read<AppProvider>()
+                            .saveTtsAutoPlayExplanation(value);
+                      }
+                    : null,
+              ),
+              const Divider(height: 1),
+              SwitchListTile(
+                secondary:
+                    const Icon(Icons.check_circle_outline_rounded, color: Colors.green),
+                title: const Text('答对不播报解析'),
+                value: app.ttsSkipExplanationOnCorrect,
+                onChanged: (app.ttsEnabled && app.ttsAutoPlayExplanation)
+                    ? (value) {
+                        context
+                            .read<AppProvider>()
+                            .saveTtsSkipExplanationOnCorrect(value);
+                      }
+                    : null,
+              ),
+              const Divider(height: 1),
+              SwitchListTile(
+                secondary:
+                    const Icon(Icons.playlist_play_rounded, color: Colors.indigo),
+                title: const Text('自动朗读题目'),
+                value: app.ttsAutoReadQuestion,
+                onChanged: app.ttsEnabled
+                    ? (value) {
+                        context
+                            .read<AppProvider>()
+                            .saveTtsAutoReadQuestion(value);
+                      }
+                    : null,
+              ),
+              const Divider(height: 1),
+              _groupLabel('声音参数', theme),
+              _speechParamTile(
+                icon: Icons.speed_rounded,
+                color: Colors.blue,
+                title: '语速',
+                value: app.ttsSpeechRate,
+                min: 0.0,
+                max: 1.0,
+                divisions: 10,
+                labelBuilder: (v) =>
+                    v < 0.3 ? '慢速' : (v > 0.7 ? '快速' : '正常'),
+                trailing: app.ttsSpeechRate.toStringAsFixed(1),
+                onChanged: app.ttsEnabled
+                    ? (v) => context.read<AppProvider>().saveTtsSpeechRate(v)
+                    : null,
+              ),
+              const Divider(height: 1),
+              _speechParamTile(
+                icon: Icons.graphic_eq_rounded,
+                color: Colors.purple,
+                title: '音调',
+                value: app.ttsPitch,
+                min: 0.5,
+                max: 2.0,
+                divisions: 15,
+                labelBuilder: (v) =>
+                    v < 0.8 ? '低沉' : (v > 1.2 ? '高亢' : '正常'),
+                trailing: app.ttsPitch.toStringAsFixed(1),
+                onChanged: app.ttsEnabled
+                    ? (v) => context.read<AppProvider>().saveTtsPitch(v)
+                    : null,
+              ),
+              const Divider(height: 1),
+              _speechParamTile(
+                icon: Icons.volume_up_rounded,
+                color: Colors.orange,
+                title: '音量',
+                value: app.ttsVolume,
+                min: 0.0,
+                max: 1.0,
+                divisions: 10,
+                labelBuilder: (v) => '${(v * 100).toInt()}%',
+                trailing: '${(app.ttsVolume * 100).toInt()}%',
+                onChanged: app.ttsEnabled
+                    ? (v) => context.read<AppProvider>().saveTtsVolume(v)
+                    : null,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: Icon(
+                  _isTestingVoice
+                      ? Icons.stop_circle_rounded
+                      : Icons.play_circle_rounded,
+                  color: Colors.teal,
                 ),
-                _groupLabel('练习', theme),
-                SwitchListTile(
-                  secondary: const Icon(Icons.shuffle_rounded, color: Colors.blue),
-                  title: const Text('题目乱序'),
-                  subtitle: const Text('每次练习随机打乱题目顺序，避免只记住顺序'),
-                  value: app.practiceShuffleQuestions,
-                  onChanged: (value) {
-                    context.read<AppProvider>().savePracticeShuffleQuestions(value);
-                  },
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.swap_horiz_rounded, color: Colors.indigo),
-                  title: const Text('选项乱序'),
-                  subtitle: const Text('打乱选择题选项顺序，检验真实掌握程度'),
-                  value: app.practiceShuffleOptions,
-                  onChanged: (value) {
-                    context.read<AppProvider>().savePracticeShuffleOptions(value);
-                  },
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.skip_next_rounded, color: Colors.green),
-                  title: const Text('答对后自动下一题'),
-                  subtitle: const Text('提交答案后自动跳到下一题，连续刷题更高效'),
-                  value: app.practiceAutoNext,
-                  onChanged: (value) {
-                    context.read<AppProvider>().savePracticeAutoNext(value);
-                  },
-                ),
-                const Divider(height: 1),
-                _groupLabel('考试默认', theme),
-                ListTile(
-                  leading: const Icon(Icons.format_list_numbered_rounded, color: Colors.orange),
-                  title: const Text('默认考试题量'),
-                  subtitle: Slider(
-                    value: app.examQuestionCount.toDouble(),
-                    min: 10,
-                    max: 50,
-                    divisions: 8,
-                    label: '${app.examQuestionCount}',
-                    onChanged: (value) {
-                      context.read<AppProvider>().saveExamQuestionCount(value.round());
-                    },
-                  ),
-                  trailing: Text('${app.examQuestionCount}',
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.timer_rounded, color: Colors.red),
-                  title: const Text('默认考试时长'),
-                  subtitle: Slider(
-                    value: app.examDurationMinutes.toDouble(),
-                    min: 10,
-                    max: 120,
-                    divisions: 11,
-                    label: '${app.examDurationMinutes} 分钟',
-                    onChanged: (value) {
-                      context.read<AppProvider>().saveExamDurationMinutes(value.round());
-                    },
-                  ),
-                  trailing: Text('${app.examDurationMinutes} 分',
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          // 学习工具
-          Card(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text('学习工具', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-                ),
-                SwitchListTile(
-                  secondary: const Icon(Icons.auto_awesome_rounded, color: Colors.indigo),
-                  title: const Text('AI 考点记忆口诀'),
-                  subtitle: const Text('答题完成后自动生成易记口诀（使用 AI 学习助手）'),
-                  value: app.aiMnemonicEnabled,
-                  onChanged: (value) {
-                    context.read<AppProvider>().saveAiMnemonicEnabled(value);
-                  },
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.psychology_alt_rounded, color: Colors.deepOrange),
-                  title: const Text('复习提醒'),
-                  subtitle: const Text('有题目到达遗忘曲线复习时间时，按天提醒一次'),
-                  value: app.reviewReminderEnabled,
-                  onChanged: (value) {
-                    context.read<AppProvider>().saveReviewReminderEnabled(value);
-                  },
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.sticky_note_2_rounded, color: Colors.yellow),
-                  title: const Text('学习笔记'),
-                  subtitle: const Text('记录重点、疑问和总结'),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NotePage())),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.radar_rounded, color: Colors.purple),
-                  title: const Text('知识点评估'),
-                  subtitle: const Text('查看知识点掌握程度'),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const KnowledgeAssessmentPage())),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.auto_awesome_rounded, color: Colors.deepPurple),
-                  title: const Text('AI 助手设置'),
-                  subtitle: const Text('配置网页端 Token 或 API Key，选中即问'),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AiSettingsPage())),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.forum_rounded, color: Colors.indigo),
-                  title: const Text('AI 问答记录'),
-                  subtitle: const Text('查看各条目的历史问答'),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AiQaHistoryPage())),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          // 数据管理
-          Card(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text('数据管理', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-                ),
-                SwitchListTile(
-                  secondary: const Icon(Icons.backup_rounded, color: Colors.teal),
-                  title: const Text('自动本地备份'),
-                  subtitle: const Text('每周自动备份到应用私有目录，防止数据丢失'),
-                  value: app.autoBackup,
-                  onChanged: (value) {
-                    context.read<AppProvider>().saveAutoBackup(value);
-                  },
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.backup_rounded, color: Colors.teal),
-                  title: const Text('立即备份'),
-                  subtitle: const Text('把题库、记录、收藏、批注备份到本地'),
-                  onTap: _backupNow,
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.download_rounded, color: Colors.blue),
-                  title: const Text('导出全部数据'),
-                  subtitle: const Text('将题库、答题记录、收藏、批注导出为 JSON 文件'),
-                  onTap: _exportData,
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.upload_rounded, color: Colors.green),
-                  title: const Text('导入数据'),
-                  subtitle: const Text('从导出的 JSON 备份文件恢复全部数据'),
-                  onTap: _importData,
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.system_update_alt_rounded, color: Colors.deepPurple),
-                  title: const Text('检查更新'),
-                  subtitle: app.updateAvailable
-                      ? Text('发现新版本 v${app.latestUpdate!.version}',
-                          style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w600))
-                      : Text('当前版本 v${app.appVersion}'),
-                  trailing: app.updateAvailable
-                      ? const Icon(Icons.arrow_circle_up_rounded, color: Colors.green)
-                      : const Icon(Icons.chevron_right_rounded),
-                  onTap: () async {
-                    final result = await app.checkForUpdate(manual: true);
-                    if (!mounted) return;
-                    if (result.hasUpdate && result.info != null) {
-                      UpdateDialog.showUpdateDialog(context, result.info!);
-                    } else if (result.error != null) {
-                      ScaffoldMessenger.of(context)
-                          .showSnackBar(SnackBar(content: Text(result.error!)));
-                    } else {
-                      ScaffoldMessenger.of(context)
-                          .showSnackBar(const SnackBar(content: Text('已是最新版本')));
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          // 学习目标
-          Card(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text('学习目标',
-                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: _buildDailyGoalProgress(app, theme),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.flag_rounded, color: Colors.teal),
-                  title: const Text('每日练习目标'),
-                  subtitle: Slider(
-                    value: app.dailyGoalQuestions.toDouble(),
-                    min: 10,
-                    max: 200,
-                    divisions: 19,
-                    label: '${app.dailyGoalQuestions} 题',
-                    onChanged: (value) {
-                      context.read<AppProvider>().saveDailyGoalQuestions(value.round());
-                    },
-                  ),
-                  trailing: Text('${app.dailyGoalQuestions}',
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          // 最近记录
-          Card(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text('最近练习', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-                ),
-                if (app.history.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.only(left: 16, right: 16, bottom: 16),
-                    child: Text('暂无练习记录', style: TextStyle(color: Colors.grey)),
-                  )
-                else
-                  ...app.history.reversed.take(5).map((h) => ListTile(
-                        dense: true,
-                        leading: CircleAvatar(
-                          radius: 6,
-                          backgroundColor: h.accuracy >= 0.8
-                              ? Colors.green
-                              : h.accuracy >= 0.6
-                                  ? Colors.orange
-                                  : Colors.red,
-                        ),
-                        title: Text(h.title),
-                        subtitle: Text(
-                          '${h.mode.label} · ${h.correctCount}/${h.totalCount} · ${h.accuracyText} · ${h.durationText}',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      )),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          // 关于
-          Card(
-            child: Column(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.info_outline_rounded),
-                  title: const Text('关于'),
-                  subtitle: const Text('二级建造师学习助手 v1.0.18'),
-                  onTap: () {
-                    showAboutDialog(
-                      context: context,
-                      applicationName: '二级建造师学习',
-                      applicationVersion: '1.0.8',
-                      applicationLegalese: '© 2026',
-                      children: [
-                        const SizedBox(height: 12),
-                        const Text('一款专为二级建造师考试打造的学习助手，包含题库、错题本、考试模式、电子教材等功能。'),
-                      ],
+                title: Text(_isTestingVoice ? '停止试听' : '试听语音效果'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                enabled: app.ttsEnabled,
+                onTap: app.ttsEnabled ? _testVoice : null,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.settings_voice_rounded,
+                    color: Colors.grey),
+                title: const Text('系统语音引擎设置'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () async {
+                  final success = await TtsService.openTtsSettings();
+                  if (!success && context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('无法打开系统语音设置')),
                     );
+                  }
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // ===== 练习与考试 =====
+          _SettingsGroup(
+            title: '练习与考试',
+            icon: Icons.fact_check_rounded,
+            color: Colors.blue,
+            summary: '乱序${app.practiceShuffleQuestions ? '开' : '关'} · '
+                '选项乱序${app.practiceShuffleOptions ? '开' : '关'} · '
+                '考试 ${app.examQuestionCount} 题/${app.examDurationMinutes} 分',
+            children: [
+              _groupLabel('练习', theme),
+              SwitchListTile(
+                secondary: const Icon(Icons.shuffle_rounded, color: Colors.blue),
+                title: const Text('题目乱序'),
+                value: app.practiceShuffleQuestions,
+                onChanged: (value) {
+                  context
+                      .read<AppProvider>()
+                      .savePracticeShuffleQuestions(value);
+                },
+              ),
+              const Divider(height: 1),
+              SwitchListTile(
+                secondary: const Icon(Icons.swap_horiz_rounded,
+                    color: Colors.indigo),
+                title: const Text('选项乱序'),
+                value: app.practiceShuffleOptions,
+                onChanged: (value) {
+                  context.read<AppProvider>().savePracticeShuffleOptions(value);
+                },
+              ),
+              const Divider(height: 1),
+              SwitchListTile(
+                secondary:
+                    const Icon(Icons.skip_next_rounded, color: Colors.green),
+                title: const Text('答对后自动下一题'),
+                value: app.practiceAutoNext,
+                onChanged: (value) {
+                  context.read<AppProvider>().savePracticeAutoNext(value);
+                },
+              ),
+              const Divider(height: 1),
+              _groupLabel('考试默认', theme),
+              ListTile(
+                leading: const Icon(Icons.format_list_numbered_rounded,
+                    color: Colors.orange),
+                title: const Text('默认考试题量'),
+                subtitle: Slider(
+                  value: app.examQuestionCount.toDouble(),
+                  min: 10,
+                  max: 50,
+                  divisions: 8,
+                  label: '${app.examQuestionCount}',
+                  onChanged: (value) {
+                    context
+                        .read<AppProvider>()
+                        .saveExamQuestionCount(value.round());
                   },
                 ),
-              ],
-            ),
+                trailing: Text('${app.examQuestionCount}',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 14)),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.timer_rounded, color: Colors.red),
+                title: const Text('默认考试时长'),
+                subtitle: Slider(
+                  value: app.examDurationMinutes.toDouble(),
+                  min: 10,
+                  max: 120,
+                  divisions: 11,
+                  label: '${app.examDurationMinutes} 分钟',
+                  onChanged: (value) {
+                    context
+                        .read<AppProvider>()
+                        .saveExamDurationMinutes(value.round());
+                  },
+                ),
+                trailing: Text('${app.examDurationMinutes} 分',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 14)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // ===== 学习工具 =====
+          _SettingsGroup(
+            title: '学习工具',
+            icon: Icons.handyman_rounded,
+            color: Colors.deepOrange,
+            summary: '口诀${app.aiMnemonicEnabled ? '开' : '关'} · '
+                '复习提醒${app.reviewReminderEnabled ? '开' : '关'}',
+            children: [
+              SwitchListTile(
+                secondary: const Icon(Icons.auto_awesome_rounded,
+                    color: Colors.indigo),
+                title: const Text('AI 考点记忆口诀'),
+                value: app.aiMnemonicEnabled,
+                onChanged: (value) {
+                  context.read<AppProvider>().saveAiMnemonicEnabled(value);
+                },
+              ),
+              const Divider(height: 1),
+              SwitchListTile(
+                secondary: const Icon(Icons.psychology_alt_rounded,
+                    color: Colors.deepOrange),
+                title: const Text('复习提醒'),
+                value: app.reviewReminderEnabled,
+                onChanged: (value) {
+                  context.read<AppProvider>().saveReviewReminderEnabled(value);
+                },
+              ),
+              const Divider(height: 1),
+              _navTile(
+                icon: Icons.sticky_note_2_rounded,
+                color: Colors.amber,
+                title: '学习笔记',
+                page: const NotePage(),
+              ),
+              const Divider(height: 1),
+              _navTile(
+                icon: Icons.radar_rounded,
+                color: Colors.purple,
+                title: '知识点评估',
+                page: const KnowledgeAssessmentPage(),
+              ),
+              const Divider(height: 1),
+              _navTile(
+                icon: Icons.smart_toy_rounded,
+                color: Colors.deepPurple,
+                title: 'AI 助手设置',
+                page: const AiSettingsPage(),
+              ),
+              const Divider(height: 1),
+              _navTile(
+                icon: Icons.forum_rounded,
+                color: Colors.indigo,
+                title: 'AI 问答记录',
+                page: const AiQaHistoryPage(),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // ===== 数据与关于 =====
+          _SettingsGroup(
+            title: '数据与关于',
+            icon: Icons.storage_rounded,
+            color: Colors.teal,
+            summary: '自动备份${app.autoBackup ? '开' : '关'} · '
+                'v${app.appVersion}'
+                '${app.updateAvailable ? '（可更新）' : ''}',
+            children: [
+              SwitchListTile(
+                secondary: const Icon(Icons.backup_rounded, color: Colors.teal),
+                title: const Text('自动本地备份'),
+                subtitle: const Text('每周自动备份到应用私有目录'),
+                value: app.autoBackup,
+                onChanged: (value) {
+                  context.read<AppProvider>().saveAutoBackup(value);
+                },
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.backup_rounded, color: Colors.teal),
+                title: const Text('立即备份'),
+                onTap: _backupNow,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.download_rounded, color: Colors.blue),
+                title: const Text('导出全部数据'),
+                onTap: _exportData,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.upload_rounded, color: Colors.green),
+                title: const Text('导入数据'),
+                onTap: _importData,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.system_update_alt_rounded,
+                    color: Colors.deepPurple),
+                title: const Text('检查更新'),
+                subtitle: app.updateAvailable
+                    ? Text('发现新版本 v${app.latestUpdate!.version}',
+                        style: const TextStyle(
+                            color: Colors.green, fontWeight: FontWeight.w600))
+                    : Text('当前版本 v${app.appVersion}'),
+                trailing: app.updateAvailable
+                    ? const Icon(Icons.arrow_circle_up_rounded,
+                        color: Colors.green)
+                    : const Icon(Icons.chevron_right_rounded),
+                onTap: _checkUpdate,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.info_outline_rounded),
+                title: const Text('关于'),
+                subtitle: Text('二级建造师学习助手 v${app.appVersion}'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: _showAbout,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // ===== 最近练习 =====
+          _SettingsGroup(
+            title: '最近练习',
+            icon: Icons.history_rounded,
+            color: Colors.orange,
+            summary: app.history.isEmpty ? '暂无记录' : '共 ${app.history.length} 次',
+            children: [
+              if (app.history.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: Text('暂无练习记录', style: TextStyle(color: Colors.grey)),
+                )
+              else
+                ...app.history.reversed.take(5).map((h) => ListTile(
+                      dense: true,
+                      leading: CircleAvatar(
+                        radius: 6,
+                        backgroundColor: h.accuracy >= 0.8
+                            ? Colors.green
+                            : (h.accuracy >= 0.6
+                                ? Colors.orange
+                                : Colors.red),
+                      ),
+                      title: Text(h.title),
+                      subtitle: Text(
+                        '${h.mode.label} · ${h.correctCount}/${h.totalCount} · '
+                        '${h.accuracyText} · ${h.durationText}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    )),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _statCard(String label, String value, IconData icon, Color color, ThemeData theme) {
+  Future<void> _checkUpdate() async {
+    final app = context.read<AppProvider>();
+    final result = await app.checkForUpdate(manual: true);
+    if (!mounted) return;
+    if (result.hasUpdate && result.info != null) {
+      UpdateDialog.showUpdateDialog(context, result.info!);
+    } else if (result.error != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(result.error!)));
+    } else {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('已是最新版本')));
+    }
+  }
+
+  void _showAbout() {
+    final app = context.read<AppProvider>();
+    showAboutDialog(
+      context: context,
+      applicationName: '二级建造师学习',
+      applicationVersion: 'v${app.appVersion}',
+      applicationLegalese: '© 2026',
+      children: const [
+        SizedBox(height: 12),
+        Text('一款专为二级建造师考试打造的学习助手，'
+            '包含题库、错题本、考试模式、电子教材、'
+            'AI 学习助手与语音朗读等功能。'),
+      ],
+    );
+  }
+
+  /// 可折叠设置分组：折叠时副标题即为当前状态摘要
+  Widget _navTile({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required Widget page,
+  }) {
+    return ListTile(
+      leading: Icon(icon, color: color),
+      title: Text(title),
+      trailing: const Icon(Icons.chevron_right_rounded),
+      onTap: () =>
+          Navigator.push(context, MaterialPageRoute(builder: (_) => page)),
+    );
+  }
+
+  Widget _statCard(
+      String label, String value, IconData icon, Color color, ThemeData theme) {
     return Expanded(
       child: Card(
         child: Padding(
@@ -670,9 +707,11 @@ class _ProfilePageState extends State<ProfilePage> {
               FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(value,
-                    style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                    style: theme.textTheme.titleLarge
+                        ?.copyWith(fontWeight: FontWeight.bold)),
               ),
-              Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              Text(label,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey)),
             ],
           ),
         ),
@@ -698,7 +737,6 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 统一的"声音参数"滑块行：左侧图标、标题 + 滑块、右侧数值。
   /// [onChanged] 为 null 时整行禁用（置灰），用于总开关关闭时收起调节项。
   Widget _speechParamTile({
-    required BuildContext context,
     required IconData icon,
     required Color color,
     required String title,
@@ -734,7 +772,9 @@ class _ProfilePageState extends State<ProfilePage> {
     final today = DateTime.now();
     final done = app.history.where((h) {
       final a = h.answeredAt;
-      return a.year == today.year && a.month == today.month && a.day == today.day;
+      return a.year == today.year &&
+          a.month == today.month &&
+          a.day == today.day;
     }).fold<int>(0, (s, h) => s + h.totalCount);
     final goal = app.dailyGoalQuestions;
     final ratio = goal <= 0 ? 0.0 : (done / goal).clamp(0.0, 1.0);
@@ -746,7 +786,8 @@ class _ProfilePageState extends State<ProfilePage> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text('今日已完成 $done 题',
-                style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(fontWeight: FontWeight.w600)),
             Text(
               reached ? '已达标' : '目标 $goal 题',
               style: TextStyle(
@@ -817,7 +858,6 @@ class _ProfilePageState extends State<ProfilePage> {
       final jsonString = utf8.decode(bytes);
       await StorageService.importAllData(jsonString);
 
-      // 刷新 AppProvider 状态，确保 UI 与存储同步
       if (mounted) {
         final provider = context.read<AppProvider>();
         await provider.refresh();
@@ -833,5 +873,54 @@ class _ProfilePageState extends State<ProfilePage> {
         );
       }
     }
+  }
+}
+
+/// 可折叠设置分组卡片：标题 + 一行状态摘要，展开后显示具体设置项。
+class _SettingsGroup extends StatelessWidget {
+  const _SettingsGroup({
+    required this.title,
+    required this.icon,
+    required this.color,
+    required this.summary,
+    required this.children,
+    this.initiallyExpanded = false,
+  });
+
+  final String title;
+  final IconData icon;
+  final Color color;
+  final String summary;
+  final List<Widget> children;
+  final bool initiallyExpanded;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Theme(
+        // 去掉 ExpansionTile 展开时的默认分隔线，视觉更干净
+        data: theme.copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          initiallyExpanded: initiallyExpanded,
+          leading: CircleAvatar(
+            radius: 16,
+            backgroundColor: color.withValues(alpha: 0.14),
+            child: Icon(icon, size: 18, color: color),
+          ),
+          title: Text(title,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+          subtitle: Text(
+            summary,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+          childrenPadding: EdgeInsets.zero,
+          children: children,
+        ),
+      ),
+    );
   }
 }

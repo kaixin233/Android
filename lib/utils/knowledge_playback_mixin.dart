@@ -71,6 +71,12 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
   /// 页面按视口顶部所在段落提供，实现**段落级**的"从当前位置朗读"。
   int get playbackStartParagraphIndex => -1;
 
+  /// 由页面提供的"**从当前可见位置重新开始朗读**"动作（先彻底停止在途朗读再起播）。
+  ///
+  /// 与 [toggleKnowledgePlayPause] 的区别：后者在播放中只是"暂停"，而本动作无论
+  /// 当前状态如何都会**跳到当前可见位置重新朗读**——这才是用户期待的语义。
+  Future<void> Function()? get playFromCurrentPositionHandler => null;
+
   /// 播放/暂停切换：
   /// - 播放中 → 暂停；
   /// - 暂停中且位置未变 → 继续；位置已变 → 从新位置重新开始；
@@ -130,13 +136,39 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 播放 / 暂停 / 继续
+            // 播放（空闲时从"当前可见位置"开始）/ 暂停 / 继续
             _circleButton(
               icon: reader.isPlaying
                   ? Icons.pause_rounded
                   : Icons.play_arrow_rounded,
               bg: reader.isPlaying ? Colors.orange : color,
-              onTap: toggleKnowledgePlayPause,
+              onTap: () {
+                if (reader.isPlaying) {
+                  reader.pause();
+                  return;
+                }
+                if (reader.isPaused) {
+                  // 暂停中：若用户已滚动到别处，则从新位置重开；否则继续
+                  if (reader.isSameRange(playbackStartSectionIndex, null,
+                      playbackStartParagraphIndex)) {
+                    reader.resume();
+                  } else {
+                    final h = playFromCurrentPositionHandler;
+                    if (h != null) {
+                      h();
+                    } else {
+                      toggleKnowledgePlayPause();
+                    }
+                  }
+                  return;
+                }
+                final h = playFromCurrentPositionHandler;
+                if (h != null) {
+                  h();
+                } else {
+                  toggleKnowledgePlayPause();
+                }
+              },
             ),
             const SizedBox(width: 10),
             ConstrainedBox(
