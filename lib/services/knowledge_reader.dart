@@ -69,6 +69,22 @@ class KnowledgeReaderController extends ChangeNotifier {
   /// 当前句在该小节中的序号 / 该小节总句数
   int get currentUnitInSection => _unitIndexInSection(_cursor, _sectionOf(_cursor));
 
+  /// 当前句在**其所属段落内**的序号（0 基）；标题语音（段落 -1）或空闲返回 -1。
+  /// 用于"逐字高亮"精确定位到段落中的第几句。
+  int get currentSentenceIndexInParagraph {
+    if (_queue.isEmpty || _cursor >= _queue.length) return -1;
+    final target = _queue[_cursor];
+    if (target.unit.paragraphIndex < 0) return -1;
+    var n = 0;
+    for (var i = 0; i < _cursor; i++) {
+      final e = _queue[i];
+      if (e.sectionIndex != target.sectionIndex) continue;
+      if (e.unit.paragraphIndex != target.unit.paragraphIndex) continue;
+      n++;
+    }
+    return n;
+  }
+
   int get currentSectionUnitCount {
     final sec = _sectionOf(_cursor);
     return sec < 0 ? 0 : _unitCountInSection(sec);

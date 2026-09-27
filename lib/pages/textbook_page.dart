@@ -14,7 +14,6 @@ import '../services/question_service.dart';
 import '../services/storage_service.dart';
 import '../services/ai_question_service.dart';
 import '../services/knowledge_service.dart';
-import '../utils/viewport_picker.dart';
 import '../services/annotation_store.dart';
 import '../utils/ai_assistant_launcher.dart';
 import '../utils/knowledge_playback_mixin.dart';
@@ -518,9 +517,6 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
   final GlobalKey _knowledgeListKey = GlobalKey();
   final List<GlobalKey> _sectionKeys = [];
 
-  /// 当前朗读段落所用的 GlobalKey（跟随滚动用，同一时刻仅一个段落持有）
-  final GlobalKey _activeParagraphKey = GlobalKey();
-
   /// 用于从 AppBar 打开目录抽屉
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
@@ -636,24 +632,22 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
   /// 朗读位置变化 → 让"当前所读内容"保持可见（仅在离开视口时滚动）
   @override
   void onPlaybackPositionChanged() {
-    if (!isActiveKnowledge) return;
-    // 用户刚刚手动滚动过 → 不要"跟随"，否则会把视图拉回正在朗读的旧位置，
-    // 让用户以为"从当前位置朗读"失效
+    if (!isActiveKnowledge) {
+      _clearHighlight();
+      return;
+    }
+    // 1) 逐字高亮同步
+    _syncHighlight();
+    // 2) 跟随滚动：用户刚刚手动滚动过则不要"跟随"，避免把视图拉回旧位置
     if (_userScrollingRecently) return;
-    final ctx = _activeParagraphKey.currentContext;
+    final key = _paragraphKeys[_pKey(playingSectionIndex, playingParagraphIndex)];
+    final ctx = key?.currentContext;
     if (ctx != null) {
       _ensureVisibleIfNeeded(ctx);
       return;
     }
     _scrollToSection(playingSectionIndex, alignment: 0.08);
   }
-
-  /// 播放起始位置 = 当前可见的**段落**（"从当前位置朗读"）
-  @override
-  int get playbackStartSectionIndex => _currentPosition().section;
-
-  @override
-  int get playbackStartParagraphIndex => _currentPosition().paragraph;
 
   /// 段落 GlobalKey 的键 = 小节下标 * 步长 + 段落下标
   static const int _paragraphKeyStride = 100000;
@@ -666,41 +660,107 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
       _paragraphKeys.putIfAbsent(
           _pKey(sectionIndex, paragraphIndex), () => GlobalKey());
 
-  /// 视口顶部所在的（小节, 段落），用于"从当前位置朗读"与目录跳转。
-  ({int section, int paragraph}) _currentPosition() {
-    final listBox = _knowledgeListKey.currentContext?.findRenderObject();
-    if (listBox is! RenderBox) return (section: 0, paragraph: -1);
-    final vTop = listBox.localToGlobal(Offset.zero).dy;
+  // ===== 逐字朗读高亮（行内加底色，不改版式） =====
 
-    // 1) 小节级定位
-    final sectionRects = <Rect>[];
-    for (var i = 0; i < playbackSections.length; i++) {
-      final ro = _sectionKeys[i].currentContext?.findRenderObject();
-      if (ro is! RenderBox) {
-        sectionRects.add(Rect.zero);
-        continue;
-      }
-      final top = ro.localToGlobal(Offset.zero).dy;
-      sectionRects.add(Rect.fromLTWH(0, top, ro.size.width, ro.size.height));
-    }
-    var sec = pickIndexAtOffset(sectionRects, vTop);
-    if (sec < 0 || sec >= playbackSections.length) sec = 0;
+  /// 当前朗读句在段落内的字符区间（左闭右开）
+  int? _hlStart;
+  int? _hlEnd;
 
-    // 2) 段落级定位（精确到"我正看到的那一段"）
-    final count = playbackSections[sec].paragraphs.length;
-    final paraRects = <Rect>[];
-    for (var p = 0; p < count; p++) {
-      final ro =
-          _paragraphKeys[_pKey(sec, p)]?.currentContext?.findRenderObject();
-      if (ro is! RenderBox) {
-        paraRects.add(Rect.zero);
-        continue;
-      }
-      final top = ro.localToGlobal(Offset.zero).dy;
-      paraRects.add(Rect.fromLTWH(0, top, ro.size.width, ro.size.height));
+  /// 逐字推进的游标（从 _hlStart 递增到 _hlEnd）
+  int _hlCursor = 0;
+
+  /// 正在高亮的句标识，避免同一句重复启动计时器
+  String? _hlSentenceKey;
+
+  Timer? _hlTicker;
+
+  /// 当前高亮的字符区间（供卡片渲染）
+  int get highlightStart => _hlStart ?? 0;
+  int get highlightEnd => _hlStart == null ? 0 : _hlCursor;
+
+  void _clearHighlight() {
+    _hlTicker?.cancel();
+    _hlTicker = null;
+    _hlSentenceKey = null;
+    if (_hlStart != null || _hlEnd != null) {
+      setState(() {
+        _hlStart = null;
+        _hlEnd = null;
+        _hlCursor = 0;
+      });
     }
-    final para = pickIndexAtOffset(paraRects, vTop);
-    return (section: sec, paragraph: para);
+  }
+
+  /// 根据朗读位置计算当前句的字符区间，并启动"逐字"推进
+  void _syncHighlight() {
+    final si = playingSectionIndex;
+    final pi = playingParagraphIndex;
+    if (si < 0 || pi < 0 || si >= playbackSections.length) {
+      _clearHighlight();
+      return;
+    }
+    final p = playbackSections[si].paragraphs[pi];
+    final sents = splitSentences(p.text);
+    final n = reader.currentSentenceIndexInParagraph;
+    if (n < 0 || n >= sents.length) {
+      _clearHighlight();
+      return;
+    }
+    final key = '$si:$pi:$n';
+    if (_hlSentenceKey == key) return; // 同一句，计时器已在推进
+
+    // 精确定位该句在段落文本中的字符区间
+    var off = 0;
+    var start = 0;
+    var end = 0;
+    for (var i = 0; i < sents.length; i++) {
+      final idx = p.text.indexOf(sents[i], off);
+      final s = idx >= 0 ? idx : off;
+      final e = s + sents[i].length;
+      if (i == n) {
+        start = s;
+        end = e;
+        break;
+      }
+      off = e;
+    }
+    _hlSentenceKey = key;
+    _startCharTicker(start, end);
+  }
+
+  /// 逐字推进高亮：按句长与语速估算时长，每 60ms 前进若干字符。
+  /// 仅改变背景色范围，**不改变任何度量**，因此页面不会变形。
+  void _startCharTicker(int start, int end) {
+    _hlTicker?.cancel();
+    final len = end - start;
+    setState(() {
+      _hlStart = start;
+      _hlEnd = end;
+      _hlCursor = start;
+    });
+    if (len <= 0) return;
+
+    double rate = 1.0;
+    try {
+      rate = context.read<AppProvider>().ttsSpeechRate;
+    } catch (_) {}
+    if (rate <= 0.05) rate = 0.05;
+
+    // 中文约 170ms/字（语速越快越短），上下限保护
+    final totalMs = (len * 170 / rate).clamp(500.0, 30000.0);
+    const stepMs = 60.0;
+    final steps = (totalMs / stepMs).ceil();
+    final step = (len / steps).ceil().clamp(1, len);
+
+    _hlTicker = Timer.periodic(const Duration(milliseconds: 60), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      final next = _hlCursor + step;
+      setState(() => _hlCursor = next >= end ? end : next);
+      if (_hlCursor >= end) t.cancel();
+    });
   }
 
   /// 滚动到指定小节内的段落（目录跳转用）
@@ -799,16 +859,6 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
             const Duration(milliseconds: 2000);
   }
 
-  @override
-  Future<void> Function()? get playFromCurrentPositionHandler =>
-      _playFromCurrentPosition;
-
-  /// 从"当前可见位置"重新开始朗读：先彻底停止在途朗读，再从该处起播。
-  Future<void> _playFromCurrentPosition() async {
-    final pos = _currentPosition();
-    await _playFromPosition(pos.section, pos.paragraph);
-  }
-
   /// 从指定小节/段落开始连续朗读
   Future<void> _playFromPosition(int section, int paragraph) async {
     if (playbackSections.isEmpty) return;
@@ -843,7 +893,7 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
       onPick: _openFromToc,
       onJump: _jumpToParagraph,
       deepBySubsection: _buildDeepToc(),
-      onPlayFromHere: _playFromCurrentPosition,
+      onPlayFromHere: playAllFromStart,
       onPlayFromStart: playAllFromStart,
       pickStartMode: _pickStartMode,
       onTogglePickStart: () {
@@ -1076,11 +1126,13 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
                   isPlaying: isPlayingKnowledge && playingSectionIndex == index,
                   isSectionActive:
                       isActiveKnowledge && playingSectionIndex == index,
-                  activeParagraphKey:
-                      isActiveKnowledge && playingSectionIndex == index
-                          ? _activeParagraphKey
-                          : null,
                   paragraphKeyOf: (pi) => _paragraphKey(index, pi),
+                  highlightParagraphIndex:
+                      isActiveKnowledge && playingSectionIndex == index
+                          ? playingParagraphIndex
+                          : -1,
+                  highlightStart: highlightStart,
+                  highlightEnd: highlightEnd,
                   showPlayButton: _pickStartMode,
                   onPlayFromParagraph: (pi) => _playFromPosition(index, pi),
                   playingParagraphIndex:
@@ -1582,8 +1634,10 @@ class _KnowledgeSectionCard extends StatelessWidget {
     required this.chapterNumber,
     this.isPlaying = false,
     this.isSectionActive = false,
-    this.activeParagraphKey,
     this.paragraphKeyOf,
+    this.highlightParagraphIndex = -1,
+    this.highlightStart = 0,
+    this.highlightEnd = 0,
     this.showPlayButton = false,
     this.onPlayFromParagraph,
     this.playingParagraphIndex = -1,
@@ -1605,8 +1659,12 @@ class _KnowledgeSectionCard extends StatelessWidget {
   /// 本节是否为"当前朗读小节"（含暂停态，用于保持高亮）
   final bool isSectionActive;
 
-  /// 当前朗读段落所用的 GlobalKey（用于精确"跟随滚动"）
-  final GlobalKey? activeParagraphKey;
+  /// 正在朗读的段落下标（-1 表示无）：该段加淡色底 + 句内**逐字高亮**
+  final int highlightParagraphIndex;
+
+  /// 段落内字符高亮区间（左闭右开），由页面按朗读进度推进
+  final int highlightStart;
+  final int highlightEnd;
 
   /// 为每个段落提供 GlobalKey（段落级"从当前位置朗读"与目录跳转定位用）
   final GlobalKey? Function(int paragraphIndex)? paragraphKeyOf;
@@ -1840,77 +1898,34 @@ class _KnowledgeSectionCard extends StatelessWidget {
   }
 
   /// 段落基础文字样式（按标题/子标题/加粗区分）
-  TextStyle _paragraphTextStyle(KnowledgeParagraph p, bool isDark) {
-    if (p.isHeading) {
-      return TextStyle(
-        fontSize: 16,
-        fontWeight: FontWeight.bold,
-        color: isDark ? Colors.blue.shade200 : color,
-      );
+  /// 行内逐字高亮：把 [text] 中第 [highlightStart, highlightEnd) 个字符加底色。
+  ///
+  /// 只改背景色，**不改变字体度量与换行**，因此不会像"拆句成行"那样挤压页面。
+  Widget _inlineHighlighted(
+    String text,
+    int paragraphIndex,
+    TextStyle style,
+    bool isDark,
+  ) {
+    if (paragraphIndex != highlightParagraphIndex ||
+        highlightEnd <= highlightStart ||
+        text.isEmpty) {
+      return Text(text, style: style);
     }
-    if (p.isSubheading) {
-      return TextStyle(
-        fontSize: 14,
-        fontWeight: FontWeight.w600,
-        color: isDark ? Colors.teal.shade200 : color.withValues(alpha: 0.8),
-      );
-    }
-    if (p.isBold) {
-      return TextStyle(
-        fontSize: 14,
-        fontWeight: FontWeight.w600,
-        color: isDark ? Colors.orange.shade200 : Colors.red.shade700,
-      );
-    }
-    return TextStyle(
-      fontSize: 14,
-      height: 1.5,
-      color: isDark ? Colors.white70 : Colors.black87,
+    final s = highlightStart.clamp(0, text.length);
+    final e = highlightEnd.clamp(0, text.length);
+    if (s >= e) return Text(text, style: style);
+    final hl = style.copyWith(
+      backgroundColor: isDark
+          ? const Color(0xFF2E7D6B).withValues(alpha: 0.75)
+          : const Color(0xFFB2F5E4),
     );
-  }
-
-  /// 正在朗读的段落：整段浅底 + 当前句强高亮，实现"一句话一段一段显示"
-  Widget _buildActiveParagraph(KnowledgeParagraph p, bool isDark) {
-    final sentences = splitSentences(p.text);
-    final baseStyle = _paragraphTextStyle(p, isDark);
-    return Container(
-      key: activeParagraphKey,
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: isDark ? 0.16 : 0.08),
-        borderRadius: BorderRadius.circular(10),
-        border: Border(left: BorderSide(color: color, width: 3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: (sentences.isEmpty ? [p.text] : sentences).map((s) {
-          final isActive = activeSentence != null && s == activeSentence;
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: Container(
-              padding: isActive
-                  ? const EdgeInsets.symmetric(horizontal: 6, vertical: 3)
-                  : EdgeInsets.zero,
-              decoration: isActive
-                  ? BoxDecoration(
-                      color: color.withValues(alpha: isDark ? 0.38 : 0.22),
-                      borderRadius: BorderRadius.circular(6),
-                    )
-                  : null,
-              child: Text(
-                s,
-                style: baseStyle.copyWith(
-                  fontWeight: isActive ? FontWeight.bold : null,
-                  color: isActive
-                      ? (isDark ? Colors.white : color)
-                      : baseStyle.color,
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
+    return Text.rich(
+      TextSpan(children: [
+        if (s > 0) TextSpan(text: text.substring(0, s), style: style),
+        TextSpan(text: text.substring(s, e), style: hl),
+        if (e < text.length) TextSpan(text: text.substring(e), style: style),
+      ]),
     );
   }
 
@@ -2010,67 +2025,85 @@ class _KnowledgeSectionCard extends StatelessWidget {
             ),
           );
         }
-        // 当前正在朗读的段落 → 逐句高亮（"一句话一段一段显示"）
-        if (isPlaying && playingParagraphIndex == i) {
-          return _buildActiveParagraph(p, isDark);
-        }
+        final isActive = i == highlightParagraphIndex;
+        Widget body;
         if (p.isHeading) {
-          return Padding(
+          body = Padding(
             padding: const EdgeInsets.only(top: 12, bottom: 6),
-            child: Text(
+            child: _inlineHighlighted(
               p.text,
-              style: TextStyle(
+              i,
+              TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
                 color: isDark ? Colors.blue.shade200 : color,
               ),
+              isDark,
             ),
           );
-        }
-        if (p.isSubheading) {
-          return Padding(
+        } else if (p.isSubheading) {
+          body = Padding(
             padding: const EdgeInsets.only(top: 10, bottom: 4),
-            child: Text(
+            child: _inlineHighlighted(
               p.text,
-              style: TextStyle(
+              i,
+              TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: isDark ? Colors.teal.shade200 : color.withValues(alpha: 0.8),
+                color:
+                    isDark ? Colors.teal.shade200 : color.withValues(alpha: 0.8),
               ),
+              isDark,
             ),
           );
-        }
-        if (p.isBold) {
-          return Padding(
+        } else if (p.isBold) {
+          body = Padding(
             padding: const EdgeInsets.only(top: 6, bottom: 2),
-            child: Text(
+            child: _inlineHighlighted(
               p.text,
-              style: TextStyle(
+              i,
+              TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: isDark ? Colors.orange.shade200 : Colors.red.shade700,
+                color:
+                    isDark ? Colors.orange.shade200 : Colors.red.shade700,
               ),
+              isDark,
+            ),
+          );
+        } else {
+          body = Padding(
+            padding: const EdgeInsets.only(top: 2, bottom: 4),
+            child: AnnotatedText(
+              paragraph: p,
+              subject: subject,
+              chapterNumber: chapterNumber,
+              section: section,
+              userAnnotations: AnnotationStore.annotationsForSection(
+                subject.name,
+                chapterNumber,
+                section.number,
+              ),
+              color: color,
+              // 行内逐字高亮：只加背景色，不改变字体度量与换行
+              highlightStart: isActive ? highlightStart : null,
+              highlightEnd: isActive ? highlightEnd : null,
+              onAskAi: onAskAi == null
+                  ? null
+                  : (text) => onAskAi!(text),
+              onAnnotationsChanged: onAnnotationsChanged,
             ),
           );
         }
-        return Padding(
-          padding: const EdgeInsets.only(top: 2, bottom: 4),
-          child: AnnotatedText(
-            paragraph: p,
-            subject: subject,
-            chapterNumber: chapterNumber,
-            section: section,
-            userAnnotations: AnnotationStore.annotationsForSection(
-              subject.name,
-              chapterNumber,
-              section.number,
-            ),
-            color: color,
-            onAskAi: onAskAi == null
-                ? null
-                : (text) => onAskAi!(text),
-            onAnnotationsChanged: onAnnotationsChanged,
+
+        // 正在朗读的段落：加淡色底帮助定位（仅背景，不改变尺寸与换行）
+        if (!isActive) return body;
+        return Container(
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: isDark ? 0.10 : 0.05),
+            borderRadius: BorderRadius.circular(8),
           ),
+          child: body,
         );
   }
 }
@@ -2139,9 +2172,6 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
   // 「从当前位置朗读」与「跟随朗读」：用于定位当前小节/段落
   final GlobalKey _knowledgeListKey = GlobalKey();
   final List<GlobalKey> _sectionKeys = [];
-
-  /// 当前朗读段落所用的 GlobalKey（跟随滚动用，同一时刻仅一个段落持有）
-  final GlobalKey _activeParagraphKey = GlobalKey();
 
   /// 用于从 AppBar 打开目录抽屉
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -2248,24 +2278,22 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
   /// 朗读位置变化 → 让"当前所读内容"保持可见（仅在离开视口时滚动）
   @override
   void onPlaybackPositionChanged() {
-    if (!isActiveKnowledge) return;
-    // 用户刚刚手动滚动过 → 不要"跟随"，否则会把视图拉回正在朗读的旧位置，
-    // 让用户以为"从当前位置朗读"失效
+    if (!isActiveKnowledge) {
+      _clearHighlight();
+      return;
+    }
+    // 1) 逐字高亮同步
+    _syncHighlight();
+    // 2) 跟随滚动：用户刚刚手动滚动过则不要"跟随"，避免把视图拉回旧位置
     if (_userScrollingRecently) return;
-    final ctx = _activeParagraphKey.currentContext;
+    final key = _paragraphKeys[_pKey(playingSectionIndex, playingParagraphIndex)];
+    final ctx = key?.currentContext;
     if (ctx != null) {
       _ensureVisibleIfNeeded(ctx);
       return;
     }
     _scrollToSection(playingSectionIndex, alignment: 0.08);
   }
-
-  /// 播放起始位置 = 当前可见的**段落**（"从当前位置朗读"）
-  @override
-  int get playbackStartSectionIndex => _currentPosition().section;
-
-  @override
-  int get playbackStartParagraphIndex => _currentPosition().paragraph;
 
   /// 段落 GlobalKey 的键 = 小节下标 * 步长 + 段落下标
   static const int _paragraphKeyStride = 100000;
@@ -2278,41 +2306,107 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
       _paragraphKeys.putIfAbsent(
           _pKey(sectionIndex, paragraphIndex), () => GlobalKey());
 
-  /// 视口顶部所在的（小节, 段落），用于"从当前位置朗读"与目录跳转。
-  ({int section, int paragraph}) _currentPosition() {
-    final listBox = _knowledgeListKey.currentContext?.findRenderObject();
-    if (listBox is! RenderBox) return (section: 0, paragraph: -1);
-    final vTop = listBox.localToGlobal(Offset.zero).dy;
+  // ===== 逐字朗读高亮（行内加底色，不改版式） =====
 
-    // 1) 小节级定位
-    final sectionRects = <Rect>[];
-    for (var i = 0; i < playbackSections.length; i++) {
-      final ro = _sectionKeys[i].currentContext?.findRenderObject();
-      if (ro is! RenderBox) {
-        sectionRects.add(Rect.zero);
-        continue;
-      }
-      final top = ro.localToGlobal(Offset.zero).dy;
-      sectionRects.add(Rect.fromLTWH(0, top, ro.size.width, ro.size.height));
-    }
-    var sec = pickIndexAtOffset(sectionRects, vTop);
-    if (sec < 0 || sec >= playbackSections.length) sec = 0;
+  /// 当前朗读句在段落内的字符区间（左闭右开）
+  int? _hlStart;
+  int? _hlEnd;
 
-    // 2) 段落级定位（精确到"我正看到的那一段"）
-    final count = playbackSections[sec].paragraphs.length;
-    final paraRects = <Rect>[];
-    for (var p = 0; p < count; p++) {
-      final ro =
-          _paragraphKeys[_pKey(sec, p)]?.currentContext?.findRenderObject();
-      if (ro is! RenderBox) {
-        paraRects.add(Rect.zero);
-        continue;
-      }
-      final top = ro.localToGlobal(Offset.zero).dy;
-      paraRects.add(Rect.fromLTWH(0, top, ro.size.width, ro.size.height));
+  /// 逐字推进的游标（从 _hlStart 递增到 _hlEnd）
+  int _hlCursor = 0;
+
+  /// 正在高亮的句标识，避免同一句重复启动计时器
+  String? _hlSentenceKey;
+
+  Timer? _hlTicker;
+
+  /// 当前高亮的字符区间（供卡片渲染）
+  int get highlightStart => _hlStart ?? 0;
+  int get highlightEnd => _hlStart == null ? 0 : _hlCursor;
+
+  void _clearHighlight() {
+    _hlTicker?.cancel();
+    _hlTicker = null;
+    _hlSentenceKey = null;
+    if (_hlStart != null || _hlEnd != null) {
+      setState(() {
+        _hlStart = null;
+        _hlEnd = null;
+        _hlCursor = 0;
+      });
     }
-    final para = pickIndexAtOffset(paraRects, vTop);
-    return (section: sec, paragraph: para);
+  }
+
+  /// 根据朗读位置计算当前句的字符区间，并启动"逐字"推进
+  void _syncHighlight() {
+    final si = playingSectionIndex;
+    final pi = playingParagraphIndex;
+    if (si < 0 || pi < 0 || si >= playbackSections.length) {
+      _clearHighlight();
+      return;
+    }
+    final p = playbackSections[si].paragraphs[pi];
+    final sents = splitSentences(p.text);
+    final n = reader.currentSentenceIndexInParagraph;
+    if (n < 0 || n >= sents.length) {
+      _clearHighlight();
+      return;
+    }
+    final key = '$si:$pi:$n';
+    if (_hlSentenceKey == key) return; // 同一句，计时器已在推进
+
+    // 精确定位该句在段落文本中的字符区间
+    var off = 0;
+    var start = 0;
+    var end = 0;
+    for (var i = 0; i < sents.length; i++) {
+      final idx = p.text.indexOf(sents[i], off);
+      final s = idx >= 0 ? idx : off;
+      final e = s + sents[i].length;
+      if (i == n) {
+        start = s;
+        end = e;
+        break;
+      }
+      off = e;
+    }
+    _hlSentenceKey = key;
+    _startCharTicker(start, end);
+  }
+
+  /// 逐字推进高亮：按句长与语速估算时长，每 60ms 前进若干字符。
+  /// 仅改变背景色范围，**不改变任何度量**，因此页面不会变形。
+  void _startCharTicker(int start, int end) {
+    _hlTicker?.cancel();
+    final len = end - start;
+    setState(() {
+      _hlStart = start;
+      _hlEnd = end;
+      _hlCursor = start;
+    });
+    if (len <= 0) return;
+
+    double rate = 1.0;
+    try {
+      rate = context.read<AppProvider>().ttsSpeechRate;
+    } catch (_) {}
+    if (rate <= 0.05) rate = 0.05;
+
+    // 中文约 170ms/字（语速越快越短），上下限保护
+    final totalMs = (len * 170 / rate).clamp(500.0, 30000.0);
+    const stepMs = 60.0;
+    final steps = (totalMs / stepMs).ceil();
+    final step = (len / steps).ceil().clamp(1, len);
+
+    _hlTicker = Timer.periodic(const Duration(milliseconds: 60), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      final next = _hlCursor + step;
+      setState(() => _hlCursor = next >= end ? end : next);
+      if (_hlCursor >= end) t.cancel();
+    });
   }
 
   /// 滚动到指定小节内的段落（目录跳转用）
@@ -2411,16 +2505,6 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
             const Duration(milliseconds: 2000);
   }
 
-  @override
-  Future<void> Function()? get playFromCurrentPositionHandler =>
-      _playFromCurrentPosition;
-
-  /// 从"当前可见位置"重新开始朗读：先彻底停止在途朗读，再从该处起播。
-  Future<void> _playFromCurrentPosition() async {
-    final pos = _currentPosition();
-    await _playFromPosition(pos.section, pos.paragraph);
-  }
-
   /// 从指定小节/段落开始连续朗读
   Future<void> _playFromPosition(int section, int paragraph) async {
     if (playbackSections.isEmpty) return;
@@ -2455,7 +2539,7 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
       onPick: _openFromToc,
       onJump: _jumpToParagraph,
       deepBySubsection: _buildDeepToc(),
-      onPlayFromHere: _playFromCurrentPosition,
+      onPlayFromHere: playAllFromStart,
       onPlayFromStart: playAllFromStart,
       pickStartMode: _pickStartMode,
       onTogglePickStart: () {
@@ -2580,11 +2664,13 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
                                   playingSectionIndex == index,
                               isSectionActive: isActiveKnowledge &&
                                   playingSectionIndex == index,
-                              activeParagraphKey: isActiveKnowledge &&
-                                      playingSectionIndex == index
-                                  ? _activeParagraphKey
-                                  : null,
                               paragraphKeyOf: (pi) => _paragraphKey(index, pi),
+                              highlightParagraphIndex: isActiveKnowledge &&
+                                      playingSectionIndex == index
+                                  ? playingParagraphIndex
+                                  : -1,
+                              highlightStart: highlightStart,
+                              highlightEnd: highlightEnd,
                               showPlayButton: _pickStartMode,
                               onPlayFromParagraph: (pi) =>
                                   _playFromPosition(index, pi),

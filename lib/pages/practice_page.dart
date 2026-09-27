@@ -9,6 +9,7 @@ import '../models/question.dart';
 import '../models/history_item.dart';
 import '../models/answer_outcome.dart';
 import '../models/practice_progress.dart';
+import '../models/question_stat.dart';
 import '../providers/app_provider.dart';
 import '../services/answer_evaluator.dart';
 import '../services/question_service.dart';
@@ -115,6 +116,9 @@ class _PracticePageState extends State<PracticePage> {
   Timer? _autoNextTimer;
   final Set<String> _wrongKeys = {};
   final Map<String, _AnswerRecord> _questionResults = {};
+
+  /// 单题作答统计（做过次数 / 正确率 / 最易错选）
+  final Map<String, QuestionStat> _qStats = {};
   bool _isSpeaking = false;
   bool _isSpeakingExplanation = false;
 
@@ -190,6 +194,8 @@ class _PracticePageState extends State<PracticePage> {
 
   Future<void> _loadQuestions() async {
     final app = context.read<AppProvider>();
+    // 载入单题统计（做过次数 / 正确率 / 最易错选）
+    _qStats.addAll(await StorageService.loadQuestionStats());
     final favorites = widget.config.onlyFavorites
         ? await StorageService.loadFavorites()
         : null;
@@ -449,6 +455,27 @@ class _PracticePageState extends State<PracticePage> {
           outcome.isFullCorrect && app.ttsSkipExplanationOnCorrect;
       _speakExplanation(outcome, skipExplanation: skipExplanation);
     }
+
+    // 记录单题统计：做过次数 / 正确率 / 往期错选分布
+    final wrongPicks = <int>[];
+    if (!outcome.isFullCorrect) {
+      final q = _questions[_currentIndex];
+      if (q.type == QuestionType.singleChoice && _selectedIndex != null) {
+        if (_selectedIndex != q.answerIndex) wrongPicks.add(_selectedIndex!);
+      } else if (q.type == QuestionType.multipleChoice) {
+        final correctIdx = q.answerIndices.toSet();
+        wrongPicks.addAll(_selectedIndices.where((i) => !correctIdx.contains(i)));
+      } else if (q.type == QuestionType.trueFalse && _selectedBool != null) {
+        if (_selectedBool != q.isCorrect) wrongPicks.add(_selectedBool! ? 0 : 1);
+      }
+    }
+    unawaited(StorageService.recordQuestionStat(
+      uniqueKey,
+      correct: correct,
+      wrongOptions: wrongPicks,
+    ).then((s) {
+      if (mounted) setState(() => _qStats[uniqueKey] = s);
+    }));
 
     // 保存未完成进度（用于首页"继续练习"）
     _saveProgressIfNeeded();
@@ -1346,6 +1373,7 @@ class _PracticePageState extends State<PracticePage> {
                       style: theme.textTheme.bodySmall?.copyWith(color: Colors.green)),
                 ],
               ),
+              _buildQuestionStatRow(question, theme),
               const SizedBox(height: 20),
               Expanded(
                 child: SingleChildScrollView(
@@ -1483,6 +1511,15 @@ class _PracticePageState extends State<PracticePage> {
                       ),
                       const SizedBox(width: 10),
                       Expanded(child: Text(option)),
+                      if (_submitted && _wrongPickCount(question, index) > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: Text(
+                            '错选 ${_wrongPickCount(question, index)} 次',
+                            style: TextStyle(
+                                fontSize: 11, color: Colors.grey.shade600),
+                          ),
+                        ),
                       if (_submitted && isCorrectAnswer)
                         const Icon(Icons.check_circle, color: Colors.green),
                       if (_submitted && isSelected && !isCorrectAnswer)
@@ -1670,6 +1707,67 @@ class _PracticePageState extends State<PracticePage> {
               padding: EdgeInsets.only(left: 8),
               child: Icon(Icons.cancel, color: Colors.red, size: 18),
             ),
+        ],
+      ),
+    );
+  }
+
+  /// 某选项"往期被错选"的次数
+  int _wrongPickCount(Question question, int optionIndex) =>
+      _qStats[question.uniqueKey]?.wrongCountOf(optionIndex) ?? 0;
+
+  /// 每题参考数据：做过多少次 / 正确率 / 往期最易错选
+  Widget _buildQuestionStatRow(Question question, ThemeData theme) {
+    final stat = _qStats[question.uniqueKey];
+    if (stat == null || stat.attempts == 0) return const SizedBox.shrink();
+
+    final chips = <Widget>[
+      _statChip(Icons.repeat_rounded, '做过 ${stat.attempts} 次',
+          Colors.blueGrey, theme),
+      _statChip(
+        Icons.percent_rounded,
+        '正确率 ${(stat.accuracy * 100).round()}%',
+        stat.accuracy >= 0.6 ? Colors.green : Colors.orange,
+        theme,
+      ),
+    ];
+    final wrongIdx = stat.mostWrongOption;
+    if (wrongIdx != null && stat.mostWrongCount > 0) {
+      final label = question.type == QuestionType.trueFalse
+          ? (wrongIdx == 0 ? '正确' : '错误')
+          : (wrongIdx < question.options.length
+              ? String.fromCharCode(65 + wrongIdx)
+              : '#${wrongIdx + 1}');
+      chips.add(_statChip(
+        Icons.report_problem_rounded,
+        '最易错选 $label（${stat.mostWrongCount} 次）',
+        Colors.redAccent,
+        theme,
+      ));
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Wrap(spacing: 8, runSpacing: 6, children: chips),
+    );
+  }
+
+  Widget _statChip(IconData icon, String text, Color color, ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(
+                fontSize: 11, color: color, fontWeight: FontWeight.w600),
+          ),
         ],
       ),
     );

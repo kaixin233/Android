@@ -25,6 +25,9 @@ class AnnotatedText extends StatelessWidget {
     this.color = Colors.blue,
     this.onAskAi,
     this.onAnnotationsChanged,
+    this.highlightStart,
+    this.highlightEnd,
+    this.highlightColor,
   });
 
   final KnowledgeParagraph paragraph;
@@ -42,6 +45,11 @@ class AnnotatedText extends StatelessWidget {
 
   /// 用户批注增删后回调（用于父级刷新相关状态）
   final VoidCallback? onAnnotationsChanged;
+
+  /// 朗读高亮区间（段落内字符偏移，左闭右开）。仅加背景色，**不改变排版**。
+  final int? highlightStart;
+  final int? highlightEnd;
+  final Color? highlightColor;
 
   /// 计算当前段落"合并后的片段"：把预置注释（来自 [KnowledgeParagraph.segments]）
   /// 与用户批注（运行时选中添加）都按其在正文中的实际位置高亮，而非追加到段尾。
@@ -347,9 +355,14 @@ class AnnotatedText extends StatelessWidget {
     );
 
     final spans = <InlineSpan>[];
+    // 逐字朗读高亮需要按"段落内字符偏移"切片，这里维护累计偏移
+    var charOffset = 0;
     for (final seg in segs) {
+      final segStart = charOffset;
+      charOffset += seg.text.length;
       if (seg.annotation == null) {
-        spans.add(TextSpan(text: seg.text, style: baseStyle));
+        spans.addAll(
+            _textSpans(seg.text, segStart, baseStyle, isDark));
         continue;
       }
       final accent = seg.kind == AnnotationKind.preset
@@ -395,6 +408,36 @@ class AnnotatedText extends StatelessWidget {
       TextSpan(style: baseStyle, children: spans),
       textAlign: TextAlign.start,
     );
+  }
+
+  /// 把一段纯文本按朗读高亮区间 [highlightStart, highlightEnd) 切成至多 3 段，
+  /// 高亮部分仅设置**背景色** —— 不改变任何字体度量，因此**不会改变排版/换行**。
+  List<InlineSpan> _textSpans(
+    String text,
+    int segStart,
+    TextStyle baseStyle,
+    bool isDark,
+  ) {
+    final hs = highlightStart;
+    final he = highlightEnd;
+    if (hs == null || he == null || he <= hs || text.isEmpty) {
+      return [TextSpan(text: text, style: baseStyle)];
+    }
+    final s = (hs - segStart).clamp(0, text.length);
+    final e = (he - segStart).clamp(0, text.length);
+    if (s >= e) return [TextSpan(text: text, style: baseStyle)];
+
+    final hlStyle = baseStyle.copyWith(
+      backgroundColor: highlightColor ??
+          (isDark
+              ? const Color(0xFF2E7D6B).withValues(alpha: 0.75)
+              : const Color(0xFFB2F5E4)),
+    );
+    return [
+      if (s > 0) TextSpan(text: text.substring(0, s), style: baseStyle),
+      TextSpan(text: text.substring(s, e), style: hlStyle),
+      if (e < text.length) TextSpan(text: text.substring(e), style: baseStyle),
+    ];
   }
 }
 

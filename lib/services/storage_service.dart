@@ -8,6 +8,7 @@ import '../models/study_plan.dart';
 import '../models/note.dart';
 import '../models/knowledge_point.dart';
 import '../models/practice_progress.dart';
+import '../models/question_stat.dart';
 import '../models/review_item.dart';
 import '../services/ai_qa_storage_service.dart';
 
@@ -465,6 +466,61 @@ class StorageService {
   static Future<void> clearPracticeProgress() async {
     final prefs = await _instance;
     await prefs.remove(_practiceProgressKey);
+  }
+
+  // ========== 单题作答统计（做过次数 / 正确率 / 最易错选） ==========
+
+  static const String _questionStatsKey = 'questionStats';
+  static Map<String, QuestionStat>? _statsCache;
+
+  /// 读取全部单题统计（带内存缓存，避免每次答题都读磁盘）。
+  static Future<Map<String, QuestionStat>> loadQuestionStats() async {
+    if (_statsCache != null) return _statsCache!;
+    final prefs = await _instance;
+    final raw = prefs.getString(_questionStatsKey);
+    final map = <String, QuestionStat>{};
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw) as Map<String, dynamic>;
+        decoded.forEach((k, v) {
+          map[k] = QuestionStat.fromJson(Map<String, dynamic>.from(v as Map));
+        });
+      } catch (_) {
+        // 数据损坏时从空开始，不阻断答题
+      }
+    }
+    _statsCache = map;
+    return map;
+  }
+
+  /// 取某题统计（无记录返回 null）
+  static Future<QuestionStat?> questionStatOf(String uniqueKey) async {
+    final all = await loadQuestionStats();
+    return all[uniqueKey];
+  }
+
+  /// 记录一次作答；返回更新后的统计。
+  static Future<QuestionStat> recordQuestionStat(
+    String uniqueKey, {
+    required bool correct,
+    List<int> wrongOptions = const [],
+  }) async {
+    final all = await loadQuestionStats();
+    final next = (all[uniqueKey] ?? const QuestionStat())
+        .record(correct: correct, wrongOptions: wrongOptions);
+    all[uniqueKey] = next;
+    final prefs = await _instance;
+    await prefs.setString(
+      _questionStatsKey,
+      jsonEncode(all.map((k, v) => MapEntry(k, v.toJson()))),
+    );
+    return next;
+  }
+
+  static Future<void> clearQuestionStats() async {
+    final prefs = await _instance;
+    await prefs.remove(_questionStatsKey);
+    _statsCache = null;
   }
 
   // ========== 震动反馈 ==========

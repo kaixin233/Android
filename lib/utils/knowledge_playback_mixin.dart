@@ -64,39 +64,18 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
   /// 从指定小节开始连续朗读到末尾
   Future<void> playFromSection(int index) => reader.startFrom(index);
 
-  /// 播放起始小节：由页面按"当前可见位置"提供（"从当前位置朗读"）
-  int get playbackStartSectionIndex => 0;
-
-  /// 播放起始段落（-1 表示从小节开头）。
-  /// 页面按视口顶部所在段落提供，实现**段落级**的"从当前位置朗读"。
-  int get playbackStartParagraphIndex => -1;
-
-  /// 由页面提供的"**从当前可见位置重新开始朗读**"动作（先彻底停止在途朗读再起播）。
+  /// 播放/暂停切换：播放中 → 暂停；暂停中 → 继续；空闲 → 从上次位置起播。
   ///
-  /// 与 [toggleKnowledgePlayPause] 的区别：后者在播放中只是"暂停"，而本动作无论
-  /// 当前状态如何都会**跳到当前可见位置重新朗读**——这才是用户期待的语义。
-  Future<void> Function()? get playFromCurrentPositionHandler => null;
-
-  /// 播放/暂停切换：
-  /// - 播放中 → 暂停；
-  /// - 暂停中且位置未变 → 继续；位置已变 → 从新位置重新开始；
-  /// - 空闲 → 从当前可见位置开始朗读。
+  /// 说明：不再提供"自动从当前可见位置开始"的入口——该入口依赖版面几何推算、
+  /// 体验不稳，已由**「选择起始段」**（点段落上的"从这里朗读"）取代，精确且可控。
   Future<void> toggleKnowledgePlayPause() async {
     if (reader.isPlaying) {
       await reader.pause();
-      return;
+    } else if (reader.isPaused) {
+      await reader.resume();
+    } else {
+      await reader.startFrom(reader.currentSectionIndex);
     }
-    final start = playbackStartSectionIndex;
-    final para = playbackStartParagraphIndex;
-    if (reader.isPaused) {
-      if (reader.isSameRange(start, null, para)) {
-        await reader.resume();
-        return;
-      }
-      await reader.stop();
-    }
-    reader.setAnchorSection(start);
-    await reader.startFrom(start, startParagraph: para);
   }
 
   /// 从头播放全部考点
@@ -136,7 +115,7 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 播放（空闲时从"当前可见位置"开始）/ 暂停 / 继续
+            // 从头播放全部 / 暂停 / 继续
             _circleButton(
               icon: reader.isPlaying
                   ? Icons.pause_rounded
@@ -145,28 +124,10 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
               onTap: () {
                 if (reader.isPlaying) {
                   reader.pause();
-                  return;
-                }
-                if (reader.isPaused) {
-                  // 暂停中：若用户已滚动到别处，则从新位置重开；否则继续
-                  if (reader.isSameRange(playbackStartSectionIndex, null,
-                      playbackStartParagraphIndex)) {
-                    reader.resume();
-                  } else {
-                    final h = playFromCurrentPositionHandler;
-                    if (h != null) {
-                      h();
-                    } else {
-                      toggleKnowledgePlayPause();
-                    }
-                  }
-                  return;
-                }
-                final h = playFromCurrentPositionHandler;
-                if (h != null) {
-                  h();
+                } else if (reader.isPaused) {
+                  reader.resume();
                 } else {
-                  toggleKnowledgePlayPause();
+                  playAllFromStart();
                 }
               },
             ),
@@ -180,7 +141,7 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
                   Text(
                     active
                         ? (reader.isPaused ? '已暂停 · $title' : '正在朗读 · $title')
-                        : '从当前位置播放',
+                        : '从头播放全部考点',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
