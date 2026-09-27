@@ -7,7 +7,10 @@ import 'package:provider/provider.dart';
 
 import '../models/question.dart';
 import '../models/history_item.dart';
+import '../models/answer_outcome.dart';
+import '../models/practice_progress.dart';
 import '../providers/app_provider.dart';
+import '../services/answer_evaluator.dart';
 import '../services/question_service.dart';
 import '../services/storage_service.dart';
 import '../services/tts_service.dart';
@@ -55,20 +58,25 @@ class PracticeConfig {
 }
 
 /// 答题记录，用于恢复已回答题目的选择状态
+///
+/// [outcome] 区分"完全正确 / 少选部分正确 / 错误"，以支持多选题少选有分。
 class _AnswerRecord {
-  final bool isCorrect;
+  final AnswerOutcome outcome;
   final int? selectedIndex;
   final Set<int> selectedIndices;
   final bool? selectedBool;
   final String fillBlankText;
 
   const _AnswerRecord({
-    required this.isCorrect,
+    required this.outcome,
     this.selectedIndex,
     this.selectedIndices = const {},
     this.selectedBool,
     this.fillBlankText = '',
   });
+
+  /// 是否计入"答对"（少选有分，视为答对）
+  bool get isCorrect => outcome.countsAsCorrect;
 }
 
 /// 通用练习页面 - 支持普通练习、错题重做、考试模式
@@ -77,10 +85,14 @@ class PracticePage extends StatefulWidget {
     super.key,
     required this.config,
     required this.onCompleted,
+    this.resume,
   });
 
   final PracticeConfig config;
   final Future<void> Function(HistoryItem result) onCompleted;
+
+  /// 未完成练习的进度快照；非空时按其中的题目与作答记录恢复现场。
+  final PracticeProgress? resume;
 
   @override
   State<PracticePage> createState() => _PracticePageState();
@@ -97,6 +109,7 @@ class _PracticePageState extends State<PracticePage> {
   bool _isLoading = true;
   bool _submitted = false;
   bool _isCorrect = false;
+  AnswerOutcome _outcome = AnswerOutcome.wrong;
   int _elapsedSeconds = 0;
   Timer? _timer;
   Timer? _autoNextTimer;
@@ -124,6 +137,8 @@ class _PracticePageState extends State<PracticePage> {
 
   @override
   void dispose() {
+    // 退出练习前保存未完成的进度（供首页"继续练习"恢复）
+    _saveProgressIfNeeded();
     _timer?.cancel();
     _autoNextTimer?.cancel();
     _fillBlankController.dispose();
@@ -131,11 +146,88 @@ class _PracticePageState extends State<PracticePage> {
     super.dispose();
   }
 
+  /// 若本次练习尚未完成且仍有未作答题目，保存进度供首页"继续练习"恢复。
+  void _saveProgressIfNeeded() {
+    // 考试模式含计时语义，不保存
+    if (widget.config.mode == PracticeMode.exam) return;
+    if (_hasFinished) return; // 已完成
+    if (_questions.isEmpty) return; // 题目尚未加载
+    if (_questionResults.isEmpty) return; // 一题未答，无进度可言
+    if (_questionResults.length >= _questions.length) {
+      // 已全部作答，无需"继续"
+      unawaited(StorageService.clearPracticeProgress());
+      return;
+    }
+    final progress = PracticeProgress(
+      title: _getPracticeTitle(),
+      modeName: widget.config.mode.name,
+      subjectName: widget.config.subject?.name,
+      chapterNumber: widget.config.chapterNumber,
+      subsection: widget.config.subsection,
+      questionKeys: _questions.map((q) => q.uniqueKey).toList(),
+      answers: _questionResults.map(
+        (k, v) => MapEntry(
+          k,
+          SavedAnswer(
+            outcome: v.outcome,
+            selectedIndex: v.selectedIndex,
+            selectedIndices: v.selectedIndices.toList(),
+            selectedBool: v.selectedBool,
+            fillBlankText: v.fillBlankText,
+          ),
+        ),
+      ),
+      currentIndex: _currentIndex,
+      correctCount: _correctCount,
+      savedAt: DateTime.now(),
+    );
+    unawaited(StorageService.savePracticeProgress(progress));
+  }
+
   Future<void> _loadQuestions() async {
     final app = context.read<AppProvider>();
     final favorites = widget.config.onlyFavorites
         ? await StorageService.loadFavorites()
         : null;
+
+    // 恢复未完成的练习：按保存的题目顺序加载，并还原作答记录与当前进度
+    final resume = widget.resume;
+    if (resume != null && resume.questionKeys.isNotEmpty) {
+      final loaded = await QuestionService.getByKeys(resume.questionKeys);
+      final byKey = {for (final q in loaded) q.uniqueKey: q};
+      _questions = [
+        for (final k in resume.questionKeys)
+          if (byKey[k] != null) byKey[k]!,
+      ];
+      _questionResults.clear();
+      resume.answers.forEach((k, saved) {
+        _questionResults[k] = _AnswerRecord(
+          outcome: saved.outcome,
+          selectedIndex: saved.selectedIndex,
+          selectedIndices: saved.selectedIndices.toSet(),
+          selectedBool: saved.selectedBool,
+          fillBlankText: saved.fillBlankText,
+        );
+      });
+      _correctCount = resume.correctCount;
+      _wrongKeys
+        ..clear()
+        ..addAll(_questionResults.entries
+            .where((e) => e.value.outcome.isWrong)
+            .map((e) => e.key));
+
+      if (_questions.isEmpty) {
+        setState(() => _isLoading = false);
+        return;
+      }
+      _currentIndex = resume.currentIndex.clamp(0, _questions.length - 1);
+      setState(() {
+        _isLoading = false;
+        _restoreQuestionState();
+      });
+      _startTimer();
+      return;
+    }
 
     // 错题重做模式
     if (widget.config.mode == PracticeMode.wrong) {
@@ -255,28 +347,15 @@ class _PracticePageState extends State<PracticePage> {
     }
   }
 
-  bool _checkAnswer() {
-    final question = _questions[_currentIndex];
-    switch (question.type) {
-      case QuestionType.singleChoice:
-        return _selectedIndex == question.answerIndex;
-      case QuestionType.multipleChoice:
-        return _selectedIndices.length == question.answerIndices.length &&
-            _selectedIndices.containsAll(question.answerIndices);
-      case QuestionType.trueFalse:
-        return _selectedBool == question.isCorrect;
-      case QuestionType.fillBlank:
-        final input = _fillBlankController.text.trim();
-        if (input.isEmpty) return false;
-        final normalizedInput = _normalizeAnswer(input);
-        return question.acceptableAnswers.any(
-          (answer) => normalizedInput == _normalizeAnswer(answer),
-        );
-    }
-  }
-
-  String _normalizeAnswer(String answer) {
-    return answer.toLowerCase().replaceAll(RegExp(r'[\s\p{Punct}]'), '');
+  /// 判定当前作答结果（多选题少选 = 部分正确，有分）
+  AnswerOutcome _evaluateCurrent() {
+    return AnswerEvaluator.evaluate(
+      question: _questions[_currentIndex],
+      selectedIndex: _selectedIndex,
+      selectedIndices: _selectedIndices,
+      selectedBool: _selectedBool,
+      fillBlankText: _fillBlankController.text,
+    );
   }
 
   /// 记录本题到艾宾浩斯复习计划（失败不影响答题流程）。
@@ -290,28 +369,32 @@ class _PracticePageState extends State<PracticePage> {
 
   void _submitAnswer() {
     if (!_isAnswerSubmitted()) return;
-    final correct = _checkAnswer();
+    final outcome = _evaluateCurrent();
+    // 少选（部分正确）视为"有分"，不计入错题
+    final correct = outcome.countsAsCorrect;
     final uniqueKey = _questions[_currentIndex].uniqueKey;
     // 纳入艾宾浩斯遗忘曲线复习计划：做过的题都进入，答对推进阶段、答错回到第一阶段
     unawaited(_recordReview(uniqueKey, correct));
     final previous = _questionResults[uniqueKey];
     final app = context.read<AppProvider>();
+    final isWrongNow = outcome.isWrong;
     setState(() {
       _submitted = true;
       _isCorrect = correct;
+      _outcome = outcome;
       // 修正已答过题目的正确数
       if (previous != null) {
-        if (previous.isCorrect && !correct) {
+        if (previous.isCorrect && isWrongNow) {
           _correctCount--;
           _wrongKeys.add(uniqueKey);
           app.addWrongQuestion(uniqueKey);
-        } else if (!previous.isCorrect && correct) {
+        } else if (!previous.isCorrect && !isWrongNow) {
           _correctCount++;
           _wrongKeys.remove(uniqueKey);
           app.removeWrongQuestion(uniqueKey);
         }
       } else {
-        if (correct) {
+        if (!isWrongNow) {
           _correctCount++;
         } else {
           _wrongKeys.add(uniqueKey);
@@ -319,19 +402,25 @@ class _PracticePageState extends State<PracticePage> {
         }
       }
       _questionResults[uniqueKey] = _AnswerRecord(
-        isCorrect: correct,
+        outcome: outcome,
         selectedIndex: _selectedIndex,
         selectedIndices: Set.from(_selectedIndices),
         selectedBool: _selectedBool,
         fillBlankText: _fillBlankController.text,
       );
     });
-    // 震动反馈
+    // 震动反馈：错误重震，少选轻震，全对中震
     if (app.vibrationEnabled) {
-      if (correct) {
-        HapticFeedback.mediumImpact();
-      } else {
-        HapticFeedback.heavyImpact();
+      switch (outcome) {
+        case AnswerOutcome.correct:
+          HapticFeedback.mediumImpact();
+          break;
+        case AnswerOutcome.partial:
+          HapticFeedback.lightImpact();
+          break;
+        case AnswerOutcome.wrong:
+          HapticFeedback.heavyImpact();
+          break;
       }
     }
     // 更新知识点统计（仅在首次答题时）
@@ -350,10 +439,14 @@ class _PracticePageState extends State<PracticePage> {
 
     // 自动播报解析
     if (app.ttsAutoPlayExplanation && mounted) {
-      // 答对且设置了"答对不播报解析"时，仅播报结果
-      final skipExplanation = correct && app.ttsSkipExplanationOnCorrect;
-      _speakExplanation(correct, skipExplanation: skipExplanation);
+      // 全对且设置了"答对不播报解析"时，仅播报结果；少选仍需播报解析
+      final skipExplanation =
+          outcome.isFullCorrect && app.ttsSkipExplanationOnCorrect;
+      _speakExplanation(outcome, skipExplanation: skipExplanation);
     }
+
+    // 保存未完成进度（用于首页"继续练习"）
+    _saveProgressIfNeeded();
 
     // 答题完成后自动生成 AI 考点记忆口诀（开关开启时）
     if (app.aiMnemonicEnabled && mounted) {
@@ -383,7 +476,13 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   /// 播报答题结果与解析
-  Future<void> _speakExplanation(bool isCorrect, {bool skipExplanation = false}) async {
+  ///
+  /// 两处针对性优化：
+  /// - **否定题**（"错误的是/不属于…"）：不说"正确答案是 X"，改为"本题要求选出错误项，应选：X"，
+  ///   避免把本身就是"错误说法"的正确选项播报成"正确答案"。
+  /// - **多选题少选**：播报"少选，得部分分"，不再播报"回答错误"。
+  Future<void> _speakExplanation(AnswerOutcome outcome,
+      {bool skipExplanation = false}) async {
     // 先停止当前朗读
     if (_isSpeaking) {
       await TtsService.stop();
@@ -391,17 +490,26 @@ class _PracticePageState extends State<PracticePage> {
     }
 
     final question = _questions[_currentIndex];
+    final negative = AnswerEvaluator.isNegativeQuestion(question);
     final buffer = StringBuffer();
 
     // 答题结果提示
-    if (isCorrect) {
-      buffer.write('回答正确。');
-    } else {
-      buffer.write('回答错误。');
-      // 错误时播报正确答案
-      buffer.write('正确答案是：');
-      buffer.write(AiAssistantLauncher.correctAnswerTextOf(question));
-      buffer.write('。');
+    switch (outcome) {
+      case AnswerOutcome.correct:
+        buffer.write('回答正确。');
+        break;
+      case AnswerOutcome.partial:
+        buffer.write('少选，得部分分。');
+        buffer.write(AnswerEvaluator.answerLeadIn(negative: negative));
+        buffer.write(AiAssistantLauncher.correctAnswerTextOf(question));
+        buffer.write('。');
+        break;
+      case AnswerOutcome.wrong:
+        buffer.write('回答错误。');
+        buffer.write(AnswerEvaluator.answerLeadIn(negative: negative));
+        buffer.write(AiAssistantLauncher.correctAnswerTextOf(question));
+        buffer.write('。');
+        break;
     }
 
     // 播报解析（skipExplanation 为 true 时跳过）
@@ -471,6 +579,7 @@ class _PracticePageState extends State<PracticePage> {
     if (record != null) {
       _submitted = true;
       _isCorrect = record.isCorrect;
+      _outcome = record.outcome;
       _selectedIndex = record.selectedIndex;
       _selectedIndices = Set.from(record.selectedIndices);
       _selectedBool = record.selectedBool;
@@ -482,6 +591,7 @@ class _PracticePageState extends State<PracticePage> {
       _fillBlankController.clear();
       _submitted = false;
       _isCorrect = false;
+      _outcome = AnswerOutcome.wrong;
     }
     // 重置记忆口诀状态，避免残留上一题的口诀
     _mnemonicKey = null;
@@ -499,6 +609,8 @@ class _PracticePageState extends State<PracticePage> {
     // 加锁避免重复弹出结果弹窗。
     if (_hasFinished) return;
     _hasFinished = true;
+    // 练习完成 → 清除"继续练习"进度
+    unawaited(StorageService.clearPracticeProgress());
 
     try {
       final total = _questions.length;
@@ -1538,13 +1650,28 @@ class _PracticePageState extends State<PracticePage> {
   }
 
   Widget _buildExplanationCard(Question question, ThemeData theme) {
+    final outcome = _outcome;
+    final negative = AnswerEvaluator.isNegativeQuestion(question);
+    final Color outcomeColor = outcome == AnswerOutcome.correct
+        ? Colors.green
+        : (outcome == AnswerOutcome.partial ? Colors.orange : Colors.red);
+    final Color outcomeBg = outcome == AnswerOutcome.correct
+        ? Colors.green.shade50
+        : (outcome == AnswerOutcome.partial
+            ? Colors.orange.shade50
+            : Colors.red.shade50);
+    final IconData outcomeIcon = outcome == AnswerOutcome.correct
+        ? Icons.check_circle
+        : (outcome == AnswerOutcome.partial
+            ? Icons.error_outline
+            : Icons.cancel);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _isCorrect ? Colors.green.shade50 : Colors.orange.shade50,
+        color: outcomeBg,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: _isCorrect ? Colors.green : Colors.orange,
+          color: outcomeColor,
           width: 1,
         ),
       ),
@@ -1553,19 +1680,17 @@ class _PracticePageState extends State<PracticePage> {
         children: [
           Row(
             children: [
-              Icon(
-                _isCorrect ? Icons.check_circle : Icons.info,
-                color: _isCorrect ? Colors.green : Colors.orange,
-              ),
+              Icon(outcomeIcon, color: outcomeColor),
               const SizedBox(width: 8),
-              Text(
-                _isCorrect ? '回答正确！' : '回答错误',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: _isCorrect ? Colors.green : Colors.orange,
+              Expanded(
+                child: Text(
+                  AnswerEvaluator.outcomeLabel(outcome),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: outcomeColor,
+                  ),
                 ),
               ),
-              const Spacer(),
               // 朗读解析按钮
               if (question.explanation.isNotEmpty)
                 IconButton(
@@ -1574,23 +1699,36 @@ class _PracticePageState extends State<PracticePage> {
                         ? Icons.stop_circle_rounded
                         : Icons.volume_up_rounded,
                     size: 20,
-                    color: _isCorrect ? Colors.green : Colors.orange,
+                    color: outcomeColor,
                   ),
                   tooltip: _isSpeakingExplanation ? '停止朗读' : '朗读解析',
                   onPressed: () {
                     if (_isSpeakingExplanation) {
                       _stopSpeakingIfNeeded();
                     } else {
-                      _speakExplanation(_isCorrect);
+                      _speakExplanation(outcome);
                     }
                   },
                 ),
             ],
           ),
-          const SizedBox(height: 8),
-          if (!_isCorrect) ...[
+          if (negative) ...[
+            const SizedBox(height: 6),
             Text(
-              '正确答案：${AiAssistantLauncher.correctAnswerTextOf(question)}',
+              '本题要求选出错误项',
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.brightness == Brightness.dark
+                    ? Colors.white70
+                    : Colors.black54,
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          if (!outcome.isFullCorrect) ...[
+            Text(
+              '${AnswerEvaluator.answerLeadIn(negative: negative)}'
+              '${AiAssistantLauncher.correctAnswerTextOf(question)}',
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),

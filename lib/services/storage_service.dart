@@ -7,6 +7,7 @@ import '../models/history_item.dart';
 import '../models/study_plan.dart';
 import '../models/note.dart';
 import '../models/knowledge_point.dart';
+import '../models/practice_progress.dart';
 import '../models/review_item.dart';
 import '../services/ai_qa_storage_service.dart';
 
@@ -437,6 +438,33 @@ class StorageService {
   static Future<void> saveReviewReminderEnabled(bool enabled) async {
     final prefs = await _instance;
     await prefs.setBool(_reviewReminderEnabledKey, enabled);
+  }
+
+  // ========== 未完成练习的进度（用于首页"继续练习"） ==========
+
+  static const String _practiceProgressKey = 'practiceProgress';
+
+  /// 读取未完成的练习进度（无则返回 null）。
+  static Future<PracticeProgress?> loadPracticeProgress() async {
+    final prefs = await _instance;
+    final raw = prefs.getString(_practiceProgressKey);
+    if (raw == null) return null;
+    try {
+      return PracticeProgress.fromJson(
+          Map<String, dynamic>.from(jsonDecode(raw) as Map));
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<void> savePracticeProgress(PracticeProgress progress) async {
+    final prefs = await _instance;
+    await prefs.setString(_practiceProgressKey, jsonEncode(progress.toJson()));
+  }
+
+  static Future<void> clearPracticeProgress() async {
+    final prefs = await _instance;
+    await prefs.remove(_practiceProgressKey);
   }
 
   // ========== 震动反馈 ==========

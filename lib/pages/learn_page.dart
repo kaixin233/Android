@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../data/textbooks.dart';
 import '../models/question.dart';
+import '../models/practice_progress.dart';
 import '../providers/app_provider.dart';
 import 'exam_mode_page.dart';
 import 'practice_page.dart';
@@ -48,11 +49,55 @@ class _LearnPageState extends State<LearnPage> {
 
   int _quoteIndex = 0;
 
+  /// 未完成的练习进度（用于"继续练习"入口）
+  PracticeProgress? _progress;
+
   @override
   void initState() {
     super.initState();
     _quoteIndex = _initialQuoteIndex();
     _loadReviewStats();
+    _loadProgress();
+  }
+
+  Future<void> _loadProgress() async {
+    final p = await StorageService.loadPracticeProgress();
+    if (!mounted) return;
+    setState(() => _progress = (p != null && !p.isFinished) ? p : null);
+  }
+
+  /// 继续上次未完成的练习
+  Future<void> _resumePractice() async {
+    final p = _progress;
+    if (p == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PracticePage(
+          config: PracticeConfig(
+            subject: p.subjectName == null
+                ? null
+                : QuestionSubjectExtension.fromName(p.subjectName!),
+            chapterNumber: p.chapterNumber,
+            subsection: p.subsection,
+            mode: p.mode,
+          ),
+          resume: p,
+          onCompleted: (result) async {
+            await context.read<AppProvider>().addHistory(result);
+          },
+        ),
+      ),
+    );
+    if (mounted) {
+      await _loadProgress();
+      await _loadReviewStats();
+    }
+  }
+
+  /// 丢弃未完成的练习进度
+  Future<void> _discardProgress() async {
+    await StorageService.clearPracticeProgress();
+    if (mounted) setState(() => _progress = null);
   }
 
   /// 以"一年中的第几天"为种子，每天自动换一句
@@ -126,6 +171,11 @@ class _LearnPageState extends State<LearnPage> {
         children: [
           // 励志名言卡片（原"今日练习"卡片已按需求替换）
           _buildQuoteCard(theme, colorScheme, app),
+          // 继续未完成的练习（有进度时显示）
+          if (_progress != null) ...[
+            const SizedBox(height: 16),
+            _buildContinueCard(theme, colorScheme),
+          ],
           const SizedBox(height: 16),
           // 艾宾浩斯复习入口（含到期提醒）
           _buildReviewCard(theme, colorScheme),
@@ -301,6 +351,110 @@ class _LearnPageState extends State<LearnPage> {
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  /// 继续练习卡片：展示未完成练习的节点与进度，点击恢复现场。
+  Widget _buildContinueCard(ThemeData theme, ColorScheme colorScheme) {
+    final p = _progress!;
+    const accent = Colors.teal;
+    return Material(
+      color: theme.brightness == Brightness.dark
+          ? theme.colorScheme.surface
+          : Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: _resumePractice,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: accent.withValues(alpha: 0.4)),
+            color: accent.withValues(alpha: 0.06),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: accent.withValues(alpha: 0.14),
+                child: const Icon(Icons.play_circle_fill_rounded, color: accent),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text('继续练习',
+                            style: theme.textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w700)),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                              color: accent,
+                              borderRadius: BorderRadius.circular(10)),
+                          child: Text(p.progressText,
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${p.title} · 还有 ${p.total - p.answeredCount} 题未作答',
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: Colors.grey.shade600),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(
+                        value: p.ratio,
+                        minHeight: 6,
+                        backgroundColor: accent.withValues(alpha: 0.15),
+                        valueColor: const AlwaysStoppedAnimation<Color>(accent),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: '放弃该进度',
+                icon: Icon(Icons.close_rounded,
+                    size: 18, color: Colors.grey.shade500),
+                onPressed: () async {
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('放弃未完成的练习？'),
+                      content: Text('将删除「${p.title}」的作答进度，之后需重新开始。'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(ctx).pop(false),
+                          child: const Text('取消'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.of(ctx).pop(true),
+                          child: const Text('放弃'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (ok == true) await _discardProgress();
+                },
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
