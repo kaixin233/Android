@@ -9,6 +9,7 @@ import '../models/question.dart';
 import '../providers/app_provider.dart';
 import '../services/question_service.dart';
 import '../services/storage_service.dart';
+import 'ai_generate_page.dart';
 import 'practice_page.dart';
 
 /// 题库页面 - 支持搜索、筛选、收藏、导入、删除
@@ -186,6 +187,13 @@ class _QuestionBankPageState extends State<QuestionBankPage> {
       appBar: AppBar(
         title: const Text('题库'),
         actions: [
+          IconButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AiGeneratePage()),
+            ),
+            icon: const Icon(Icons.auto_awesome_rounded),
+            tooltip: 'AI 出题',
+          ),
           IconButton(
             onPressed: _importQuestions,
             icon: const Icon(Icons.upload_file_rounded),

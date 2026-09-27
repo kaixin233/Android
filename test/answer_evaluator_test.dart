@@ -133,6 +133,20 @@ void main() {
     });
   });
 
+  group('错题本收录口径（少选与错选都要收录）', () {
+    test('完全正确不收录；少选与错选都收录', () {
+      expect(AnswerOutcome.correct.belongsToWrongBook, isFalse);
+      expect(AnswerOutcome.partial.belongsToWrongBook, isTrue);
+      expect(AnswerOutcome.wrong.belongsToWrongBook, isTrue);
+    });
+
+    test('少选：计入答对（有分）但进入错题本', () {
+      // 两条口径相互独立，避免"有分"被误解为"不必复习"
+      expect(AnswerOutcome.partial.countsAsCorrect, isTrue);
+      expect(AnswerOutcome.partial.belongsToWrongBook, isTrue);
+    });
+  });
+
   group('答案提示语（否定题不提"正确答案"）', () {
     test('否定题 → "本题要求选出错误项，应选："', () {
       expect(AnswerEvaluator.answerLeadIn(negative: true), '本题要求选出错误项，应选：');

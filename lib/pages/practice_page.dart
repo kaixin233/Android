@@ -213,7 +213,7 @@ class _PracticePageState extends State<PracticePage> {
       _wrongKeys
         ..clear()
         ..addAll(_questionResults.entries
-            .where((e) => e.value.outcome.isWrong)
+            .where((e) => e.value.outcome.belongsToWrongBook)
             .map((e) => e.key));
 
       if (_questions.isEmpty) {
@@ -370,36 +370,37 @@ class _PracticePageState extends State<PracticePage> {
   void _submitAnswer() {
     if (!_isAnswerSubmitted()) return;
     final outcome = _evaluateCurrent();
-    // 少选（部分正确）视为"有分"，不计入错题
+    // 计分口径：少选（部分正确）视为"有分"
     final correct = outcome.countsAsCorrect;
+    // 错题本口径：少选与错选都收录，仅全对不收录
+    final nowInWrongBook = outcome.belongsToWrongBook;
     final uniqueKey = _questions[_currentIndex].uniqueKey;
     // 纳入艾宾浩斯遗忘曲线复习计划：做过的题都进入，答对推进阶段、答错回到第一阶段
     unawaited(_recordReview(uniqueKey, correct));
     final previous = _questionResults[uniqueKey];
+    final prevCounts = previous?.isCorrect ?? false;
+    final prevInWrongBook =
+        previous != null && previous.outcome.belongsToWrongBook;
     final app = context.read<AppProvider>();
-    final isWrongNow = outcome.isWrong;
     setState(() {
       _submitted = true;
       _isCorrect = correct;
       _outcome = outcome;
-      // 修正已答过题目的正确数
+      // 修正已答过题目的正确数（计分口径）
       if (previous != null) {
-        if (previous.isCorrect && isWrongNow) {
-          _correctCount--;
-          _wrongKeys.add(uniqueKey);
-          app.addWrongQuestion(uniqueKey);
-        } else if (!previous.isCorrect && !isWrongNow) {
-          _correctCount++;
-          _wrongKeys.remove(uniqueKey);
-          app.removeWrongQuestion(uniqueKey);
+        if (prevCounts != correct) {
+          _correctCount += correct ? 1 : -1;
         }
+      } else if (correct) {
+        _correctCount++;
+      }
+      // 错题本维护（少选/错选均收录）
+      if (nowInWrongBook) {
+        _wrongKeys.add(uniqueKey);
+        if (!prevInWrongBook) app.addWrongQuestion(uniqueKey);
       } else {
-        if (!isWrongNow) {
-          _correctCount++;
-        } else {
-          _wrongKeys.add(uniqueKey);
-          app.addWrongQuestion(uniqueKey);
-        }
+        _wrongKeys.remove(uniqueKey);
+        if (prevInWrongBook) app.removeWrongQuestion(uniqueKey);
       }
       _questionResults[uniqueKey] = _AnswerRecord(
         outcome: outcome,

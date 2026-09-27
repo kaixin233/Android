@@ -25,8 +25,13 @@ extension AnswerOutcomeX on AnswerOutcome {
     }
   }
 
-  /// 是否计入"答对"（部分正确有分，视为答对，不计入错题）
+  /// 是否计入"答对"（部分正确有分，视为答对参与计分）
   bool get countsAsCorrect => this != AnswerOutcome.wrong;
+
+  /// 是否应放入错题本。
+  /// 依据用户要求：**多选题少选（partial）与错选（wrong）都要进错题本**，
+  /// 只有完全正确才不收录。
+  bool get belongsToWrongBook => this != AnswerOutcome.correct;
 
   bool get isFullCorrect => this == AnswerOutcome.correct;
   bool get isWrong => this == AnswerOutcome.wrong;
