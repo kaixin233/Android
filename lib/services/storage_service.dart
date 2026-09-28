@@ -609,6 +609,22 @@ class StorageService {
     await prefs.setDouble(_ttsSpeechRateKey, rate);
   }
 
+  // ===== 朗读高亮"每字耗时"校准值 =====
+  //
+  // 部分机型（如小米）的语音引擎不上报逐字进度，只能按时间估算高亮推进。
+  // 这里持久化实测校准值，使**下次进入即可准确**，不必重新慢慢收敛。
+  static const String _ttsHighlightMsPerCharKey = 'ttsHighlightMsPerChar';
+
+  static Future<double> loadTtsHighlightMsPerChar() async {
+    final prefs = await _instance;
+    return prefs.getDouble(_ttsHighlightMsPerCharKey) ?? 0;
+  }
+
+  static Future<void> saveTtsHighlightMsPerChar(double msPerChar) async {
+    final prefs = await _instance;
+    await prefs.setDouble(_ttsHighlightMsPerCharKey, msPerChar);
+  }
+
   static Future<double> loadTtsPitch() async {
     final prefs = await _instance;
     return prefs.getDouble(_ttsPitchKey) ?? 1.0;

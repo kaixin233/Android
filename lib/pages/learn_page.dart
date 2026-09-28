@@ -11,6 +11,8 @@ import 'textbook_page.dart';
 import 'wrong_questions_page.dart';
 import 'stats_page.dart';
 import 'review_page.dart';
+import 'global_search_page.dart';
+import 'my_annotations_page.dart';
 import '../services/review_service.dart';
 import '../services/storage_service.dart';
 import '../widgets/subject_entry_card.dart';
@@ -53,12 +55,26 @@ class _LearnPageState extends State<LearnPage> {
   /// 未完成的练习进度（用于"继续练习"入口）
   PracticeProgress? _progress;
 
+  /// 各科目上次打开的章节考点（用于"继续阅读"入口，合并自原教材页）
+  Map<String, Map<String, dynamic>> _lastRead = {};
+
   @override
   void initState() {
     super.initState();
     _quoteIndex = _initialQuoteIndex();
     _loadReviewStats();
     _loadProgress();
+    _loadLastRead();
+  }
+
+  /// 加载各科目"继续阅读"位置
+  Future<void> _loadLastRead() async {
+    final map = <String, Map<String, dynamic>>{};
+    for (final book in Textbooks.all) {
+      final entry = await StorageService.loadLastRead(book.subject.name);
+      if (entry != null) map[book.subject.name] = entry;
+    }
+    if (mounted) setState(() => _lastRead = map);
   }
 
   Future<void> _loadProgress() async {
@@ -166,18 +182,44 @@ class _LearnPageState extends State<LearnPage> {
       appBar: AppBar(
         title: const Text('二级建造师'),
         centerTitle: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.search_rounded),
+            tooltip: '搜索考点/题目',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const GlobalSearchPage()),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.note_alt_outlined),
+            tooltip: '我的批注',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const MyAnnotationsPage()),
+            ),
+          ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
           // 励志名言卡片（原"今日练习"卡片已按需求替换）
           _buildQuoteCard(theme, colorScheme, app),
+          const SizedBox(height: 12),
+          // 大纲完成度（合并自原教材页的"总体进度"卡片，改为紧凑一行）
+          _buildOutlineProgress(theme, app),
           // 继续未完成的练习（有进度时显示）
           if (_progress != null) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             _buildContinueCard(theme, colorScheme),
           ],
-          const SizedBox(height: 16),
+          // 继续阅读（有阅读记录时显示，合并自原教材页）
+          if (_lastRead.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _buildContinueReading(theme),
+          ],
+          const SizedBox(height: 12),
           // 艾宾浩斯复习入口（含到期提醒）
           _buildReviewCard(theme, colorScheme),
           const SizedBox(height: 20),
@@ -284,6 +326,194 @@ class _LearnPageState extends State<LearnPage> {
           ),
         ],
       ),
+    );
+  }
+
+  /// 大纲完成度：紧凑一行进度（合并自原「教材」页的总体进度卡片）
+  Widget _buildOutlineProgress(ThemeData theme, AppProvider app) {
+    final totalChapters =
+        Textbooks.all.fold<int>(0, (sum, b) => sum + b.chapters.length);
+    final completed = app.completedChapters;
+    final progress =
+        totalChapters == 0 ? 0.0 : (completed / totalChapters).clamp(0.0, 1.0);
+    final primary = theme.colorScheme.primary;
+
+    return Material(
+      color: theme.brightness == Brightness.dark
+          ? theme.colorScheme.surface
+          : Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: primary.withValues(alpha: 0.22)),
+        ),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Icon(Icons.flag_rounded, size: 17, color: primary),
+                const SizedBox(width: 6),
+                const Text('大纲完成度',
+                    style:
+                        TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                const Spacer(),
+                Text(
+                  '$completed/$totalChapters 章',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 7,
+                backgroundColor: primary.withValues(alpha: 0.14),
+                valueColor: AlwaysStoppedAnimation<Color>(primary),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                _miniStat('错题', app.wrongQuestions.length, Colors.red),
+                _miniStat('收藏', app.favorites.length, Colors.orange),
+                _miniStat('题目', app.totalQuestions, Colors.blue),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _miniStat(String label, int value, Color color) {
+    return Expanded(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 4),
+          Text('$label $value',
+              style: const TextStyle(fontSize: 11.5, color: Colors.black54)),
+        ],
+      ),
+    );
+  }
+
+  /// 继续阅读：列出各科目上次打开的章节考点，点按直达（合并自原「教材」页）
+  Widget _buildContinueReading(ThemeData theme) {
+    final items = <Widget>[];
+    for (final entry in _lastRead.entries) {
+      Textbook? book;
+      for (final b in Textbooks.all) {
+        if (b.subject.name == entry.key) {
+          book = b;
+          break;
+        }
+      }
+      if (book == null) continue;
+      final selected = book;
+      final data = entry.value;
+      final chapterNumber = data['chapterNumber'] as String? ?? '';
+      final title = data['title'] as String? ?? '';
+      final color = Color(selected.color);
+      items.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Material(
+            color: theme.brightness == Brightness.dark
+                ? theme.colorScheme.surface
+                : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ChapterKnowledgePage(
+                    subject: selected.subject,
+                    chapterNumber: chapterNumber,
+                    chapterTitle: title,
+                    bookColor: selected.color,
+                    bookTitle: selected.title,
+                  ),
+                ),
+              ),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: color.withValues(alpha: 0.25)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(Icons.menu_book_rounded,
+                          size: 18, color: color),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${selected.title} · 第$chapterNumber章',
+                            style: const TextStyle(
+                                fontSize: 13, fontWeight: FontWeight.w600),
+                          ),
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 11, color: Colors.grey.shade600),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.arrow_forward_rounded, size: 18, color: color),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.history_rounded,
+                size: 17, color: theme.colorScheme.primary),
+            const SizedBox(width: 6),
+            const Text('继续阅读',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ...items,
+      ],
     );
   }
 

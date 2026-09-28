@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import 'learn_page.dart';
 import 'question_bank_page.dart';
-import 'textbook_page.dart';
 import 'profile_page.dart';
 import 'study_plan_page.dart';
 
@@ -24,7 +23,6 @@ class _HomePageState extends State<HomePage> {
     final pages = <Widget>[
       const LearnPage(),
       const QuestionBankPage(),
-      const TextbookPage(),
       const StudyPlanPage(),
       ProfilePage(onThemeChanged: widget.onThemeChanged),
     ];
@@ -37,7 +35,6 @@ class _HomePageState extends State<HomePage> {
         destinations: const [
           NavigationDestination(icon: Icon(Icons.school_rounded), label: '学习'),
           NavigationDestination(icon: Icon(Icons.quiz_rounded), label: '题库'),
-          NavigationDestination(icon: Icon(Icons.menu_book_rounded), label: '教材'),
           NavigationDestination(icon: Icon(Icons.checklist_rounded), label: '计划'),
           NavigationDestination(icon: Icon(Icons.person_rounded), label: '我的'),
         ],

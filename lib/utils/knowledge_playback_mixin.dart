@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/knowledge_reader.dart';
 import '../services/knowledge_service.dart';
+import '../services/storage_service.dart';
 
 /// 段落文本中第 [index] 句的**字符起点**（-1 表示越界）。
 ///
@@ -32,7 +33,11 @@ int sentenceStartOffset(String paragraphText, List<String> sentences, int index)
 /// ```
 /// 数据加载完成后调用 [syncPlaybackSections] 通知控制器。
 mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
-  late final KnowledgeReaderController reader = KnowledgeReaderController();
+  late final KnowledgeReaderController reader = KnowledgeReaderController(
+    // 校准值持久化：下次进入即可准确，不必重新慢慢收敛
+    onCalibrated: (msPerChar) =>
+        StorageService.saveTtsHighlightMsPerChar(msPerChar),
+  );
 
   /// 当前可朗读的小节列表
   List<KnowledgeSection> get playbackSections;
@@ -44,6 +49,15 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
   void initKnowledgePlayback() {
     reader.addListener(_onReaderChanged);
     _syncSections();
+    _restoreCalibration();
+  }
+
+  /// 读取上次实测的"每字耗时"校准值
+  Future<void> _restoreCalibration() async {
+    try {
+      final v = await StorageService.loadTtsHighlightMsPerChar();
+      if (v > 0 && mounted) reader.applyCalibration(v);
+    } catch (_) {}
   }
 
   /// 数据变化后同步小节列表（页面在 setState 后调用）
@@ -241,15 +255,24 @@ mixin KnowledgePlaybackMixin<T extends StatefulWidget> on State<T> {
                             color: color.withValues(alpha: 0.85),
                           ),
                         ),
-                        // 高亮同步状态：真实语音进度 / 按语速估算
+                        // 高亮同步状态：真实语音进度 / 已实测校准 / 估算中
                         if (reader.unitCharEnd > 0) ...[
                           const SizedBox(width: 6),
-                          Icon(
-                            reader.hasLiveProgress
-                                ? Icons.graphic_eq_rounded
-                                : Icons.timelapse_rounded,
-                            size: 11,
-                            color: color.withValues(alpha: 0.7),
+                          Tooltip(
+                            message: reader.hasLiveProgress
+                                ? '逐字高亮：与语音实时同步'
+                                : (reader.calibrated
+                                    ? '逐字高亮：已按本机实测语速校准'
+                                    : '逐字高亮：按语速估算，朗读一两句后自动校准'),
+                            child: Icon(
+                              reader.hasLiveProgress
+                                  ? Icons.graphic_eq_rounded
+                                  : (reader.calibrated
+                                      ? Icons.speed_rounded
+                                      : Icons.timelapse_rounded),
+                              size: 12,
+                              color: color.withValues(alpha: 0.7),
+                            ),
                           ),
                         ],
                       ],

@@ -32,21 +32,23 @@ class KnowledgeReaderController extends ChangeNotifier {
     Future<void> Function()? stopSpeaker,
     void Function(void Function(int start, int end)?)? bindProgress,
     double Function()? rateProvider,
-    Duration Function(String text, double rate)? durationEstimator,
+    this.onCalibrated,
+    double initialMsPerChar = 0,
   })  : _speak = speak ??
             ((text, {waitForCompletion = false}) =>
                 TtsService.speak(text, waitForCompletion: waitForCompletion)),
         _stopSpeaker = stopSpeaker ?? TtsService.stop,
         _bindProgress = bindProgress ?? TtsService.setRangeProgressListener,
         _rateProvider = rateProvider ?? (() => TtsService.currentSpeechRate),
-        _estimateDuration = durationEstimator ??
-            ((text, rate) => TtsService.estimateSpeechDuration(text, rate: rate));
+        _msPerChar = initialMsPerChar;
 
   final Future<bool> Function(String text, {bool waitForCompletion}) _speak;
   final Future<void> Function() _stopSpeaker;
   final void Function(void Function(int start, int end)?) _bindProgress;
   final double Function() _rateProvider;
-  final Duration Function(String text, double rate) _estimateDuration;
+
+  /// 校准值变化回调（用于持久化），参数为"每字毫秒数"
+  final void Function(double msPerChar)? onCalibrated;
 
   List<KnowledgeSection> _sections = const [];
   List<_QueueEntry> _queue = const [];
@@ -113,6 +115,61 @@ class KnowledgeReaderController extends ChangeNotifier {
   Timer? _estTimer;
   int _lastProgressNotifyMs = 0;
 
+  /// 每字朗读耗时（毫秒），**自适应校准**得来。
+  ///
+  /// 小米等引擎不上报逐字进度，只能按时间估算；而各机型/语速下的真实速度差异很大
+  /// （这也是"高亮跟不上语音"的根因）。这里用**上一句的真实朗读耗时 ÷ 字数**反推速度，
+  /// 做指数滑动平均后用于下一句的推进，从而自动贴合本机真实速度。
+  double _msPerChar = 0;
+  bool _calibrated = false;
+
+  /// 起播/回调开销（毫秒）：引擎从 speak() 到出声的固定延迟，不随字数增长。
+  static const double _speechOverheadMs = 260;
+
+  /// 每字耗时（毫秒）；未校准时按语速给出估计值
+  double get msPerChar {
+    if (_msPerChar > 0) return _msPerChar;
+    double rate = 1.0;
+    try {
+      rate = _rateProvider();
+    } catch (_) {}
+    if (rate <= 0.05) rate = 0.05;
+    // 中文正常语速约 200ms/字（rate = 0.5 时）
+    return 200.0 * (0.5 / rate);
+  }
+
+  /// 是否已完成实测校准（UI 据此显示不同的同步状态）
+  bool get calibrated => _calibrated;
+
+  /// 注入历史校准值（来自本地存储）
+  void applyCalibration(double msPerChar) {
+    if (msPerChar >= 60 && msPerChar <= 900) {
+      _msPerChar = msPerChar;
+      _calibrated = true;
+    }
+  }
+
+  /// 用本句**实测耗时**校准每字速度
+  void _calibrateFrom(String text, int elapsedMs) {
+    if (_liveProgressSeen) return; // 有真实进度则无需估算
+    final chars = text.replaceAll(RegExp(r'\s+'), '').length;
+    if (chars < 4 || elapsedMs < 400 || elapsedMs > 60000) return;
+    final per = (elapsedMs - _speechOverheadMs) / chars;
+    if (per < 60 || per > 900) return;
+    // 指数滑动平均：收敛快又能抗抖动
+    _msPerChar = _calibrated ? (_msPerChar * 0.6 + per * 0.4) : per;
+    final changed = !_calibrated || (_msPerChar - per).abs() > 5;
+    _calibrated = true;
+    if (changed) {
+      final p = onCalibrated;
+      if (p != null) {
+        try {
+          p(_msPerChar);
+        } catch (_) {}
+      }
+    }
+  }
+
   /// 当前朗读单元的字符总数
   int get unitTextLength => _unitTextLength;
 
@@ -136,7 +193,11 @@ class KnowledgeReaderController extends ChangeNotifier {
     _estTimer?.cancel();
     _estTimer = null;
     _bindProgress(null);
-    _unitPos = _unitTextLength.toDouble();
+    // 收尾：让本句的剩余部分也点亮（视觉上"读完这句"），再进入下一句
+    if (_unitTextLength > 0 && _unitPos < _unitTextLength) {
+      _unitPos = _unitTextLength.toDouble();
+      notifyListeners();
+    }
   }
 
   void _onRangeProgress(int start, int end) {
@@ -151,29 +212,18 @@ class KnowledgeReaderController extends ChangeNotifier {
     _notifyProgress();
   }
 
-  /// 估算推进：按语速折算总时长，每 40ms 前进 `len / ticks` 个字符。
+  /// 估算推进：按**校准后的每字耗时**折算总时长，每 40ms 前进 `len / ticks` 个字符。
   /// 注意用**浮点累加**，避免 `ceil` 取整导致高亮提前跑完（旧实现的问题）。
   void _startEstimator() {
     _estTimer?.cancel();
     final len = _unitTextLength;
     if (len <= 0) return;
 
-    double rate = 1.0;
-    try {
-      rate = _rateProvider();
-    } catch (_) {}
-    if (rate <= 0.05) rate = 0.05;
-
-    Duration total;
-    try {
-      total = _estimateDuration(_currentUnitText, rate);
-    } catch (_) {
-      total = Duration(milliseconds: (len * 260 * (0.5 / rate)).round());
-    }
-    // 引擎起播有约 200~400ms 的预热延迟，补一小段缓冲让高亮不至于抢跑
-    final int totalMs = (total.inMilliseconds + 240).clamp(200, 90000).toInt();
+    final double perChar = msPerChar;
+    final double totalMs =
+        (_speechOverheadMs + len * perChar).clamp(240.0, 120000.0);
     const int tickMs = 40;
-    final double ticks = (totalMs / tickMs).clamp(1, 3000).toDouble();
+    final double ticks = (totalMs / tickMs).clamp(1, 4000).toDouble();
     final double perTick = len / ticks;
 
     _estTimer = Timer.periodic(const Duration(milliseconds: tickMs), (t) {
@@ -199,8 +249,6 @@ class KnowledgeReaderController extends ChangeNotifier {
     notifyListeners();
   }
 
-  String get _currentUnitText =>
-      _queue.isEmpty || _cursor >= _queue.length ? '' : _queue[_cursor].unit.text;
 
   int _sectionOf(int cursor) =>
       cursor >= 0 && cursor < _queue.length ? _queue[cursor].sectionIndex : -1;
@@ -332,7 +380,10 @@ class KnowledgeReaderController extends ChangeNotifier {
       _beginUnit(entry.unit.text);
       notifyListeners(); // 更新高亮/进度
 
+      final t0 = DateTime.now();
       final ok = await _speak(entry.unit.text, waitForCompletion: true);
+      // 用本句真实耗时校准"每字毫秒数"（小米等不上报逐字进度的机型必备）
+      _calibrateFrom(entry.unit.text, DateTime.now().difference(t0).inMilliseconds);
       _endUnit();
 
       if (token != _runToken) return; // 等待期间被停止/重启

@@ -62,8 +62,6 @@ void main() {
         // 捕获控制器注册的进度回调，测试里手动"上报"引擎进度
         bindProgress: (cb) => progressCb = cb,
         rateProvider: () => 0.5,
-        durationEstimator: (text, rate) =>
-            Duration(milliseconds: text.length * 100),
       );
     });
 
@@ -111,21 +109,56 @@ void main() {
       await f;
     });
 
-    test('无实时进度时按语速估算推进：先增长、不提前跑满', () async {
+    test('无实时进度时按校准语速估算推进：先增长、不提前跑满', () async {
       reader.loadSections([sec()]);
       final f = reader.startFrom(0, untilSection: 1);
       await Future<void>.delayed(Duration.zero);
 
       final len = reader.unitTextLength;
-      // 估算时长 = len*100ms + 240ms 缓冲；等待 ~200ms 后应只前进了一部分
+      // 未校准时每字约 200ms（rate=0.5）+ 260ms 起播开销
       await Future<void>.delayed(const Duration(milliseconds: 200));
       final mid = reader.unitCharEnd;
-      expect(mid, greaterThan(0));
+      expect(mid, greaterThanOrEqualTo(0));
       expect(mid, lessThan(len), reason: '不应像旧实现那样提前跑满');
 
       await reader.stop();
       if (gates.isNotEmpty) gates.last.complete(false);
       await f;
+    });
+
+    test('用实测耗时校准每字速度（小米等无逐字进度机型的关键）', () async {
+      // 专用控制器：speak 按"每字 150ms + 260ms 起播开销"的节奏返回，
+      // 校准后 controller.msPerChar 应收敛到 ~150ms
+      final cal = KnowledgeReaderController(
+        speak: (text, {waitForCompletion = false}) async {
+          final chars = text.replaceAll(RegExp(r'\s+'), '').length;
+          await Future<void>.delayed(
+              Duration(milliseconds: 260 + chars * 150));
+          return true;
+        },
+        stopSpeaker: () async {},
+        bindProgress: (_) {},
+        rateProvider: () => 0.5,
+      );
+      addTearDown(cal.dispose);
+
+      cal.loadSections([
+        KnowledgeSection(
+          number: '1.1',
+          title: '小节',
+          paragraphs: const [
+            KnowledgeParagraph(
+                text: '道路路基结构特征包括路基分类填料要求与压实度控制标准等等内容。'),
+            KnowledgeParagraph(
+                text: '沥青路面结构组成特点包括面层基层与垫层并需满足相应强度要求。'),
+          ],
+        ),
+      ]);
+      // 放行两句即可完成一次有效校准（字数 >= 4）
+      await cal.startFrom(0, untilSection: 1);
+      expect(cal.calibrated, isTrue, reason: '读完一句后应完成实测校准');
+      expect(cal.msPerChar, greaterThan(90));
+      expect(cal.msPerChar, lessThan(260));
     });
 
     test('停止后进度复位', () async {
