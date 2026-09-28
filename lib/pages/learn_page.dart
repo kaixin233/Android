@@ -13,6 +13,7 @@ import 'stats_page.dart';
 import 'review_page.dart';
 import '../services/review_service.dart';
 import '../services/storage_service.dart';
+import '../widgets/subject_entry_card.dart';
 
 /// 学习首页
 class LearnPage extends StatefulWidget {
@@ -179,21 +180,60 @@ class _LearnPageState extends State<LearnPage> {
           const SizedBox(height: 16),
           // 艾宾浩斯复习入口（含到期提醒）
           _buildReviewCard(theme, colorScheme),
+          const SizedBox(height: 20),
+          // 快速开始练习：与教材页共用同一套「科目入口」组件（紧凑模式）
+          Text('快速开始练习',
+              style: theme.textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 2),
+          Text(
+            '按科目练习；点「大纲」进入该科目的考点目录',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 10),
+          SubjectEntryCard(
+            compact: true,
+            title: '综合练习',
+            subtitle: '全部科目的题目混合练习',
+            icon: Icons.shuffle_rounded,
+            color: colorScheme.primary,
+            onPractice: () => _startPractice(context, subject: null),
+            practiceLabel: '开始',
+          ),
+          const SizedBox(height: 8),
+          // 科目顺序按需求：实务 → 法规 → 管理
+          for (final subject in const [
+            QuestionSubject.practice,
+            QuestionSubject.law,
+            QuestionSubject.management,
+          ])
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: SubjectEntryCard(
+                compact: true,
+                title: subject.label,
+                subtitle: '${app.subjectStats[subject] ?? 0} 题'
+                    '${subjectWrongCount(app.wrongQuestions, subject) > 0 ? ' · 错题 ${subjectWrongCount(app.wrongQuestions, subject)}' : ''}',
+                icon: subject.icon,
+                color: subject.color,
+                onPractice: () => _startPractice(context, subject: subject),
+                onOutline: () {
+                  final book = Textbooks.all.firstWhere(
+                    (b) => b.subject == subject,
+                    orElse: () => Textbooks.all.first,
+                  );
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => TextbookDetailPage(book: book)),
+                  );
+                },
+                practiceLabel: '开始',
+              ),
+            ),
           const SizedBox(height: 16),
-          // 快速入口
+          // 快捷入口（教材/大纲由底部「教材」标签承载，这里不再重复）
           Row(
             children: [
-              Expanded(
-                child: _StatCard(
-                  title: '已学章节',
-                  value: '${app.completedChapters}/${app.totalChapters}',
-                  icon: Icons.menu_book_rounded,
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const TextbookPage()),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
               Expanded(
                 child: _StatCard(
                   title: '考试模式',
@@ -204,22 +244,23 @@ class _LearnPageState extends State<LearnPage> {
                   ),
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
+              const SizedBox(width: 12),
               Expanded(
                 child: _StatCard(
                   title: '错题本',
                   value: '复习',
                   icon: Icons.error_outline_rounded,
                   onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const WrongQuestionsPage()),
+                    MaterialPageRoute(
+                        builder: (_) => const WrongQuestionsPage()),
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
               Expanded(
                 child: _StatCard(
                   title: '学习统计',
@@ -230,42 +271,17 @@ class _LearnPageState extends State<LearnPage> {
                   ),
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
+              const SizedBox(width: 12),
               Expanded(
                 child: _StatCard(
-                  title: '综合练习',
-                  value: '开始',
-                  icon: Icons.play_arrow_rounded,
-                  onTap: () => _startPractice(context, subject: null),
+                  title: '复习训练',
+                  value: '${_reviewStats.due} 待复习',
+                  icon: Icons.replay_rounded,
+                  onTap: _openReview,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 20),
-          // 科目列表（顺序按需求：实务 → 法规 → 管理）
-          Text('选择科目练习', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 12),
-          ...const [
-            QuestionSubject.practice, // 实务
-            QuestionSubject.law, // 法规
-            QuestionSubject.management, // 管理
-          ].map((subject) => _SubjectCard(
-                subject: subject,
-                onTap: () => _startPractice(context, subject: subject),
-                onBookTap: () {
-                  final book = Textbooks.all.firstWhere(
-                    (b) => b.subject == subject,
-                    orElse: () => Textbooks.all.first,
-                  );
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => TextbookDetailPage(book: book)),
-                  );
-                },
-              )),
         ],
       ),
     );
@@ -600,73 +616,6 @@ class _StatCard extends StatelessWidget {
                 ),
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SubjectCard extends StatelessWidget {
-  const _SubjectCard({required this.subject, required this.onTap, required this.onBookTap});
-
-  final QuestionSubject subject;
-  final VoidCallback onTap;
-  final VoidCallback onBookTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final color = subject.color;
-    final icon = subject.icon;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Material(
-        color: theme.brightness == Brightness.dark
-            ? theme.colorScheme.surface
-            : Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(24),
-          onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: color.withValues(alpha: 0.3)),
-            ),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 26,
-                  backgroundColor: color.withValues(alpha: 0.12),
-                  child: Icon(icon, color: color),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(subject.label,
-                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 4),
-                      Text(subject.description,
-                          style: theme.textTheme.bodyMedium?.copyWith(color: Colors.black54)),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  onPressed: onBookTap,
-                  icon: const Icon(Icons.menu_book_rounded),
-                  tooltip: '查看大纲',
-                ),
-                FilledButton.tonal(
-                  onPressed: onTap,
-                  child: const Text('开始'),
-                ),
-              ],
-            ),
           ),
         ),
       ),

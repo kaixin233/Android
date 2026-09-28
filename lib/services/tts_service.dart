@@ -34,6 +34,25 @@ class TtsService {
   /// 朗读代际计数器，用于防止旧的 stop() 异步清空新的 speak() 回调
   static int _speakGeneration = 0;
 
+  /// 逐字朗读进度监听（区间 [start, end)，相对**朗读文本**的字符下标）。
+  ///
+  /// 由 [setRangeProgressListener] 注册，页面/控制器据此做"逐字高亮"。
+  static void Function(int start, int end)? _onRangeProgress;
+
+  /// 本次朗读的文本是否**未**被 [preprocessText] 改写。
+  /// 只有未改写时，引擎上报的下标才能直接映射回原文本；否则忽略实时进度，
+  /// 由调用方用估算兜底（否则高亮会整体错位）。
+  static bool _rangeOffsetsUsable = false;
+
+  /// 当前语速（flutter_tts 语义：0.5 约为正常语速），用于预估朗读时长
+  static double _currentRate = 0.5;
+  static double get currentSpeechRate => _currentRate;
+
+  /// 注册/注销逐字进度监听（传 null 注销）
+  static void setRangeProgressListener(void Function(int start, int end)? listener) {
+    _onRangeProgress = listener;
+  }
+
   /// 标记回调是否已注册，避免重复注册
   static bool _handlersRegistered = false;
   // 串行化 speak 请求，避免并发导致播放顺序混乱
@@ -120,6 +139,13 @@ class TtsService {
         }
         _onComplete?.call();
         _onComplete = null;
+      });
+
+      // 逐字朗读进度（Android 26+ 由引擎回调 onRangeStart 提供）
+      _flutterTts.setProgressHandler((text, start, end, word) {
+        if (!_rangeOffsetsUsable) return;
+        if (start < 0 || end <= start) return;
+        _onRangeProgress?.call(start, end);
       });
 
       _handlersRegistered = true;
@@ -323,12 +349,34 @@ class TtsService {
     double? volume,
   }) async {
     try {
-      if (rate != null) await _flutterTts.setSpeechRate(rate);
+      if (rate != null) {
+        await _flutterTts.setSpeechRate(rate);
+        _currentRate = rate;
+      }
       if (pitch != null) await _flutterTts.setPitch(pitch);
       if (volume != null) await _flutterTts.setVolume(volume);
     } catch (e) {
       debugPrint('TTS: applySpeechParams failed: $e');
     }
+  }
+
+  /// 预估一段文本的朗读时长（按当前语速折算）。
+  ///
+  /// 用于"逐字高亮"的**兜底**推进：当引擎不支持上报实时进度时，按时间估算出
+  /// 大致同步的节奏。中文字符约 260ms/字（rate = 0.5 时），rate 越大越快。
+  static Duration estimateSpeechDuration(String text, {double? rate}) {
+    final r = (rate ?? _currentRate);
+    final safeRate = r <= 0.05 ? 0.05 : r;
+    final chars = text.replaceAll(RegExp(r'\s+'), '').length;
+    final latinPart = text.replaceAll(RegExp(r'[\u4e00-\u9fff]'), ' ');
+    final latinWords = latinPart
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .length;
+    // 语速以 0.5 为基准：rate 翻倍 → 时长减半
+    final millis = (chars * 260 + latinWords * 400) * (0.5 / safeRate);
+    return Duration(milliseconds: millis.clamp(200.0, 90000.0).round());
   }
 
   /// 文本预处理 - 将题目文本转换为更适合语音播报的形式
@@ -586,6 +634,8 @@ class TtsService {
           }
 
           // 7. 调用 speak()，添加超时防止挂起
+          // 预处理若改写了文本，引擎上报的字符下标将无法映射回原文 → 关闭实时进度
+          _rangeOffsetsUsable = speechText == text;
           final result = await _flutterTts.speak(speechText).timeout(
             const Duration(seconds: 4),
             onTimeout: () {
@@ -665,6 +715,7 @@ class TtsService {
   static Future<void> stop() async {
     // 先清空回调，防止 stop() 触发的完成事件调用旧回调
     _onComplete = null;
+    _rangeOffsetsUsable = false;
     _isStoppingForRestart = true;
     _speakGeneration++;
     if (_currentCompletionCompleter != null && !_currentCompletionCompleter!.isCompleted) {

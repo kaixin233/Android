@@ -19,6 +19,7 @@ import '../utils/ai_assistant_launcher.dart';
 import '../utils/knowledge_playback_mixin.dart';
 import '../widgets/ask_ai_selection_area.dart';
 import '../widgets/annotated_text.dart';
+import '../widgets/subject_entry_card.dart';
 import 'ai_generate_page.dart';
 import 'my_annotations_page.dart';
 import 'practice_page.dart';
@@ -113,7 +114,28 @@ class _TextbookPageState extends State<TextbookPage> {
           const SizedBox(height: 16),
           // 继续阅读
           _buildContinueReading(theme),
-          ...Textbooks.all.map((book) => _TextbookCard(book: book, searchQuery: _searchQuery)),
+          ...Textbooks.all.map((book) => SubjectEntryCard(
+                title: book.title,
+                subtitle: book.description,
+                icon: book.icon,
+                color: Color(book.color),
+                tags: [
+                  '${book.chapters.length}章',
+                  '${app.subjectStats[book.subject] ?? 0}题',
+                  if (subjectWrongCount(app.wrongQuestions, book.subject) > 0)
+                    '${subjectWrongCount(app.wrongQuestions, book.subject)}错题',
+                ],
+                onPractice: () => _startSubjectPractice(book.subject),
+                onOutline: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        TextbookDetailPage(book: book, searchQuery: _searchQuery),
+                  ),
+                ),
+                practiceLabel: '开始练习',
+                outlineLabel: '章节大纲',
+              )),
           const SizedBox(height: 24),
           Card(
             child: Padding(
@@ -138,6 +160,23 @@ class _TextbookPageState extends State<TextbookPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 从教材页直接开始对应科目的练习（与学习页同一套入口语义）
+  void _startSubjectPractice(QuestionSubject subject) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PracticePage(
+          config: PracticeConfig(
+            subject: subject,
+            shuffleQuestions: true,
+          ),
+          onCompleted: (result) async {
+            await context.read<AppProvider>().addHistory(result);
+          },
+        ),
       ),
     );
   }
@@ -362,117 +401,6 @@ class _TextbookPageState extends State<TextbookPage> {
   }
 }
 
-class _TextbookCard extends StatelessWidget {
-  const _TextbookCard({required this.book, this.searchQuery = ''});
-
-  final Textbook book;
-  final String searchQuery;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final color = Color(book.color);
-    final app = context.watch<AppProvider>();
-
-    // 该科目的题目数
-    final subjectQuestions = app.subjectStats[book.subject] ?? 0;
-    // 该科目的错题数
-    final subjectWrong = app.wrongQuestions
-        .where((key) => key.startsWith(book.subject.name))
-        .length;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Card(
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: color.withValues(alpha: 0.3)),
-        ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => TextbookDetailPage(book: book, searchQuery: searchQuery)),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 56,
-                      height: 72,
-                      decoration: BoxDecoration(
-                        color: color,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        book.icon,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            book.title,
-                            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            book.description,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.brightness == Brightness.dark
-                                  ? Colors.white54
-                                  : Colors.black54,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 4,
-                            children: [
-                              _buildTag('${book.chapters.length}章', color),
-                              _buildTag('$subjectQuestions题', color),
-                              if (subjectWrong > 0)
-                                _buildTag('$subjectWrong错题', Colors.red),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    Icon(Icons.arrow_forward_rounded, color: color),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTag(String text, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600),
-      ),
-    );
-  }
-}
-
 /// 小节详情页面 - 双Tab展示考点知识和章节练习
 class SubsectionDetailPage extends StatefulWidget {
   const SubsectionDetailPage({
@@ -632,13 +560,8 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
   /// 朗读位置变化 → 让"当前所读内容"保持可见（仅在离开视口时滚动）
   @override
   void onPlaybackPositionChanged() {
-    if (!isActiveKnowledge) {
-      _clearHighlight();
-      return;
-    }
-    // 1) 逐字高亮同步
-    _syncHighlight();
-    // 2) 跟随滚动：用户刚刚手动滚动过则不要"跟随"，避免把视图拉回旧位置
+    if (!isActiveKnowledge) return;
+    // 跟随滚动：用户刚刚手动滚动过则不要"跟随"，避免把视图拉回旧位置
     if (_userScrollingRecently) return;
     final key = _paragraphKeys[_pKey(playingSectionIndex, playingParagraphIndex)];
     final ctx = key?.currentContext;
@@ -659,109 +582,6 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
   GlobalKey _paragraphKey(int sectionIndex, int paragraphIndex) =>
       _paragraphKeys.putIfAbsent(
           _pKey(sectionIndex, paragraphIndex), () => GlobalKey());
-
-  // ===== 逐字朗读高亮（行内加底色，不改版式） =====
-
-  /// 当前朗读句在段落内的字符区间（左闭右开）
-  int? _hlStart;
-  int? _hlEnd;
-
-  /// 逐字推进的游标（从 _hlStart 递增到 _hlEnd）
-  int _hlCursor = 0;
-
-  /// 正在高亮的句标识，避免同一句重复启动计时器
-  String? _hlSentenceKey;
-
-  Timer? _hlTicker;
-
-  /// 当前高亮的字符区间（供卡片渲染）
-  int get highlightStart => _hlStart ?? 0;
-  int get highlightEnd => _hlStart == null ? 0 : _hlCursor;
-
-  void _clearHighlight() {
-    _hlTicker?.cancel();
-    _hlTicker = null;
-    _hlSentenceKey = null;
-    if (_hlStart != null || _hlEnd != null) {
-      setState(() {
-        _hlStart = null;
-        _hlEnd = null;
-        _hlCursor = 0;
-      });
-    }
-  }
-
-  /// 根据朗读位置计算当前句的字符区间，并启动"逐字"推进
-  void _syncHighlight() {
-    final si = playingSectionIndex;
-    final pi = playingParagraphIndex;
-    if (si < 0 || pi < 0 || si >= playbackSections.length) {
-      _clearHighlight();
-      return;
-    }
-    final p = playbackSections[si].paragraphs[pi];
-    final sents = splitSentences(p.text);
-    final n = reader.currentSentenceIndexInParagraph;
-    if (n < 0 || n >= sents.length) {
-      _clearHighlight();
-      return;
-    }
-    final key = '$si:$pi:$n';
-    if (_hlSentenceKey == key) return; // 同一句，计时器已在推进
-
-    // 精确定位该句在段落文本中的字符区间
-    var off = 0;
-    var start = 0;
-    var end = 0;
-    for (var i = 0; i < sents.length; i++) {
-      final idx = p.text.indexOf(sents[i], off);
-      final s = idx >= 0 ? idx : off;
-      final e = s + sents[i].length;
-      if (i == n) {
-        start = s;
-        end = e;
-        break;
-      }
-      off = e;
-    }
-    _hlSentenceKey = key;
-    _startCharTicker(start, end);
-  }
-
-  /// 逐字推进高亮：按句长与语速估算时长，每 60ms 前进若干字符。
-  /// 仅改变背景色范围，**不改变任何度量**，因此页面不会变形。
-  void _startCharTicker(int start, int end) {
-    _hlTicker?.cancel();
-    final len = end - start;
-    setState(() {
-      _hlStart = start;
-      _hlEnd = end;
-      _hlCursor = start;
-    });
-    if (len <= 0) return;
-
-    double rate = 1.0;
-    try {
-      rate = context.read<AppProvider>().ttsSpeechRate;
-    } catch (_) {}
-    if (rate <= 0.05) rate = 0.05;
-
-    // 中文约 170ms/字（语速越快越短），上下限保护
-    final totalMs = (len * 170 / rate).clamp(500.0, 30000.0);
-    const stepMs = 60.0;
-    final steps = (totalMs / stepMs).ceil();
-    final step = (len / steps).ceil().clamp(1, len);
-
-    _hlTicker = Timer.periodic(const Duration(milliseconds: 60), (t) {
-      if (!mounted) {
-        t.cancel();
-        return;
-      }
-      final next = _hlCursor + step;
-      setState(() => _hlCursor = next >= end ? end : next);
-      if (_hlCursor >= end) t.cancel();
-    });
-  }
 
   /// 滚动到指定小节内的段落（目录跳转用）
   void _jumpToParagraph(int sectionIndex, int paragraphIndex) {
@@ -893,8 +713,8 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
       onPick: _openFromToc,
       onJump: _jumpToParagraph,
       deepBySubsection: _buildDeepToc(),
-      onPlayFromHere: playAllFromStart,
-      onPlayFromStart: playAllFromStart,
+      onPlayAll: playAllFromStart,
+      playingSectionNumber: playingSectionNumber,
       pickStartMode: _pickStartMode,
       onTogglePickStart: () {
         Navigator.of(context).pop();
@@ -1139,10 +959,6 @@ class _SubsectionDetailPageState extends State<SubsectionDetailPage>
                       isActiveKnowledge && playingSectionIndex == index
                           ? playingParagraphIndex
                           : -1,
-                  activeSentence:
-                      isActiveKnowledge && playingSectionIndex == index
-                          ? currentSentence
-                          : null,
                   onPlayTap: () => playSection(index),
                   onPlayFromHere: () => playFromSection(index),
                   onAskAi: (text) => _askAiAboutSection(
@@ -1641,7 +1457,6 @@ class _KnowledgeSectionCard extends StatelessWidget {
     this.showPlayButton = false,
     this.onPlayFromParagraph,
     this.playingParagraphIndex = -1,
-    this.activeSentence,
     this.onPlayTap,
     this.onPlayFromHere,
     this.onAskAi,
@@ -1677,9 +1492,6 @@ class _KnowledgeSectionCard extends StatelessWidget {
 
   /// 当前正在朗读的段落下标（-1 表示无），用于高亮"当前所读内容"
   final int playingParagraphIndex;
-
-  /// 当前正在朗读的句子文本
-  final String? activeSentence;
 
   final VoidCallback? onPlayTap;
 
@@ -2278,13 +2090,8 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
   /// 朗读位置变化 → 让"当前所读内容"保持可见（仅在离开视口时滚动）
   @override
   void onPlaybackPositionChanged() {
-    if (!isActiveKnowledge) {
-      _clearHighlight();
-      return;
-    }
-    // 1) 逐字高亮同步
-    _syncHighlight();
-    // 2) 跟随滚动：用户刚刚手动滚动过则不要"跟随"，避免把视图拉回旧位置
+    if (!isActiveKnowledge) return;
+    // 跟随滚动：用户刚刚手动滚动过则不要"跟随"，避免把视图拉回旧位置
     if (_userScrollingRecently) return;
     final key = _paragraphKeys[_pKey(playingSectionIndex, playingParagraphIndex)];
     final ctx = key?.currentContext;
@@ -2305,109 +2112,6 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
   GlobalKey _paragraphKey(int sectionIndex, int paragraphIndex) =>
       _paragraphKeys.putIfAbsent(
           _pKey(sectionIndex, paragraphIndex), () => GlobalKey());
-
-  // ===== 逐字朗读高亮（行内加底色，不改版式） =====
-
-  /// 当前朗读句在段落内的字符区间（左闭右开）
-  int? _hlStart;
-  int? _hlEnd;
-
-  /// 逐字推进的游标（从 _hlStart 递增到 _hlEnd）
-  int _hlCursor = 0;
-
-  /// 正在高亮的句标识，避免同一句重复启动计时器
-  String? _hlSentenceKey;
-
-  Timer? _hlTicker;
-
-  /// 当前高亮的字符区间（供卡片渲染）
-  int get highlightStart => _hlStart ?? 0;
-  int get highlightEnd => _hlStart == null ? 0 : _hlCursor;
-
-  void _clearHighlight() {
-    _hlTicker?.cancel();
-    _hlTicker = null;
-    _hlSentenceKey = null;
-    if (_hlStart != null || _hlEnd != null) {
-      setState(() {
-        _hlStart = null;
-        _hlEnd = null;
-        _hlCursor = 0;
-      });
-    }
-  }
-
-  /// 根据朗读位置计算当前句的字符区间，并启动"逐字"推进
-  void _syncHighlight() {
-    final si = playingSectionIndex;
-    final pi = playingParagraphIndex;
-    if (si < 0 || pi < 0 || si >= playbackSections.length) {
-      _clearHighlight();
-      return;
-    }
-    final p = playbackSections[si].paragraphs[pi];
-    final sents = splitSentences(p.text);
-    final n = reader.currentSentenceIndexInParagraph;
-    if (n < 0 || n >= sents.length) {
-      _clearHighlight();
-      return;
-    }
-    final key = '$si:$pi:$n';
-    if (_hlSentenceKey == key) return; // 同一句，计时器已在推进
-
-    // 精确定位该句在段落文本中的字符区间
-    var off = 0;
-    var start = 0;
-    var end = 0;
-    for (var i = 0; i < sents.length; i++) {
-      final idx = p.text.indexOf(sents[i], off);
-      final s = idx >= 0 ? idx : off;
-      final e = s + sents[i].length;
-      if (i == n) {
-        start = s;
-        end = e;
-        break;
-      }
-      off = e;
-    }
-    _hlSentenceKey = key;
-    _startCharTicker(start, end);
-  }
-
-  /// 逐字推进高亮：按句长与语速估算时长，每 60ms 前进若干字符。
-  /// 仅改变背景色范围，**不改变任何度量**，因此页面不会变形。
-  void _startCharTicker(int start, int end) {
-    _hlTicker?.cancel();
-    final len = end - start;
-    setState(() {
-      _hlStart = start;
-      _hlEnd = end;
-      _hlCursor = start;
-    });
-    if (len <= 0) return;
-
-    double rate = 1.0;
-    try {
-      rate = context.read<AppProvider>().ttsSpeechRate;
-    } catch (_) {}
-    if (rate <= 0.05) rate = 0.05;
-
-    // 中文约 170ms/字（语速越快越短），上下限保护
-    final totalMs = (len * 170 / rate).clamp(500.0, 30000.0);
-    const stepMs = 60.0;
-    final steps = (totalMs / stepMs).ceil();
-    final step = (len / steps).ceil().clamp(1, len);
-
-    _hlTicker = Timer.periodic(const Duration(milliseconds: 60), (t) {
-      if (!mounted) {
-        t.cancel();
-        return;
-      }
-      final next = _hlCursor + step;
-      setState(() => _hlCursor = next >= end ? end : next);
-      if (_hlCursor >= end) t.cancel();
-    });
-  }
 
   /// 滚动到指定小节内的段落（目录跳转用）
   void _jumpToParagraph(int sectionIndex, int paragraphIndex) {
@@ -2539,8 +2243,8 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
       onPick: _openFromToc,
       onJump: _jumpToParagraph,
       deepBySubsection: _buildDeepToc(),
-      onPlayFromHere: playAllFromStart,
-      onPlayFromStart: playAllFromStart,
+      onPlayAll: playAllFromStart,
+      playingSectionNumber: playingSectionNumber,
       pickStartMode: _pickStartMode,
       onTogglePickStart: () {
         Navigator.of(context).pop();
@@ -2678,10 +2382,6 @@ class _ChapterKnowledgePageState extends State<ChapterKnowledgePage>
                                       playingSectionIndex == index
                                   ? playingParagraphIndex
                                   : -1,
-                              activeSentence: isActiveKnowledge &&
-                                      playingSectionIndex == index
-                                  ? currentSentence
-                                  : null,
                               onPlayTap: () => playSection(index),
                               onPlayFromHere: () => playFromSection(index),
                               onAskAi: (text) => _askAiAboutSection(
@@ -3484,11 +3184,15 @@ class _TocNode {
   final List<_TocNode> children = [];
 }
 
-/// 全量考点目录抽屉：按「科目 → 章 → 节 → 子标题 → 要点」展示，当前项高亮。
+/// 全量考点目录抽屉：按「科目 → 章 → 节 → 子标题 → 要点」四级展示。
 ///
-/// 由 `Scaffold.drawer` 承载，因此**从屏幕左侧向右滑动即可划出目录**，
-/// 也可通过 AppBar 的目录按钮打开。
-class _KnowledgeTocDrawer extends StatelessWidget {
+/// 设计目标：
+/// - **层级清晰**：四级用不同缩进、不同标记（章号方块 / 节号 / 子标题点 / 要点小点）
+///   并配左侧引导线，一眼看出从属关系；
+/// - **当前位置可见**：当前章用主色左强调条 + 淡底，当前小节加粗着色并带喇叭标记，
+///   正在朗读的小节同步标记；打开抽屉时**自动滚动定位到当前项**；
+/// - 由 `Scaffold.drawer` 承载，**从屏幕左侧向右滑动或点 AppBar 图标**均可打开。
+class _KnowledgeTocDrawer extends StatefulWidget {
   const _KnowledgeTocDrawer({
     required this.book,
     required this.color,
@@ -3497,16 +3201,21 @@ class _KnowledgeTocDrawer extends StatelessWidget {
     required this.onPick,
     required this.onJump,
     required this.deepBySubsection,
-    required this.onPlayFromHere,
-    required this.onPlayFromStart,
+    required this.onPlayAll,
     required this.pickStartMode,
     required this.onTogglePickStart,
+    this.playingSectionNumber,
   });
 
   final Textbook book;
   final Color color;
+
+  /// 当前所在章号（打开此页面的章）
   final String currentChapter;
+
+  /// 当前所在小节号（null 表示"本章总览"）
   final String? currentSubsection;
+
   final void Function(String chapterNumber, String? subsectionNumber) onPick;
 
   /// 跳转到当前已加载内容的指定小节/段落
@@ -3515,116 +3224,66 @@ class _KnowledgeTocDrawer extends StatelessWidget {
   /// 小节号 → 该小节的细目（子标题/要点），仅当前已加载的内容有值
   final Map<String, List<_TocNode>> deepBySubsection;
 
-  final VoidCallback onPlayFromHere;
-  final VoidCallback onPlayFromStart;
+  /// 从头播放全部考点
+  final VoidCallback onPlayAll;
+
+  /// 正在朗读的小节号（用于标记"正在朗读"）
+  final String? playingSectionNumber;
 
   /// 是否处于"选择起始段"模式
   final bool pickStartMode;
   final VoidCallback onTogglePickStart;
 
   @override
+  State<_KnowledgeTocDrawer> createState() => _KnowledgeTocDrawerState();
+}
+
+class _KnowledgeTocDrawerState extends State<_KnowledgeTocDrawer> {
+  final ScrollController _scroll = ScrollController();
+
+  /// 当前小节的定位 Key（打开时自动滚动到它）
+  final GlobalKey _currentSubKey = GlobalKey();
+  final GlobalKey _currentChKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToCurrent());
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _scrollToCurrent() {
+    final ctx = _currentSubKey.currentContext ?? _currentChKey.currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      alignment: 0.18,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOut,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Drawer(
       child: SafeArea(
         child: Column(
           children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
-              color: color.withValues(alpha: 0.10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.account_tree_rounded, color: color),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '${book.subject.label} · 考点目录',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: color,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '共 ${book.chapters.length} 章',
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: () {
-                            Navigator.of(context).pop();
-                            onPlayFromHere();
-                          },
-                          icon: const Icon(Icons.my_location_rounded, size: 17),
-                          label: const Text('从当前位置朗读',
-                              style: TextStyle(fontSize: 12)),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: color,
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            Navigator.of(context).pop();
-                            onPlayFromStart();
-                          },
-                          icon: const Icon(Icons.restart_alt_rounded, size: 17),
-                          label: const Text('从头播放',
-                              style: TextStyle(fontSize: 12)),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: color,
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: onTogglePickStart,
-                      icon: Icon(
-                        pickStartMode
-                            ? Icons.check_circle_rounded
-                            : Icons.touch_app_rounded,
-                        size: 17,
-                      ),
-                      label: Text(
-                        pickStartMode
-                            ? '已开启「选择起始段」：点正文中的“从这里朗读”'
-                            : '选择起始段（更精确）',
-                        style: const TextStyle(fontSize: 12),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: pickStartMode ? Colors.teal : color,
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            _buildHeader(theme, widget.color),
+            const Divider(height: 1),
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.only(bottom: 16),
+                controller: _scroll,
+                padding: const EdgeInsets.only(top: 4, bottom: 24),
                 children: [
-                  for (final ch in book.chapters) _buildChapter(context, ch),
+                  for (final ch in widget.book.chapters)
+                    _buildChapter(context, theme, ch),
                 ],
               ),
             ),
@@ -3634,134 +3293,461 @@ class _KnowledgeTocDrawer extends StatelessWidget {
     );
   }
 
-  Widget _buildChapter(BuildContext context, TextbookChapter ch) {
-    final isCurChapter = ch.number == currentChapter;
-    return ExpansionTile(
-      key: PageStorageKey<String>('toc_ch_${ch.number}'),
-      initiallyExpanded: isCurChapter,
-      tilePadding: const EdgeInsets.symmetric(horizontal: 14),
-      childrenPadding: EdgeInsets.zero,
-      leading: CircleAvatar(
-        radius: 13,
-        backgroundColor: isCurChapter ? color : color.withValues(alpha: 0.12),
-        child: Text(
-          ch.number,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-            color: isCurChapter ? Colors.white : color,
+  // ===== 头部：标题 + 当前位置 + 朗读入口 =====
+  Widget _buildHeader(ThemeData theme, Color color) {
+    final chTitle = _chapterTitle(widget.currentChapter);
+    final ss = widget.currentSubsection;
+    final ssTitle = ss == null ? null : _subsectionTitle(ss);
+    final playing = widget.playingSectionNumber;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+      color: color.withValues(alpha: 0.08),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.account_tree_rounded, color: color, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${widget.book.subject.label} · 考点目录',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+              ),
+              Text(
+                '${widget.book.chapters.length} 章',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
+            ],
           ),
-        ),
-      ),
-      title: Text(
-        ch.title,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: isCurChapter ? FontWeight.bold : FontWeight.w500,
-        ),
-      ),
-      subtitle: Text(
-        '${ch.subsections.length} 节',
-        style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-      ),
-      children: [
-        ListTile(
-          dense: true,
-          contentPadding: const EdgeInsets.only(left: 26, right: 12),
-          leading: Icon(Icons.article_outlined, size: 18, color: color),
-          title: const Text('本章考点总览', style: TextStyle(fontSize: 12.5)),
-          selected: isCurChapter && currentSubsection == null,
-          onTap: () {
-            Navigator.of(context).pop();
-            onPick(ch.number, null);
-          },
-        ),
-        for (final ss in ch.subsections)
-          if ((deepBySubsection[ss.number] ?? const <_TocNode>[]).isEmpty)
-            ListTile(
-              dense: true,
-              contentPadding: const EdgeInsets.only(left: 26, right: 12),
-              title: Text(
-                '${ss.number} ${ss.title}',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: ss.number == currentSubsection
-                      ? FontWeight.bold
-                      : FontWeight.normal,
-                ),
-              ),
-              selected: ss.number == currentSubsection,
-              trailing: ss.number == currentSubsection
-                  ? Icon(Icons.volume_up_rounded, size: 16, color: color)
-                  : null,
-              onTap: () {
-                Navigator.of(context).pop();
-                onPick(ch.number, ss.number);
-              },
-            )
-          else
-            ExpansionTile(
-              initiallyExpanded: ss.number == currentSubsection,
-              tilePadding: const EdgeInsets.only(left: 26, right: 12),
-              childrenPadding: EdgeInsets.zero,
-              title: Text(
-                '${ss.number} ${ss.title}',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: ss.number == currentSubsection
-                      ? FontWeight.bold
-                      : FontWeight.normal,
-                ),
-              ),
-              subtitle: Text(
-                '${deepBySubsection[ss.number]!.length} 个细目',
-                style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
-              ),
+          const SizedBox(height: 10),
+          // 当前位置
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: color.withValues(alpha: 0.25)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildDeepNodes(context, deepBySubsection[ss.number]!),
+                Row(
+                  children: [
+                    Icon(Icons.my_location_rounded, size: 13, color: color),
+                    const SizedBox(width: 5),
+                    Expanded(
+                      child: Text(
+                        '当前位置：第${widget.currentChapter}章 ${chTitle ?? ''}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 11.5, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Row(
+                  children: [
+                    const SizedBox(width: 18),
+                    Expanded(
+                      child: Text(
+                        ss == null ? '本章考点总览' : '$ss ${ssTitle ?? ''}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: color,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (playing != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.volume_up_rounded,
+                                size: 11, color: Colors.orange),
+                            const SizedBox(width: 3),
+                            Text(
+                              '正在朗读 $playing',
+                              style: const TextStyle(
+                                  fontSize: 10, color: Colors.orange),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
               ],
             ),
-      ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    widget.onPlayAll();
+                  },
+                  icon: const Icon(Icons.play_arrow_rounded, size: 17),
+                  label: const Text('从头播放', style: TextStyle(fontSize: 12)),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: color,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: widget.onTogglePickStart,
+                  icon: Icon(
+                    widget.pickStartMode
+                        ? Icons.check_circle_rounded
+                        : Icons.touch_app_rounded,
+                    size: 17,
+                  ),
+                  label: Text(
+                    widget.pickStartMode ? '选择起始段（已开启）' : '选择起始段',
+                    style: const TextStyle(fontSize: 12),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: widget.pickStartMode ? Colors.teal : color,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (widget.pickStartMode) ...[
+            const SizedBox(height: 6),
+            Text(
+              '已开启：关闭抽屉后，正文每段上方会出现「从这里朗读」',
+              style: TextStyle(fontSize: 10.5, color: Colors.grey.shade600),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
-  /// 渲染细目（子标题 / 要点），层级越深缩进越大
-  Widget _buildDeepNodes(BuildContext context, List<_TocNode> nodes) {
-    final items = <Widget>[];
-    for (final n in nodes) {
-      final isSub = n.level == 3;
-      items.add(ListTile(
-        dense: true,
-        contentPadding: EdgeInsets.only(left: isSub ? 40 : 56, right: 10),
-        title: Text(
-          n.title,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: isSub ? 12 : 11.5,
-            fontWeight: isSub ? FontWeight.w600 : FontWeight.normal,
-            color: isSub ? null : Colors.grey.shade700,
-          ),
-        ),
-        leading: isSub
-            ? Icon(Icons.subdirectory_arrow_right_rounded,
-                size: 14, color: color)
-            : null,
-        onTap: () {
-          Navigator.of(context).pop();
-          onJump(n.sectionIndex, n.paragraphIndex);
-        },
-      ));
-      if (n.children.isNotEmpty) {
-        items.add(_buildDeepNodes(context, n.children));
+  String? _chapterTitle(String number) {
+    for (final c in widget.book.chapters) {
+      if (c.number == number) return c.title;
+    }
+    return null;
+  }
+
+  String? _subsectionTitle(String number) {
+    for (final c in widget.book.chapters) {
+      for (final s in c.subsections) {
+        if (s.number == number) return s.title;
       }
     }
-    return Column(children: items);
+    return null;
+  }
+
+  // ===== 第 1 级：章 =====
+  Widget _buildChapter(
+      BuildContext context, ThemeData theme, TextbookChapter ch) {
+    final isCur = ch.number == widget.currentChapter;
+    final isPlaying = widget.playingSectionNumber != null &&
+        widget.playingSectionNumber!.split('.').first == ch.number;
+
+    return Container(
+      key: isCur ? _currentChKey : null,
+      decoration: BoxDecoration(
+        color: isCur ? widget.color.withValues(alpha: 0.07) : null,
+        border: Border(
+          left: BorderSide(
+            color: isCur ? widget.color : Colors.transparent,
+            width: 4,
+          ),
+        ),
+      ),
+      child: Theme(
+        // 去掉 ExpansionTile 默认分隔线，避免与层级引导线打架
+        data: theme.copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          key: PageStorageKey<String>('toc_ch_${ch.number}'),
+          initiallyExpanded: isCur,
+          tilePadding: const EdgeInsets.only(left: 10, right: 10),
+          childrenPadding: EdgeInsets.zero,
+          leading: _levelBadge(ch.number, filled: isCur, size: 26),
+          title: Text(
+            ch.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13.5,
+              height: 1.25,
+              fontWeight: isCur ? FontWeight.bold : FontWeight.w600,
+              color: isCur ? widget.color : null,
+            ),
+          ),
+          subtitle: Text(
+            '${ch.subsections.length} 节',
+            style: TextStyle(fontSize: 10.5, color: Colors.grey.shade600),
+          ),
+          trailing: isPlaying
+              ? const Icon(Icons.volume_up_rounded,
+                  size: 16, color: Colors.orange)
+              : null,
+          children: [
+            _buildChapterOverview(context, ch, isCur),
+            for (final ss in ch.subsections)
+              _buildSubsection(context, theme, ss),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 本章考点总览（第 2 级的一个特殊项）
+  Widget _buildChapterOverview(
+      BuildContext context, TextbookChapter ch, bool isCurCh) {
+    final isCur = isCurCh && widget.currentSubsection == null;
+    return _levelRow(
+      indent: 14,
+      leading: Icon(Icons.dashboard_outlined,
+          size: 15, color: isCur ? widget.color : Colors.grey.shade500),
+      title: '本章考点总览',
+      subtitle: '(${ch.number}.x)',
+      emphasized: isCur,
+      onTap: () {
+        Navigator.of(context).pop();
+        widget.onPick(ch.number, null);
+      },
+    );
+  }
+
+  // ===== 第 2 级：节 =====
+  Widget _buildSubsection(
+      BuildContext context, ThemeData theme, TextbookChapter ss) {
+    final color = widget.color;
+    final isCur = ss.number == widget.currentSubsection;
+    final isPlaying = ss.number == widget.playingSectionNumber;
+    final deep = widget.deepBySubsection[ss.number] ?? const <_TocNode>[];
+
+    if (deep.isEmpty) {
+      return _levelRow(
+        key: isCur ? _currentSubKey : null,
+        indent: 14,
+        leading: _levelBadge(ss.number, filled: isCur, size: 0),
+        title: '${ss.number} ${ss.title}',
+        emphasized: isCur,
+        playing: isPlaying,
+        onTap: () {
+          Navigator.of(context).pop();
+          widget.onPick(ss.number.split('.').first, ss.number);
+        },
+      );
+    }
+
+    return Container(
+      key: isCur ? _currentSubKey : null,
+      margin: const EdgeInsets.only(left: 14),
+      decoration: BoxDecoration(
+        border: Border(
+          left: BorderSide(
+            color: color.withValues(alpha: 0.35),
+            width: 2,
+          ),
+        ),
+      ),
+      child: Theme(
+        data: theme.copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          initiallyExpanded: isCur,
+          tilePadding: const EdgeInsets.only(left: 6, right: 10),
+          childrenPadding: const EdgeInsets.only(bottom: 4),
+          title: Text(
+            '${ss.number} ${ss.title}',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12.5,
+              height: 1.25,
+              fontWeight: isCur ? FontWeight.bold : FontWeight.w500,
+              color: isCur ? color : null,
+            ),
+          ),
+          subtitle: Text(
+            '${deep.length} 个细目',
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+          ),
+          trailing: isPlaying
+              ? const Icon(Icons.volume_up_rounded,
+                  size: 16, color: Colors.orange)
+              : null,
+          children: [
+            for (final n in deep) ..._buildDeepNodes(context, n),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ===== 第 3/4 级：子标题（####）与要点（**粗体**） =====
+  List<Widget> _buildDeepNodes(BuildContext context, _TocNode n) {
+    final color = widget.color;
+    final isSub = n.level == 3;
+    final rows = <Widget>[
+      _levelRow(
+        indent: isSub ? 16.0 : 30.0,
+        leading: isSub
+            ? Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.75),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              )
+            : Container(
+                width: 5,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade400,
+                  shape: BoxShape.circle,
+                ),
+              ),
+        title: n.title,
+        textStyle: TextStyle(
+          fontSize: isSub ? 12 : 11.5,
+          fontWeight: isSub ? FontWeight.w600 : FontWeight.normal,
+          color: isSub ? null : Colors.grey.shade700,
+        ),
+        onTap: () {
+          Navigator.of(context).pop();
+          widget.onJump(n.sectionIndex, n.paragraphIndex);
+        },
+      ),
+    ];
+    for (final child in n.children) {
+      rows.addAll(_buildDeepNodes(context, child));
+    }
+    return rows;
+  }
+
+  // ===== 通用行（带层级缩进与当前项强调） =====
+  Widget _levelRow({
+    required double indent,
+    required Widget leading,
+    required String title,
+    required VoidCallback onTap,
+    Key? key,
+    String? subtitle,
+    bool emphasized = false,
+    bool playing = false,
+    TextStyle? textStyle,
+  }) {
+    final color = widget.color;
+    return InkWell(
+      key: key,
+      onTap: onTap,
+      child: Container(
+        padding:
+            EdgeInsets.only(left: indent + 6, right: 10, top: 6, bottom: 6),
+        decoration: BoxDecoration(
+          color: emphasized ? color.withValues(alpha: 0.10) : null,
+          border: Border(
+            left: BorderSide(
+              color: emphasized ? color : Colors.transparent,
+              width: 3,
+            ),
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(width: 14, child: Center(child: leading)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style:
+                    (textStyle ?? const TextStyle(fontSize: 12.5, height: 1.25))
+                        .copyWith(
+                  color: emphasized ? color : textStyle?.color,
+                  fontWeight: emphasized
+                      ? FontWeight.bold
+                      : (textStyle?.fontWeight ?? FontWeight.w500),
+                ),
+              ),
+            ),
+            if (subtitle != null)
+              Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Text(
+                  subtitle,
+                  style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+                ),
+              ),
+            if (playing)
+              const Padding(
+                padding: EdgeInsets.only(left: 4),
+                child: Icon(Icons.volume_up_rounded,
+                    size: 15, color: Colors.orange),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 层级标记：章号（方块）/ 节号（浅色小字，size 传 0）
+  Widget _levelBadge(String number,
+      {required bool filled, required double size}) {
+    final color = widget.color;
+    if (size > 0) {
+      return Container(
+        width: size,
+        height: size,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: filled ? color : color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: Text(
+          number,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            color: filled ? Colors.white : color,
+          ),
+        ),
+      );
+    }
+    return Text(
+      number,
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        color: color.withValues(alpha: 0.85),
+      ),
+    );
   }
 }

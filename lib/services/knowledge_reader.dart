@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import 'knowledge_service.dart';
@@ -28,13 +30,23 @@ class KnowledgeReaderController extends ChangeNotifier {
   KnowledgeReaderController({
     Future<bool> Function(String text, {bool waitForCompletion})? speak,
     Future<void> Function()? stopSpeaker,
+    void Function(void Function(int start, int end)?)? bindProgress,
+    double Function()? rateProvider,
+    Duration Function(String text, double rate)? durationEstimator,
   })  : _speak = speak ??
             ((text, {waitForCompletion = false}) =>
                 TtsService.speak(text, waitForCompletion: waitForCompletion)),
-        _stopSpeaker = stopSpeaker ?? TtsService.stop;
+        _stopSpeaker = stopSpeaker ?? TtsService.stop,
+        _bindProgress = bindProgress ?? TtsService.setRangeProgressListener,
+        _rateProvider = rateProvider ?? (() => TtsService.currentSpeechRate),
+        _estimateDuration = durationEstimator ??
+            ((text, rate) => TtsService.estimateSpeechDuration(text, rate: rate));
 
   final Future<bool> Function(String text, {bool waitForCompletion}) _speak;
   final Future<void> Function() _stopSpeaker;
+  final void Function(void Function(int start, int end)?) _bindProgress;
+  final double Function() _rateProvider;
+  final Duration Function(String text, double rate) _estimateDuration;
 
   List<KnowledgeSection> _sections = const [];
   List<_QueueEntry> _queue = const [];
@@ -92,6 +104,103 @@ class KnowledgeReaderController extends ChangeNotifier {
 
   /// 整体进度 0~1（已读完句数 / 队列总句数）
   double get progress => _queue.isEmpty ? 0 : (_cursor / _queue.length).clamp(0.0, 1.0);
+
+  // ===== 逐字高亮进度（真实语音进度优先，估算兜底）=====
+
+  int _unitTextLength = 0;
+  double _unitPos = 0;
+  bool _liveProgressSeen = false;
+  Timer? _estTimer;
+  int _lastProgressNotifyMs = 0;
+
+  /// 当前朗读单元的字符总数
+  int get unitTextLength => _unitTextLength;
+
+  /// 当前朗读单元内**已读到的字符数**（0 ~ [unitTextLength]）。
+  ///
+  /// 引擎上报实时进度时即为真实值；否则按语速估算推进（大致同步）。
+  int get unitCharEnd => _unitPos.round().clamp(0, _unitTextLength);
+
+  /// 本句是否收到了引擎的**真实**逐字进度
+  bool get hasLiveProgress => _liveProgressSeen;
+
+  void _beginUnit(String text) {
+    _unitTextLength = text.length;
+    _unitPos = 0;
+    _liveProgressSeen = false;
+    _bindProgress(_onRangeProgress);
+    _startEstimator();
+  }
+
+  void _endUnit() {
+    _estTimer?.cancel();
+    _estTimer = null;
+    _bindProgress(null);
+    _unitPos = _unitTextLength.toDouble();
+  }
+
+  void _onRangeProgress(int start, int end) {
+    if (_state != ReaderState.playing || _unitTextLength <= 0) return;
+    // 部分引擎（Android < 26）只在开始时上报"整段"范围，对逐字无意义 → 忽略
+    if (start <= 0 && end >= _unitTextLength) return;
+    _liveProgressSeen = true;
+    _unitPos = end.toDouble().clamp(0.0, _unitTextLength.toDouble());
+    // 真实进度接管后不再需要估算
+    _estTimer?.cancel();
+    _estTimer = null;
+    _notifyProgress();
+  }
+
+  /// 估算推进：按语速折算总时长，每 40ms 前进 `len / ticks` 个字符。
+  /// 注意用**浮点累加**，避免 `ceil` 取整导致高亮提前跑完（旧实现的问题）。
+  void _startEstimator() {
+    _estTimer?.cancel();
+    final len = _unitTextLength;
+    if (len <= 0) return;
+
+    double rate = 1.0;
+    try {
+      rate = _rateProvider();
+    } catch (_) {}
+    if (rate <= 0.05) rate = 0.05;
+
+    Duration total;
+    try {
+      total = _estimateDuration(_currentUnitText, rate);
+    } catch (_) {
+      total = Duration(milliseconds: (len * 260 * (0.5 / rate)).round());
+    }
+    // 引擎起播有约 200~400ms 的预热延迟，补一小段缓冲让高亮不至于抢跑
+    final int totalMs = (total.inMilliseconds + 240).clamp(200, 90000).toInt();
+    const int tickMs = 40;
+    final double ticks = (totalMs / tickMs).clamp(1, 3000).toDouble();
+    final double perTick = len / ticks;
+
+    _estTimer = Timer.periodic(const Duration(milliseconds: tickMs), (t) {
+      if (_state != ReaderState.playing || _liveProgressSeen) {
+        t.cancel();
+        _estTimer = null;
+        return;
+      }
+      _unitPos = (_unitPos + perTick).clamp(0.0, len.toDouble());
+      if (_unitPos >= len) {
+        t.cancel();
+        _estTimer = null;
+      }
+      _notifyProgress();
+    });
+  }
+
+  /// 节流通知（逐字进度可能很密集，避免过度重建）
+  void _notifyProgress() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastProgressNotifyMs < 40) return;
+    _lastProgressNotifyMs = now;
+    notifyListeners();
+  }
+
+  String get _currentUnitText =>
+      _queue.isEmpty || _cursor >= _queue.length ? '' : _queue[_cursor].unit.text;
 
   int _sectionOf(int cursor) =>
       cursor >= 0 && cursor < _queue.length ? _queue[cursor].sectionIndex : -1;
@@ -179,6 +288,9 @@ class KnowledgeReaderController extends ChangeNotifier {
   Future<void> pause() async {
     if (!isPlaying) return;
     _state = ReaderState.paused;
+    _estTimer?.cancel();
+    _estTimer = null;
+    _bindProgress(null);
     notifyListeners();
     // 停止引擎：waitForCompletion 会以 false 返回，循环据此退出但不重置游标
     await _stopSpeaker();
@@ -198,6 +310,11 @@ class KnowledgeReaderController extends ChangeNotifier {
     _runToken++; // 使正在运行的循环失效
     _cursor = 0;
     _queue = const [];
+    _estTimer?.cancel();
+    _estTimer = null;
+    _bindProgress(null);
+    _unitPos = 0;
+    _unitTextLength = 0;
     notifyListeners();
     await _stopSpeaker();
   }
@@ -212,9 +329,11 @@ class KnowledgeReaderController extends ChangeNotifier {
 
       final entry = _queue[_cursor];
       _lastSectionIndex = entry.sectionIndex;
+      _beginUnit(entry.unit.text);
       notifyListeners(); // 更新高亮/进度
 
       final ok = await _speak(entry.unit.text, waitForCompletion: true);
+      _endUnit();
 
       if (token != _runToken) return; // 等待期间被停止/重启
       if (_state != ReaderState.playing) return; // 被暂停
@@ -250,6 +369,9 @@ class KnowledgeReaderController extends ChangeNotifier {
   void dispose() {
     _runToken++;
     _state = ReaderState.idle;
+    _estTimer?.cancel();
+    _estTimer = null;
+    _bindProgress(null);
     _stopSpeaker();
     super.dispose();
   }
